@@ -218,9 +218,9 @@ namespace Grayjay.Desktop
 
             Updater.SetStartupArguments(string.Join(" ", args.Select(x => (x.Contains(" ") ? $"\"{x}\"" : x))));
 
-            PortFile = Path.Combine(Directories.Base, PortFileName);
+            PortFile = Directories.DataPathFor(PortFileName);
             Logger.i<Program>($"PortFile path: {PortFile}");
-            StartingUpFile = Path.Combine(Directories.Base, StartingUpFileName);
+            StartingUpFile = Directories.DataPathFor(StartingUpFileName);
             Logger.i<Program>($"StartingUpFile path: {StartingUpFile}");
 
             if (File.Exists(StartingUpFile))

@@ -56,7 +56,7 @@ namespace Grayjay.ClientServer
 
             if (File.Exists(fileName))
             {
-                return Path.GetFullPath(fileName);
+                return Directories.InstallPathFor(fileName);
             }
             else
             {
@@ -70,7 +70,7 @@ namespace Grayjay.ClientServer
 
             if (File.Exists(fileName))
             {
-                return Path.GetFullPath(fileName);
+                return Directories.InstallPathFor(fileName);
             }
             else
             {
