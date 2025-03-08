@@ -1,6 +1,7 @@
 ﻿using DotCef;
 using Grayjay.ClientServer;
 using Grayjay.ClientServer.Browser;
+using Grayjay.ClientServer.Constants;
 using Grayjay.Desktop.POC;
 using Microsoft.AspNetCore.Mvc.Formatters;
 using System;

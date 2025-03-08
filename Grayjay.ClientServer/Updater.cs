@@ -1,6 +1,7 @@
 ﻿using Grayjay.ClientServer.States;
 using Grayjay.Desktop.POC;
 using Grayjay.Desktop.POC.Port.States;
+using Grayjay.ClientServer.Constants;
 using System;
 using System.Diagnostics;
 using System.Net;
