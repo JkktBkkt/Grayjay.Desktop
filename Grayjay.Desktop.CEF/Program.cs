@@ -268,7 +268,7 @@ namespace Grayjay.Desktop
             if(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 Process p = Process.GetCurrentProcess();
-                File.WriteAllText("launch", Path.GetFileName(p.MainModule!.FileName));
+                File.WriteAllText(Directories.DataPathFor("launch"), Path.GetFileName(p.MainModule!.FileName));
                 if (Directory.Exists("cef"))
                     File.WriteAllText("cef/launch", "../" + Path.GetFileName(p.MainModule!.FileName));
             }
