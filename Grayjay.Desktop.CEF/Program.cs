@@ -337,7 +337,7 @@ namespace Grayjay.Desktop
             DotCefWindow window = null;
             if (cef != null && !isHeadless && !isServer)
             {
-                window = cef.CreateWindowAsync("about:blank", ((int)(900)), ((int)(550)), ((int)(1300)), ((int)(950)), title: "Grayjay", iconPath: Path.GetFullPath("grayjay.png"), appId: "com.futo.grayjay.desktop").Result;
+                window = cef.CreateWindowAsync("about:blank", ((int)(900)), ((int)(550)), ((int)(1300)), ((int)(950)), title: "Grayjay", iconPath: Directories.InstallPathFor("grayjay.png"), appId: "com.futo.grayjay.desktop").Result;
                 await window.SetDevelopmentToolsEnabledAsync(true);
                 Logger.i(nameof(Program), $"Main: Starting window finished ({watch.ElapsedMilliseconds}ms)");
             }
