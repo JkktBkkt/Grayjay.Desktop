@@ -1,6 +1,7 @@
 ﻿using DotCef;
 using Grayjay.ClientServer;
 using Grayjay.ClientServer.Browser;
+using Grayjay.ClientServer.Constants;
 using Grayjay.Desktop.POC;
 using Microsoft.AspNetCore.Mvc.Formatters;
 using System;
@@ -25,7 +26,7 @@ namespace Grayjay.Desktop.CEF
 
         public async Task<IWindow> CreateWindow(string title, int width, int height, string url, int maxWidth = 0, int maxHeight = 0)
         {
-            var window = _cef.CreateWindowAsync("about:blank", width, height, maxWidth, maxHeight, title: title, iconPath: Path.GetFullPath("grayjay.png")).Result;
+            var window = _cef.CreateWindowAsync("about:blank", width, height, maxWidth, maxHeight, title: title, iconPath: Directories.InstallPathFor("grayjay.png")).Result;
             await window.SetDevelopmentToolsEnabledAsync(true);
 
             await window.LoadUrlAsync($"{GrayjayServer.Instance.BaseUrl}/web/index.html");
@@ -56,7 +57,7 @@ namespace Grayjay.Desktop.CEF
         {
             //userAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
             //double scale = 1.25;
-            var window = await _cef.CreateWindowAsync("about:blank", (int)(385), (int)(833), (int)(385), (int)(833), title: title, iconPath: Path.GetFullPath("grayjay.png"), developerToolsEnabled: true, modifyRequests: true, requestModifier: (window, req) =>
+            var window = await _cef.CreateWindowAsync("about:blank", (int)(385), (int)(833), (int)(385), (int)(833), title: title, iconPath: Directories.InstallPathFor("grayjay.png"), developerToolsEnabled: true, modifyRequests: true, requestModifier: (window, req) =>
             {
                 foreach(var header in req.Headers.ToList())
                 {
