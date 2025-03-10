@@ -86,6 +86,11 @@ public static class Directories
 
     public static string Temporary => _temporaryDirectory.Value;
 
+    public static string InstallPathFor(string filename)
+    {
+        return Path.Combine(AppContext.BaseDirectory, filename);
+    }
+
     private static void EnsureDirectoryExists(string path)
     {
         if (!Directory.Exists(path))
