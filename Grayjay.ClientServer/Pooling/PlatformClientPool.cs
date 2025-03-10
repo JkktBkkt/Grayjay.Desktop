@@ -3,6 +3,8 @@ using Grayjay.Desktop.POC;
 using Grayjay.Engine;
 using System.Net;
 
+using Logger = Grayjay.Desktop.POC.Logger;
+
 namespace Grayjay.ClientServer.Pooling
 {
     public class PlatformClientPool

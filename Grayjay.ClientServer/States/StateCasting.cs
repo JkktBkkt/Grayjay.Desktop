@@ -5,6 +5,8 @@ using Grayjay.Desktop.POC;
 
 namespace Grayjay.ClientServer.States;
 
+using Logger = Desktop.POC.Logger;
+
 public class StateCasting : IDisposable
 {
     private ServiceDiscoverer? _serviceDiscoverer = null;

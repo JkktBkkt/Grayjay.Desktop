@@ -1,9 +1,9 @@
 ﻿using Dapper;
 using Grayjay.ClientServer.Database.Indexes;
 using Microsoft.Data.Sqlite;
-using System.Data.Common;
 using System.Reflection;
 using Grayjay.ClientServer.States;
+using Grayjay.Desktop.POC;
 
 namespace Grayjay.ClientServer.Database
 {

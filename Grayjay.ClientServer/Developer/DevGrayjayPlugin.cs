@@ -1,6 +1,7 @@
 ﻿using Futo.PlatformPlayer.States;
 using Google.Protobuf.Reflection;
 using Grayjay.ClientServer.States;
+using Grayjay.Desktop.POC;
 using Grayjay.Engine;
 using Grayjay.Engine.Exceptions;
 using Grayjay.Engine.Models.Channel;
@@ -9,6 +10,8 @@ using Grayjay.Engine.Models.Detail;
 using Grayjay.Engine.Models.Feed;
 using Grayjay.Engine.Pagers;
 using Microsoft.ClearScript.V8;
+
+using Logger = Grayjay.Desktop.POC.Logger;
 
 namespace Grayjay.ClientServer.Developer
 {

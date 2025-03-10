@@ -14,6 +14,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
+using Logger = Grayjay.Desktop.POC.Logger;
 namespace Grayjay.ClientServer.States
 {
     public static class StateApp
