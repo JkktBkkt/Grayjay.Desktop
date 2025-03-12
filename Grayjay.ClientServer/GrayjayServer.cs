@@ -138,7 +138,7 @@ namespace Grayjay.ClientServer
                     if (!File.Exists(staticFilesPath) && executableDirectory != null)
                         staticFilesPath = Path.Combine(executableDirectory, "../Resources/wwwroot");
                 }
-                if (OperatingSystem.IsLinux())
+                else if (OperatingSystem.IsLinux())
                 {
                     string? executableDirectory = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
                     if (!File.Exists(staticFilesPath) && executableDirectory != null)
