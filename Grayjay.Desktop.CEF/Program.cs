@@ -324,6 +324,22 @@ namespace Grayjay.Desktop
                 if (Directory.Exists("cef"))
                     File.WriteAllText("cef/launch", "../" + Path.GetFileName(p.MainModule!.FileName));
             }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                Process p = Process.GetCurrentProcess();
+                string? executableDirectory = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule?.FileName);
+
+                // the launch file is useful for helping the dotcefnative child process correctly re-run Grayjay
+                // in situations where it may be closed and restarted from a taskbar or something
+                // Because some linux packaging formats have immutable install directories, this file may need to be created at packaging time (vs Runtime) to avoid a crash
+                var launchFile = Path.Combine(executableDirectory, "launch");
+                if (!File.Exists(launchFile)) {
+                    File.WriteAllText(launchFile, Path.GetFileName(p.MainModule!.FileName));
+                }
+
+                if (Directory.Exists(Path.Combine(executableDirectory, "cef")))
+                    File.WriteAllText(Path.Combine(executableDirectory, "cef/launch"), "../" + Path.GetFileName(p.MainModule!.FileName));
+            }
 
             using var cef = !isServer ? new DotCefProcess() : null;
             if (cef != null)
