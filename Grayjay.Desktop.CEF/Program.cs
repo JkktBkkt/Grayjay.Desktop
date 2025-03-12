@@ -337,8 +337,12 @@ namespace Grayjay.Desktop
                     File.WriteAllText(launchFile, Path.GetFileName(p.MainModule!.FileName));
                 }
 
-                if (Directory.Exists(Path.Combine(executableDirectory, "cef")))
-                    File.WriteAllText(Path.Combine(executableDirectory, "cef/launch"), "../" + Path.GetFileName(p.MainModule!.FileName));
+                if (Directory.Exists(Path.Combine(executableDirectory, "cef"))) {
+                    launchFile = Path.Combine(executableDirectory, "cef/launch");
+                    if (!File.Exists(launchFile)) {
+                        File.WriteAllText(launchFile, "../" + Path.GetFileName(p.MainModule!.FileName));
+                    }
+                }
             }
 
             using var cef = !isServer ? new DotCefProcess() : null;
