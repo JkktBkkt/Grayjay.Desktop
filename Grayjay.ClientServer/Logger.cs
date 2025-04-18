@@ -197,15 +197,13 @@ namespace Grayjay.Desktop.POC
         private static Log.Config _staticConfig = new Log.Config()
         {
             LogFilePath = Path.Combine(Directories.Base, "log.txt"),
-            FileLogLevel = (LogLevel)GrayjaySettings.Instance.Logging.LogLevel,
 #if DEBUG
+            FileLogLevel = LogLevel.Debug,
             ConsoleLogLevel = LogLevel.Debug,
+            DebugLogLevel = LogLevel.Debug,
 #else
+            FileLogLevel = (LogLevel)GrayjaySettings.Instance.Logging.LogLevel,
             ConsoleLogLevel = (LogLevel)GrayjaySettings.Instance.Logging.LogLevel,
-#endif
-#if DEBUG
-            DebugLogLevel = (LogLevel)GrayjaySettings.Instance.Logging.LogLevel,
-#else
             DebugLogLevel = LogLevel.None
 #endif
         };

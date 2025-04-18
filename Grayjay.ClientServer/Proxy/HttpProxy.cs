@@ -20,11 +20,6 @@ namespace Grayjay.ClientServer.Proxy
 
         public string Add(HttpProxyRegistryEntry entry, IPAddress? localAddress = null)
         {
-            if(entry.Url.Contains("#"))
-            {
-
-            }
-
             if (LocalEndPoint.Address == IPAddress.Any && localAddress == null)
                 throw new ArgumentException("When adding a proxy on any, you must specify the local address.");
 
@@ -55,7 +50,7 @@ namespace Grayjay.ClientServer.Proxy
                         var session = new HttpProxySession(this, client.GetStream(), _cancellationTokenSource.Token, (s) =>
                         {
                             lock (_sessions)
-                                _sessions.Remove(s);
+                                _sessions.Remove((s as HttpProxySession)!);
                         });
 
                         session.Start();
@@ -74,9 +69,10 @@ namespace Grayjay.ClientServer.Proxy
 
         public void Dispose()
         {
-            _sessions.Clear();
             _listener.Stop();
             _cancellationTokenSource?.Cancel();
+            lock (_sessions)
+                _sessions.Clear();
         }
 
         public HttpProxyRegistryEntry GetEntry(Guid id)
@@ -89,7 +85,6 @@ namespace Grayjay.ClientServer.Proxy
         private static object _lockObject = new object();
         private static HttpProxy? _httpProxyLoopback = null;
         private static HttpProxy? _httpProxy = null;
-        internal HttpProxyRegistryEntry _liveChatProxy;
 
         public static HttpProxy Get(bool loopback = true)
         {

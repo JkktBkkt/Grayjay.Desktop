@@ -67,6 +67,8 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         static ManagedHttpClient _qualityClient = new ManagedHttpClient();
+        static HttpRelativeProxy? _relativeProxy;
+        static object _relativeProxyLockObject = new object();
 
         private void ChangeVideo(PlatformVideoDetails video, VideoLocal videoLocal)
         {
@@ -312,76 +314,100 @@ namespace Grayjay.ClientServer.Controllers
                 return null;
 
             var window = StatePlatform.GetLiveChatWindow(video.Url);
-            var httpProxy = HttpProxy.Get(true);
-            var liveChatProxyEntry = new HttpProxyRegistryEntry()
+            var parsedUrl = Utilities.ParseUrl(window.Url);
+            lock (_relativeProxyLockObject)
             {
-                Url = window.Url,
-                FollowRedirects = false,
-                SupportRelativeProxy = true,
-                RequestHeaderOptions = new RequestHeaderOptions()
-                {
-                    HeadersToInject = new Dictionary<string, string>()
+                if (_relativeProxy != null)
+                    _relativeProxy.Dispose();
+
+                _relativeProxy = new HttpRelativeProxy(
+                    new IPEndPoint(IPAddress.Loopback, 0),
+                    $"{parsedUrl.Scheme}://{parsedUrl.HostAndPort}",
+                    new RequestHeaderOptions()
                     {
-                        { "user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" }
-                    }
-                },
-                ResponseHeaderOptions = new ResponseHeaderOptions()
-                {
-                    HeadersToInject = new Dictionary<string, string>()
-                    {
-                        { "x-frame-options", "ALLOWALL" },
+                        HeadersToInject = new Dictionary<string, string>()
+                        {
+                            { "user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" }
+                        }
                     },
-                }
-            };
+                    new ResponseHeaderOptions()
+                    {
+                        HeadersToInject = new Dictionary<string, string>()
+                        {
+                            { "x-frame-options", "ALLOWALL" },
+                        },
+                    },
+                    (resp) =>
+                    {
+                        Encoding encoding = Encoding.UTF8;
+                        if (resp.Headers.TryGetValue("content-type", out var contentType))
+                        {
+                            try
+                            {
+                                var contentTypeHeader = new System.Net.Mime.ContentType(contentType);
+                                if (!string.IsNullOrEmpty(contentTypeHeader.CharSet))
+                                    encoding = Encoding.GetEncoding(contentTypeHeader.CharSet);
+                            }
+                            catch (ArgumentException)
+                            {
+                                // Handle invalid encoding by falling back to UTF-8
+                                encoding = Encoding.UTF8;
+                            }
+                        }
+
+                        return (bodyBytes) =>
+                        {
+                            var modifier = (string str) =>
+                            {
+                                if (!str.Contains("</body>"))
+                                    return str;
+                                List<string> js = new List<string>();
+                                if (window.RemoveElements != null)
+                                {
+                                    foreach (var element in window.RemoveElements)
+                                    {
+                                        js.Add($"console.log('Removing [' + {JsonConvert.SerializeObject(element)} + ']')");
+                                        js.Add($"document.querySelectorAll({JsonConvert.SerializeObject(element)}).forEach(x=>x.remove())");
+                                    }
+                                }
+                                if (window.RemoveElementsInterval != null)
+                                {
+                                    StringBuilder builder = new StringBuilder();
+                                    foreach (var element in window.RemoveElementsInterval)
+                                    {
+                                        builder.AppendLine($"document.querySelectorAll({JsonConvert.SerializeObject(element)}).forEach(x=>x.remove())");
+                                    }
+                                    js.Add("setInterval(()=>{\n" + builder.ToString() + "}, 1000)");
+                                }
+
+                                if (js.Count == 0)
+                                    return str;
+
+                                string toInject = string.Join("\n", js);
+
+                                str = new BrowserSimulatorBuilder()
+                                    //.WithLocation(window.Url)
+                                    .WithNavigatorValue("webdriver", "false")
+                                    .HideGetOwnProptyDescriptos("webdriver")
+                                    .InjectHtml(str);
+
+                                return str
+                                    .Replace("</body>", "<script>(()=>{\n"
+                                        + toInject
+                                        + "\n})()</script></body>");
+                            };
+                            return encoding.GetBytes(modifier(encoding.GetString(bodyBytes)));
+                        };
+                    },
+                    new[] { "GET", "POST" },
+                    true
+                );
+                _relativeProxy.Start();
+            }
+
             //TODO: Fix ModifyResponse
-            string iframeId = Guid.NewGuid().ToString();
-            liveChatProxyEntry.WithModifyResponseString((resp, str) =>
-            {
-                if (!str.Contains("</body>"))
-                    return str;
-                List<string> js = new List<string>();
-                if (window.RemoveElements != null)
-                {
-                    foreach (var element in window.RemoveElements)
-                    {
-                        js.Add($"console.log('Removing [' + {JsonConvert.SerializeObject(element)} + ']')");
-                        js.Add($"document.querySelectorAll({JsonConvert.SerializeObject(element)}).forEach(x=>x.remove())");
-                    }
-                }
-                if(window.RemoveElementsInterval != null)
-                {
-                    StringBuilder builder = new StringBuilder();
-                    foreach(var element in window.RemoveElementsInterval)
-                    {
-                        builder.AppendLine($"document.querySelectorAll({JsonConvert.SerializeObject(element)}).forEach(x=>x.remove())");
-                    }
-                    js.Add("setInterval(()=>{\n" + builder.ToString() + "}, 1000)");
-                }
-
-                if (js.Count == 0)
-                    return str;
-
-                string toInject = string.Join("\n", js);
-
-                str = new BrowserSimulatorBuilder()
-                    //.WithLocation(window.Url)
-                    .WithNavigatorValue("webdriver", "false")
-                    .HideGetOwnProptyDescriptos("webdriver")
-                    .InjectHtml(str);
-
-                return str
-                    .Replace("</body>", "<script>(()=>{\n"
-                        + toInject
-                        + "\n})()</script></body>");
-            });
             var state = this.State().DetailsState;
-
-            var oldProxy = state._liveChatProxy;
-            if (oldProxy != null)
-                httpProxy.Remove(oldProxy.Id);
-            state._liveChatProxy = liveChatProxyEntry;
-            //TODO: Proper urls
-            window.Url = httpProxy.Add(liveChatProxyEntry)!.Replace("127.0.0.1", "localhost");
+            window.Url = $"http://{(_relativeProxy.LocalEndPoint.Address).ToUrlAddress()}:{_relativeProxy.LocalEndPoint.Port}{parsedUrl.Path}";
             return window;
         }
 
@@ -628,7 +654,7 @@ namespace Grayjay.ClientServer.Controllers
                 return HttpProxy.Get(loopback).Add(new HttpProxyRegistryEntry()
                 {
                     Url = "https://internal.grayjay.app/",
-                    IsRelative = true,
+                    IsRelativeProxy = true,
                     RequestExecutor = (req) =>
                     {
                         var queryParams = HttpUtility.ParseQueryString((req.Path.Contains("?")) ? req.Path.Substring(req.Path.IndexOf("?")) : "");

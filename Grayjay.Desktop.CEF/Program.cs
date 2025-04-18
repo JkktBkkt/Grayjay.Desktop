@@ -332,11 +332,14 @@ namespace Grayjay.Desktop
                 var extraArgs = ReconstructArgs(args);
                 Logger.i(nameof(Program), "Extra args: " + extraArgs);
 
+                var userDataDir = Path.Combine(Directories.Temporary, "cef-" + Guid.NewGuid());
+                var userDataDirArg = $"--user-data-dir=\"{userDataDir}\" ";
+
                 Logger.i(nameof(Program), "Main: Starting DotCefProcess");
                 if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
-                    cef.Start("--disable-web-security --use-alloy-style --use-native " + extraArgs);
+                    cef.Start("--disable-web-security --use-alloy-style --use-native " + userDataDirArg + extraArgs);
                 else
-                    cef.Start("--disable-web-security --use-alloy-style --use-native --no-sandbox " + extraArgs);
+                    cef.Start("--disable-web-security --use-alloy-style --use-native --no-sandbox " + userDataDirArg + extraArgs);
                 Logger.i(nameof(Program), $"Main: Starting DotCefProcess finished ({startWindowWatch.ElapsedMilliseconds}ms)");
             }
 

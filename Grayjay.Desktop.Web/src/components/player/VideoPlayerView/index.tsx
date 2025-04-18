@@ -75,6 +75,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     const [isFullscreen, setIsFullscreen] = createSignal(false);
     const [isCasting, setIsCasting] = createSignal(casting?.activeDevice.device() ? true : false);
     const [isLoading, setIsLoading] = createSignal(true);
+    const isAudioOnly = createMemo(() => console.log(videoDimensions()));
     const [resumePositionVisible, setResumePositionVisible] = createSignal(false);
     const [endControlsVisible$, setEndControlsVisible] = createSignal(false);
     let currentUrl: string | undefined;
@@ -1064,7 +1065,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 <video ref={videoElement} style="width: 100%; height: 100%;" onclick={()=>console.log("received click")}></video>
             </ErrorBoundary>
             
-            <div class={styles.containerCasting} style={{"display": isCasting() ? "block" : "none"}}>
+            <div class={styles.containerCasting} style={{"display": isAudioOnly() || isCasting() ? "block" : "none"}}>
                 <Show when={props.source?.thumbnailUrl}>
                     <img src={props.source?.thumbnailUrl} onLoad={(ev) => { setThumbnailDimensions({ width: ev.currentTarget.naturalWidth, height: ev.currentTarget.naturalHeight }); }} referrerPolicy='no-referrer' />
                 </Show>
