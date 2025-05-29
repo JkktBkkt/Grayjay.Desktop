@@ -49,6 +49,9 @@
     <content_attribute id="money-gambling">intense</content_attribute>
   </content_rating>
   <releases>
+    <release version="7" date="2025-05-06">
+      <url type="details">https://github.com/futo-org/Grayjay.Desktop/releases/tag/7</url>
+    </release>
     <release version="6" date="2025-05-03">
       <url type="details">https://github.com/futo-org/Grayjay.Desktop/releases/tag/6</url>
     </release>
