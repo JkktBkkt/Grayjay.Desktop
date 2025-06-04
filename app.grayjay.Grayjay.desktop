@@ -7,5 +7,5 @@ Comment=Universal media aggregator
 Categories=AudioVideo;Player;
 
 Icon=app.grayjay.Grayjay
-Exec=Grayjay
+Exec=Grayjay %u
 Terminal=false
