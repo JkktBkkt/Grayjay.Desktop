@@ -1,7 +1,7 @@
 ﻿using Grayjay.ClientServer.Controllers;
-using Grayjay.Desktop.POC;
+using Grayjay.ClientServer.States;
 using Grayjay.Engine;
-using System.Net;
+using Grayjay.Engine.Exceptions;
 
 using Logger = Grayjay.Desktop.POC.Logger;
 
@@ -57,6 +57,8 @@ namespace Grayjay.ClientServer.Pooling
                         Logger.i("Plugin [" + config.Name + "]", msg);
                     };
                     reserved.OnToast += (a, b) => StateUI.Toast($"[{a.Name}] " + b);
+                    // Set up script exception handling for pooled client
+                    SetupScriptExceptionHandling(reserved);
 
                     reserved.Initialize();
                     _pool[reserved] = _poolCounter;
@@ -68,6 +70,19 @@ namespace Grayjay.ClientServer.Pooling
                 _pool[reserved] = _poolCounter;
             }
             return reserved;
+        }
+
+        private void SetupScriptExceptionHandling(GrayjayPlugin pooledClient)
+        {
+            // Set up the same script exception handling that the parent has
+            pooledClient.OnScriptException += (config, ex) =>
+            {
+                if (ex is ScriptCaptchaRequiredException capEx)
+                {
+                    Logger.Warning(nameof(PlatformClientPool), $"Captcha required in pooled client: " + capEx.Message + "\n" + capEx.Url + "\n" + "Has Body: " + (capEx.Body != null).ToString(), capEx);
+                    StateApp.HandleCaptchaException(config, capEx);
+                }
+            };
         }
 
         public static string TAG => "PlatformClientPool";
