@@ -216,6 +216,25 @@ namespace Grayjay.ClientServer.Settings
 
             [SettingsField("Hide Known Broken Livechats", SettingsField.TOGGLE, "Some live chats are known to have compatibility issues with desktop, this setting disables those (Recommended)", 7)]
             public bool HideBrokenLivechats { get; set; } = true;
+
+            [SettingsField("Hold Playback Speed", SettingsField.DROPDOWN, "Playback speed used when pressing down on a video", 2)]
+            [SettingsDropdownOptions("1.25", "1.5", "1.75", "2.0", "2.25", "2.5", "2.75", "3.0")]
+            public int HoldPlaybackSpeed { get; set; } = 3;
+            public double GetHoldPlaybackSpeed()
+            {
+                switch (HoldPlaybackSpeed)
+                {
+                    case 0: return 1.25;
+                    case 1: return 1.5;
+                    case 2: return 1.75;
+                    case 3: return 2.0;
+                    case 4: return 2.25;
+                    case 5: return 2.5;
+                    case 6: return 2.75;
+                    case 7: return 3.0;
+                    default: return 2.0;
+                }
+            }
         }
 
         /*

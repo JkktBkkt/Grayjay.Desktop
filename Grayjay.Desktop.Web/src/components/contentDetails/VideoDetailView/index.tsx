@@ -1190,6 +1190,11 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }));
     }
 
+    const stopEvent = (e: Event) => {
+        e.stopPropagation();
+        e.preventDefault();
+    };
+
     const renderRecommendation = (item: Accessor<IPlatformVideo>) => {
         const bestThumbnail = createMemo(() => {
             const v = item();
@@ -1292,10 +1297,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             buttons={
                                 <>
                                     <Show when={!isMinimized() && mode() === VideoMode.Theatre}>
-                                        <img src={video?.theatrePinned() ? pinned_fill : pinned} class={styles.pinned} alt="pin theatre" onClick={() => video?.actions?.setTheatrePinned(!video?.theatrePinned())} />
+                                        <img src={video?.theatrePinned() ? pinned_fill : pinned} class={styles.pinned} alt="pin theatre" onClick={() => video?.actions?.setTheatrePinned(!video?.theatrePinned())} onDblClick={stopEvent} />
                                     </Show>
                                     <Show when={!shouldShowQueue()}>
-                                        <img src={video?.repeat() ? loop_active : loop_inactive} class={styles.loop} alt="loop" onClick={() => video?.actions?.setRepeat(!video?.repeat())} />
+                                        <img src={video?.repeat() ? loop_active : loop_inactive} class={styles.loop} alt="loop" onClick={() => video?.actions?.setRepeat(!video?.repeat())} onDblClick={stopEvent} />
                                     </Show>
                                 </>
                             }

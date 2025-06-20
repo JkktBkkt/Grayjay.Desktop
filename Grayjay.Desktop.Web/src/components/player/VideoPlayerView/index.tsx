@@ -997,6 +997,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         togglePlay();
     };
 
+    const handleClick = async (e: MouseEvent) => {
+        await togglePlay();
+    };
+
     const handleDblClick = (e: MouseEvent) => {
         toggleFullscreen();
     };
@@ -1062,6 +1066,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             }} 
             onMouseMove={handleMouseMove}
             onMouseLeave={hideControls}
+            onClick={() => togglePlay()}
             onDblClick={handleDblClick}>
 
             <ErrorBoundary fallback={(err, reset) => (<div></div>)}>

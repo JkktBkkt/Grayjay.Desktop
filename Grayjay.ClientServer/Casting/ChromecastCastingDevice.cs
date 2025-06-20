@@ -38,14 +38,35 @@ public class ChromecastCastingDevice : CastingDevice
 
     public override bool CanSetVolume => true;
 
-    public override bool CanSetSpeed => false;
+    public override bool CanSetSpeed => true;
     private IPEndPoint? _localEndPoint = null;
     public override IPEndPoint? LocalEndPoint => _localEndPoint;
 
-    public override Task ChangeSpeedAsync(double speed, CancellationToken cancellationToken = default)
+    public override async Task ChangeSpeedAsync(double speed, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        if (_mediaSessionId is not int mediaSessionId || _transportId is not string transportId)
+            return;
+
+        var speedClamped = Math.Max(1.0, Math.Min(2.0, speed));
+        PlaybackState.SetSpeed(speedClamped);
+
+        var setSpeedObject = new JsonObject
+        {
+            ["type"] = "SET_PLAYBACK_RATE",
+            ["mediaSessionId"] = mediaSessionId,
+            ["playbackRate"] = speedClamped,
+            ["requestId"] = _requestId++
+        };
+
+        await SendChannelMessageAsync(
+            sourceId: "sender-0",
+            destinationId: transportId,
+            ns: "urn:x-cast:com.google.cast.media",
+            json: setSpeedObject.ToJsonString(),
+            cancellationToken: cancellationToken
+        );
     }
+
 
     public override async Task ChangeVolumeAsync(double volume, CancellationToken cancellationToken = default)
     {

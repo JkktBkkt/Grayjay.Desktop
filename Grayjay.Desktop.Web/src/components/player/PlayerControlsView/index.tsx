@@ -296,56 +296,67 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
                 }
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "ArrowRight":
                 startSkipping(1);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "ArrowLeft":
                 startSkipping(-1);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "ArrowUp":
                 props.onSetVolume?.(Math.min((props.volume ?? 0) + 0.1, 1));
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "ArrowDown":
                 props.onSetVolume?.(Math.max((props.volume ?? 0) - 0.1, 0));
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "f":
                 onFullscreen(ev as any);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "t":
                 onTheatre(ev as any);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "m":
                 onToggleVolume(ev as any);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "Home":
                 props.onSetPosition?.(Duration.fromMillis(0));
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "End":
                 props.onSetPosition?.(props.duration);
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "i":
                 props.handleMinimize?.();
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
         }
     };
@@ -357,13 +368,20 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
                 stopSkipping();
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
             case "Escape":
                 props.handleEscape?.();
                 props.onInteraction?.();
                 ev.preventDefault();
+                ev.stopPropagation();
                 break;
         }
+    };
+
+    const stopEvent = (e: Event) => {
+        e.stopPropagation();
+        e.preventDefault();
     };
 
     let startSkippingTimeout: NodeJS.Timeout | undefined;
@@ -394,13 +412,18 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
     return (
         <div ref={containerRef} class={styles.container}>
             <Show when={isSkippable$()}>
-                <div class={styles.skipButton} onClick={props.onSkip}>
+                <div
+                    class={styles.skipButton}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        props.onSkip();
+                    }}
+                    onDblClick={stopEvent}
+                >
                     Skip
                 </div>
             </Show>
-            <div class={styles.pauseArea} onClick={onPause}>
-
-            </div>
             <div ref={progressBar} class={styles.progressBar} />
             <div class={styles.progressBarBuffer} style={{ width: `${bufferWidth()}px` }} />
             <div class={styles.progressBarProgress} style={{ width: `${progressWidth()}px` }} />
@@ -446,18 +469,92 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
                 </Show>
             </div>
             <div class={styles.progressBarHandle} style={{ left: `${progressHandleLeft()}px` }} />
-            <div class={styles.progressBarInteractiveArea} onMouseDown={startScrubbing} onMouseOut={onMouseOut} onMouseUp={stopScrubbing} onMouseMove={onMouseMove} />
+            <div class={styles.progressBarInteractiveArea}   
+                onPointerDown={(e: PointerEvent) => {
+                    scrubbing = true;
+                    props.onSetScrubbing?.(true);
+                    props.onInteraction?.();
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+                onPointerMove={(e: PointerEvent) => {
+                    if (scrubbing) scrub(e as any);
+                    props.onInteraction?.();
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+                onPointerUp={(e: PointerEvent) => {
+                    if (scrubbing) {
+                        scrub(e as any);
+                        scrubbing = false;
+                        props.onSetScrubbing?.(false);
+                    }
+                    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+                onPointerCancel={(e: PointerEvent) => {
+                    if (scrubbing) {
+                        scrubbing = false;
+                        props.onSetScrubbing?.(false);
+                    }
+                    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                    e.preventDefault();
+                    e.stopPropagation();
+                }} 
+                onClick={stopEvent} onDblClick={stopEvent} 
+            />
 
             <div class={styles.leftButtonContainer} style={props.leftButtonContainerStyle}>
-                <img src={play} class={styles.play} alt="play" style={{display: !props.isPlaying ? "block" : "none" }} onClick={(ev)=>onPlay(ev)} />
-                <img src={pause} class={styles.pause} alt="pause" style={{display: props.isPlaying ? "block" : "none" }} onClick={(ev)=>onPause(ev)} />
-                <img src={props.volume ? ic_volume : ic_mute} class={styles.volume} alt="volume" onClick={(ev)=> onToggleVolume(ev)} />
+                <img src={play} class={styles.play} alt="play" style={{display: !props.isPlaying ? "block" : "none" }} onClick={(ev)=>onPlay(ev)} onDblClick={stopEvent} />
+                <img src={pause} class={styles.pause} alt="pause" style={{display: props.isPlaying ? "block" : "none" }} onClick={(ev)=>onPause(ev)} onDblClick={stopEvent} />
+                <img src={props.volume ? ic_volume : ic_mute} class={styles.volume} alt="volume" onClick={(ev)=> onToggleVolume(ev)} onDblClick={stopEvent} />
                 <Show when={props.volume !== undefined}>
                     <div style="position: relative; height: 24px; width: 92px; flex-shrink: 0">
                         <div ref={volumeBar} class={styles.volumeBar} />
                         <div class={styles.volumeBarProgress} style={{ width: `${volumeWidth()}px` }} />
                         <div class={styles.volumeBarHandle} style={{ left: `${volumeWidth()}px` }} />
-                        <div class={styles.volumeBarInteractiveArea} onMouseDown={startChangingVolume} onMouseOut={stopChangingVolume} onMouseUp={stopChangingVolume} onMouseMove={onMouseMove} />
+                        <div class={styles.volumeBarInteractiveArea}
+                            onPointerDown={(e: PointerEvent) => {
+                                changingVolume = true;
+                                props.onSetIsChangingVolume?.(true);
+                                props.onInteraction?.();
+                                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onPointerMove={(e: PointerEvent) => {
+                                if (changingVolume && volumeBar) {
+                                const rect = volumeBar.getBoundingClientRect();
+                                const vol = (e.clientX - rect.left) / rect.width;
+                                props.onSetVolume?.(Math.max(0, Math.min(1, vol)));
+                                props.onInteraction?.();
+                                }
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onPointerUp={(e: PointerEvent) => {
+                                if (changingVolume && volumeBar) {
+                                const rect = volumeBar.getBoundingClientRect();
+                                const vol = (e.clientX - rect.left) / rect.width;
+                                props.onSetVolume?.(Math.max(0, Math.min(1, vol)));
+                                props.onSetIsChangingVolume?.(false);
+                                changingVolume = false;
+                                }
+                                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onPointerCancel={(e: PointerEvent) => {
+                                props.onSetIsChangingVolume?.(false);
+                                changingVolume = false;
+                                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }}
+                            onClick={stopEvent} onDblClick={stopEvent}
+                        />
                     </div>
                 </Show>
 
@@ -482,13 +579,13 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
 
             <div class={styles.buttonContainer} style={props.rightButtonContainerStyle}>
                 <Show when={props.handleFullscreen}>
-                    <img src={fullscreen} class={styles.fullscreen} alt="fullscreen" onClick={onFullscreen} />
+                    <img src={fullscreen} class={styles.fullscreen} alt="fullscreen" onClick={onFullscreen} onDblClick={stopEvent} />
                 </Show>
                 <Show when={props.handleTheatre}>
-                    <img src={iconTheatre} class={styles.theatre} alt="theatre" onClick={onTheatre} />
+                    <img src={iconTheatre} class={styles.theatre} alt="theatre" onClick={onTheatre} onDblClick={stopEvent} />
                 </Show>
-                <img src={cast} class={styles.cast} alt="cast" onClick={onCast} />
-                <img ref={(el)=>settingsButton = el} src={settings} class={styles.settings} alt="settings" onClick={(ev)=>onSettings(ev)} />
+                <img src={cast} class={styles.cast} alt="cast" onClick={onCast} onDblClick={stopEvent} />
+                <img ref={(el)=>settingsButton = el} src={settings} class={styles.settings} alt="settings" onClick={(ev)=>onSettings(ev)} onDblClick={stopEvent} />
                 {props.buttons}
             </div>
             {props.children}
