@@ -1,14 +1,17 @@
-﻿using Grayjay.Engine.Models.Live;
+using Grayjay.Engine.Models.Live;
 using Grayjay.Engine.Pagers;
+using Grayjay.ClientServer.States;
 
 using Logger = Grayjay.Desktop.POC.Logger;
 using LogLevel = Grayjay.Desktop.POC.LogLevel;
+using Grayjay.Desktop.POC.Port.States;
 
 namespace Grayjay.ClientServer.LiveChat;
 
 public class LiveChatManager
 {
-    private readonly IPager<PlatformLiveEvent> _pager;
+    private IPager<PlatformLiveEvent> _pager;
+    private readonly string? _videoUrl;
     private readonly List<PlatformLiveEvent> _history = new List<PlatformLiveEvent>();
     private readonly Dictionary<object, Action<List<PlatformLiveEvent>>> _followers = new Dictionary<object, Action<List<PlatformLiveEvent>>>();
 
@@ -17,9 +20,10 @@ public class LiveChatManager
 
     public long ViewCount { get; private set; }
 
-    public LiveChatManager(IPager<PlatformLiveEvent> pager, long initialViewCount = 0)
+    public LiveChatManager(IPager<PlatformLiveEvent> pager, string? videoUrl = null, long initialViewCount = 0)
     {
         _pager = pager ?? throw new ArgumentNullException(nameof(pager));
+        _videoUrl = videoUrl;
         ViewCount = initialViewCount;
 
         // Initial notice + seed history
@@ -97,18 +101,61 @@ public class LiveChatManager
     {
         try
         {
-            while (_running && _pager != null && _pager.HasMorePages())
+            int consecutiveEmptyResults = 0;
+            const int maxConsecutiveEmpty = 5; // Threshold for detecting stale pager
+            
+            while (_running && _pager != null)
             {
                 long nextIntervalMs = 1_000;
-                if (_pager == null || !_pager.HasMorePages())
-                    break;
 
                 try
                 {
-                    _pager.NextPage();
-                    var newEvents = _pager.GetResults() ?? Array.Empty<PlatformLiveEvent>();
+                    
+                    // Synchronize access to the pager to prevent V8 engine corruption
+                    PlatformLiveEvent[] newEvents;
+                    lock (_pager)
+                    {
+                        try 
+                        { 
+                            _pager.NextPage();
+                            newEvents = _pager.GetResults() ?? Array.Empty<PlatformLiveEvent>();
+                            
+                            // Track consecutive empty results
+                            if (!newEvents.Any())
+                            {
+                                consecutiveEmptyResults++;
+                                
+                                // If we've had too many empty results, the pager might be stale
+                                if (consecutiveEmptyResults >= maxConsecutiveEmpty && !string.IsNullOrEmpty(_videoUrl))
+                                {
+                                    Logger.Warning<LiveChatManager>($"Detected {consecutiveEmptyResults} consecutive empty results, recreating pager");
+                                    var newPager = StatePlatform.GetLiveEvents(_videoUrl);
+                                    if (newPager != null)
+                                    {
+                                        _pager = newPager;
+                                        _pager.NextPage();
+                                        newEvents = _pager.GetResults() ?? Array.Empty<PlatformLiveEvent>();
+                                        consecutiveEmptyResults = 0; // Reset counter
+                                        Logger.Warning<LiveChatManager>($"Recreated live events pager, got {newEvents.Length} events");
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                consecutiveEmptyResults = 0; // Reset counter on successful fetch
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error<LiveChatManager>($"Error during pager operations: {ex.Message}");
+                            newEvents = Array.Empty<PlatformLiveEvent>();
+                        }
+                    }
+
                     if (_pager is LiveEventPager liveEventPager)
                         nextIntervalMs = Math.Max(liveEventPager.NextRequest, 800);
+
+                    Logger.Info<LiveChatManager>($"Polled: {newEvents.Length} events, next in {nextIntervalMs}ms");
 
                     if (newEvents.Length > 0)
                     {

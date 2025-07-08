@@ -229,7 +229,7 @@ namespace Grayjay.Desktop.POC.Port.States
 
         public static IPager<PlatformLiveEvent> GetLiveEvents(string url)
             => GetContentClient(url)
-                .FromPool(_mainClientPool)
+                .FromPool(_liveEventClientPool)
                 .GetLiveEvents(url);
 
 

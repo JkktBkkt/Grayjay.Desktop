@@ -144,7 +144,7 @@ namespace Grayjay.ClientServer.Controllers
                     var livePager = StatePlatform.GetLiveEvents(video.Url);
                     if (livePager != null)
                     {
-                        state.LiveChatManager = new LiveChatManager(livePager);
+                        state.LiveChatManager = new LiveChatManager(livePager, video.Url);
                         state.LiveChatManager?.Follow(this, (liveEvents) =>
                         {
                             if (liveEvents.Count > 0)

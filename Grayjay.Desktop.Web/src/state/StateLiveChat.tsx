@@ -87,7 +87,7 @@ export function ensureLiveChatWebsocket() {
     }
     
     //startMockDonations();
-
+    
     StateWebsocket.registerHandlerNew('LiveEvents', (p) => {
         const newEvents = p.payload as LiveChatEvent[];
         let newMessages: LiveChatEvent[] = [];
@@ -137,6 +137,7 @@ export function ensureLiveChatWebsocket() {
 
     onCleanup(() => {
         StateWebsocket.unregisterHandler('LiveEvents', 'liveEvents');
+        StateWebsocket.unregisterHandler('LiveEventsClear', 'liveEventsClear');
         websocketHandlerRegistered = false;
         if (_expirationInterval) {
             clearInterval(_expirationInterval);
