@@ -104,9 +104,12 @@ public class LiveChatManager
             int consecutiveEmptyResults = 0;
             const int maxConsecutiveEmpty = 5; // Threshold for detecting stale pager
             
-            while (_running && _pager != null)
+            while (_running && _pager != null && _pager.HasMorePages())
             {
                 long nextIntervalMs = 1_000;
+                
+                if (_pager == null || !_pager.HasMorePages())
+                    break;
 
                 try
                 {
