@@ -489,59 +489,65 @@ namespace Grayjay.Desktop
                                         int targetUpdaterVersion = Updater.GetTargetUpdaterVersion(changelog.Server, changelog.Version, changelog.Platform);
                                         if (targetUpdaterVersion > currentVersion)
                                         {
-                                            string url = Updater.GetUpdaterUrl(changelog.Server, changelog.Version, changelog.Platform);
-                                            Logger.w(nameof(Program), $"UPDATER REQUIRES UPDATING FROM: {url}\nAttempting self-updating");
-                                            Logger.w(nameof(Program), "Starting self-update..");
-                                            try
+                                            string? url = Updater.GetUpdaterUrl(changelog.Server, changelog.Version, changelog.Platform);
+                                            if (url != null)
                                             {
-                                                using (WebClient client = new WebClient())
+                                                Logger.w(nameof(Program), $"UPDATER REQUIRES UPDATING FROM: {url}\nAttempting self-updating");
+                                                Logger.w(nameof(Program), "Starting self-update..");
+                                                try
                                                 {
-                                                    string updatedPath = Updater.GetUpdaterExecutablePath() + ".updated";
-                                                    client.DownloadFile(url, updatedPath);
-                                                    File.Copy(updatedPath, Updater.GetUpdaterExecutablePath(), true);
-                                                    if (OperatingSystem.IsLinux())
+                                                    using (WebClient client = new WebClient())
                                                     {
-                                                        //Just in case
-                                                        try
+                                                        string? updaterExecutablePath = Updater.GetUpdaterExecutablePath();
+                                                        if (updaterExecutablePath == null)
+                                                            throw new Exception("Updater executable path should not be null.");
+
+                                                        string? updatedPath = updaterExecutablePath + ".updated";
+                                                        client.DownloadFile(url, updatedPath);
+                                                        File.Copy(updatedPath, updaterExecutablePath, true);
+                                                        if (OperatingSystem.IsLinux())
                                                         {
-                                                            Process chmod = new Process()
+                                                            //Just in case
+                                                            try
                                                             {
-                                                                StartInfo = new ProcessStartInfo()
+                                                                Process chmod = new Process()
                                                                 {
-                                                                    FileName = "chmod",
-                                                                    Arguments = "-R u=rwx \"" + Updater.GetUpdaterExecutablePath() + "\"",
-                                                                    UseShellExecute = false,
-                                                                    RedirectStandardOutput = true,
-                                                                    CreateNoWindow = true
+                                                                    StartInfo = new ProcessStartInfo()
+                                                                    {
+                                                                        FileName = "chmod",
+                                                                        Arguments = "-R u=rwx \"" + updaterExecutablePath + "\"",
+                                                                        UseShellExecute = false,
+                                                                        RedirectStandardOutput = true,
+                                                                        CreateNoWindow = true
+                                                                    }
+                                                                };
+                                                                chmod.Start();
+                                                                while (!chmod.StandardOutput.EndOfStream)
+                                                                {
+                                                                    var line = chmod.StandardOutput.ReadLine();
+                                                                    if (line != null)
+                                                                        Logger.Info<Program>(line);
                                                                 }
-                                                            };
-                                                            chmod.Start();
-                                                            while (!chmod.StandardOutput.EndOfStream)
-                                                            {
-                                                                var line = chmod.StandardOutput.ReadLine();
-                                                                if (line != null)
-                                                                    Logger.Info<Program>(line);
+                                                                chmod.WaitForExit();
                                                             }
-                                                            chmod.WaitForExit();
-                                                        }
-                                                        catch (Exception ex)
-                                                        {
-                                                            Logger.e(nameof(Program), "Failed to fix permissions for Linux on updater");
-                                                            throw;
+                                                            catch (Exception ex)
+                                                            {
+                                                                Logger.e(nameof(Program), "Failed to fix permissions for Linux on updater");
+                                                                throw;
+                                                            }
                                                         }
                                                     }
+                                                    Logger.i(nameof(Program), "Self-updating appeared succesful");
                                                 }
-                                                Logger.i(nameof(Program), "Self-updating appeared succesful");
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                Logger.e(nameof(Program), "Failed to download new Updater:\n" + url);
-                                                StateUI.Dialog(new StateUI.DialogDescriptor()
+                                                catch (Exception ex)
                                                 {
-                                                    Text = $"Failed to self-update updater to version {targetUpdaterVersion}",
-                                                    TextDetails = "Please download it yourself and override it in the Grayjay directory.\nOn linux, ensure it has execution permissions.",
-                                                    Code = "url",
-                                                    Actions = new List<StateUI.DialogAction>()
+                                                    Logger.e(nameof(Program), "Failed to download new Updater:\n" + url);
+                                                    StateUI.Dialog(new StateUI.DialogDescriptor()
+                                                    {
+                                                        Text = $"Failed to self-update updater to version {targetUpdaterVersion}",
+                                                        TextDetails = "Please download it yourself and override it in the Grayjay directory.\nOn linux, ensure it has execution permissions.",
+                                                        Code = "url",
+                                                        Actions = new List<StateUI.DialogAction>()
                                                 {
                                                 new StateUI.DialogAction("Ignore", () =>
                                                 {
@@ -552,8 +558,11 @@ namespace Grayjay.Desktop
                                                     OSHelper.OpenUrl(url);
                                                 }, StateUI.ActionStyle.Primary)
                                                 }
-                                                });
+                                                    });
+                                                }
                                             }
+                                            else
+                                                Logger.e(nameof(Program), "Failed to invoke updater because UpdaterUrl is null.");
                                         }
                                     }
 

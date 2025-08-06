@@ -1,14 +1,11 @@
 ﻿using Grayjay.ClientServer.States;
 using Grayjay.Desktop.POC;
-using Grayjay.Desktop.POC.Port.States;
-using System;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace Grayjay.ClientServer
 {
@@ -24,18 +21,22 @@ namespace Grayjay.ClientServer
             return _startupArgs;
         }
 
-        public static string GetSelfExecutablePath()
+        public static string? GetSelfExecutablePath()
         {
+            string? fileName = null;
             if (OperatingSystem.IsWindows())
-                return Path.GetFileName("Grayjay.exe");
+                fileName = "Grayjay.exe";
             else if (OperatingSystem.IsLinux())
-                return Path.GetFileName("Grayjay");
+                fileName = "Grayjay";
             else if (OperatingSystem.IsMacOS())
-                return Path.GetFileName("../Grayjay.Desktop.app");
-            else throw new NotImplementedException();
+                fileName = "../Grayjay.Desktop.app";
+            else 
+                throw new NotImplementedException();
+
+            return Utilities.FindFile(fileName);
         }
 
-        public static string GetUpdaterExecutableName()
+        public static string? GetUpdaterExecutableName()
         {
             if (OperatingSystem.IsWindows())
                 return "FUTO.Updater.Client.exe";
@@ -44,9 +45,9 @@ namespace Grayjay.ClientServer
             else
                 return null;
         }
-        public static string GetUpdaterExecutablePath()
+        public static string? GetUpdaterExecutablePath()
         {
-            string fileName = null;
+            string? fileName = null;
             if (OperatingSystem.IsWindows())
                 fileName = "FUTO.Updater.Client.exe";
             else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
@@ -54,41 +55,29 @@ namespace Grayjay.ClientServer
             else
                 throw new NotImplementedException();
 
-            if (File.Exists(fileName))
-            {
-                return Path.GetFullPath(fileName);
-            }
-            else
-            {
-                return null;
-            }
+            return Utilities.FindFile(fileName);
         }
 
-        public static string GetUpdaterConfigPath()
+        public static string? GetUpdaterConfigPath()
         {
-            string fileName = "UpdaterConfig.json";
-
-            if (File.Exists(fileName))
-            {
-                return Path.GetFullPath(fileName);
-            }
-            else
-            {
-                return null;
-            }
+            return Utilities.FindFile("UpdaterConfig.json");
         }
         public class UpdaterConfig
         {
-            public string Server { get; set; }
+            public string? Server { get; set; }
             public int Version { get; set; }
 
             public bool HasValidServer => !string.IsNullOrEmpty(Server);
         }
-        public static UpdaterConfig GetUpdaterConfig()
+        public static UpdaterConfig? GetUpdaterConfig()
         {
+            string? updaterConfigPath = GetUpdaterConfigPath();
+            if (updaterConfigPath == null)
+                return null;
+
             try
             {
-                return System.Text.Json.JsonSerializer.Deserialize<UpdaterConfig>(File.ReadAllText(GetUpdaterConfigPath()));
+                return System.Text.Json.JsonSerializer.Deserialize<UpdaterConfig>(File.ReadAllText(updaterConfigPath));
             }
             catch(Exception ex)
             {
@@ -98,7 +87,7 @@ namespace Grayjay.ClientServer
         }
         public static int GetUpdaterVersion()
         {
-            string executable = GetUpdaterExecutablePath();
+            string? executable = GetUpdaterExecutablePath();
             if (string.IsNullOrEmpty(executable))
                 return 1;
             if (File.Exists(executable))
@@ -115,14 +104,14 @@ namespace Grayjay.ClientServer
                         Arguments = "version",
                         RedirectStandardOutput = true
                     });
-                    while (!proc.StandardOutput.EndOfStream)
+                    while (proc != null && !proc.StandardOutput.EndOfStream)
                     {
                         var line = proc.StandardOutput.ReadLine();
                         if (line != null)
                             Logger.Info(nameof(Updater), line);
                     }
-                    proc.WaitForExit();
-                    return Math.Max(1, proc.ExitCode);
+                    proc?.WaitForExit();
+                    return Math.Max(1, proc?.ExitCode ?? 0);
                 }
                 catch(Exception ex)
                 {
@@ -135,46 +124,58 @@ namespace Grayjay.ClientServer
 
         public static void Update(int[] processIds, int version = -1)
         {
-            string executable = GetUpdaterExecutablePath();
+            string? executable = GetUpdaterExecutablePath();
             if (string.IsNullOrEmpty(executable))
                 throw new InvalidOperationException("No updater found");
 
             bool processStarted = false;
             if (OperatingSystem.IsLinux())
             {
-                var toRunLinux = GetLinuxShell($"{executable} update -process_ids {string.Join(",", processIds)} -executable \"{GetSelfExecutablePath()}\"");
-                if (toRunLinux != null)
+                string? selfExecutablePath = GetSelfExecutablePath();
+                if (selfExecutablePath != null)
                 {
-                    try
+                    var toRunLinux = GetLinuxShell($"{executable} update -process_ids {string.Join(",", processIds)} -executable \"{selfExecutablePath}\"");
+                    if (toRunLinux != null)
                     {
-                        Logger.i(nameof(Updater), "Starting updater through shell");
-                        processStarted = Process.Start(toRunLinux) != null;
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.e(nameof(Updater), "Starting updater through shell failed", e);
+                        try
+                        {
+                            Logger.i(nameof(Updater), "Starting updater through shell");
+                            processStarted = Process.Start(toRunLinux) != null;
+                        }
+                        catch (Exception e)
+                        {
+                            Logger.e(nameof(Updater), "Starting updater through shell failed", e);
+                        }
                     }
                 }
+                else
+                    Logger.e(nameof(Updater), "Failed to start updater directly, could not find self executable path.");
             }
             
             if (!processStarted)
             {
                 Logger.i(nameof(Updater), "Starting updater directly");
 
-                Process.Start(new ProcessStartInfo()
+                string? selfExecutablePath = GetSelfExecutablePath();
+                if (selfExecutablePath != null)
                 {
-                    FileName = executable,
-                    Arguments = $"update -process_ids {string.Join(",", processIds)} -executable \"{GetSelfExecutablePath()}\"",
-                    UseShellExecute = true,
-                    WorkingDirectory = Environment.CurrentDirectory
-                });
+                    Process.Start(new ProcessStartInfo()
+                    {
+                        FileName = executable,
+                        Arguments = $"update -process_ids {string.Join(",", processIds)} -executable \"{selfExecutablePath}\"",
+                        UseShellExecute = true,
+                        WorkingDirectory = Environment.CurrentDirectory
+                    });
 
-                processStarted = true;
+                    processStarted = true;
+                }
+                else
+                    Logger.e(nameof(Updater), "Failed to start updater directly, could not find self executable path.");
             }
         }
         public static void UpdateSelf()
         {
-            string executable = GetUpdaterExecutablePath();
+            string? executable = GetUpdaterExecutablePath();
             if (string.IsNullOrEmpty(executable))
                 throw new InvalidOperationException("No updater found");
 
@@ -184,7 +185,7 @@ namespace Grayjay.ClientServer
                 Arguments = $"updateself",
                 UseShellExecute = false
             });
-            process.WaitForExit();
+            process?.WaitForExit();
             Thread.Sleep(5000);
 
             if (OperatingSystem.IsLinux())
@@ -219,7 +220,7 @@ namespace Grayjay.ClientServer
         private static Regex REGEX_UPDATER_VERSION = new Regex("FUTO Updater v([0-9]+)");
         public static (bool, int) HasUpdate()
         {
-            string executable = GetUpdaterExecutablePath();
+            string? executable = GetUpdaterExecutablePath();
             if (string.IsNullOrEmpty(executable))
                 throw new InvalidOperationException("No updater found");
 
@@ -231,7 +232,7 @@ namespace Grayjay.ClientServer
                 CreateNoWindow = true
             });
             int updaterVersion = -1;
-            while (!proc.StandardOutput.EndOfStream)
+            while (proc != null && !proc.StandardOutput.EndOfStream)
             {
                 var line = proc.StandardOutput.ReadLine();
                 if (line == null)
@@ -243,8 +244,8 @@ namespace Grayjay.ClientServer
 
                 Logger.Info(nameof(Updater), line);
             }
-            proc.WaitForExit();
-            switch (proc.ExitCode)
+            proc?.WaitForExit();
+            switch (proc?.ExitCode ?? 0)
             {
                 case 1:
                     return (true, updaterVersion);
@@ -289,8 +290,8 @@ namespace Grayjay.ClientServer
         public class Changelog
         {
             public int Version { get; set; }
-            public string Server { get; set; }
-            public string Platform { get; set; }
+            public required string Server { get; set; }
+            public required string Platform { get; set; }
             public string Text { get; set; }
 
             public Changelog(int version, string text)
@@ -299,7 +300,7 @@ namespace Grayjay.ClientServer
                 Text = text;
             }
         }
-        public static Changelog GetTargetChangelog()
+        public static Changelog? GetTargetChangelog()
         {
             try
             {
@@ -316,7 +317,7 @@ namespace Grayjay.ClientServer
                 {
                     return new Changelog(targetVersion, client.DownloadString(config.Server + $"/{targetVersion}/{targetPlatform}/Changelogs/{targetVersion}.txt"))
                     {
-                        Server = config.Server,
+                        Server = config.Server!,
                         Platform = targetPlatform
                     };
                 }
@@ -327,7 +328,7 @@ namespace Grayjay.ClientServer
                 return null;
             }
         }
-        public static Changelog GetTargetChangelog(string server, int version, string platform)
+        public static Changelog? GetTargetChangelog(string server, int version, string platform)
         {
             try
             {
@@ -360,9 +361,9 @@ namespace Grayjay.ClientServer
                 }
             }
         }
-        public static string GetUpdaterUrl(string server, int version, string dist)
+        public static string? GetUpdaterUrl(string server, int version, string dist)
         {
-            var updaterName = GetUpdaterExecutableName();
+            string? updaterName = GetUpdaterExecutableName();
             if (string.IsNullOrEmpty(updaterName))
                 return null;
             return server + $"/{version}/{dist}/" + updaterName;
@@ -371,17 +372,24 @@ namespace Grayjay.ClientServer
 
         public static void RebootTest(int[] processIds, int version = -1)
         {
-            string executable = GetUpdaterExecutablePath();
+            string? executable = GetUpdaterExecutablePath();
             if (string.IsNullOrEmpty(executable))
                 throw new InvalidOperationException("No updater found");
 
-            Process.Start(new ProcessStartInfo()
+
+            var selfExecutablePath = GetSelfExecutablePath();
+            if (selfExecutablePath != null)
             {
-                FileName = executable,
-                Arguments = $"reboot -process_ids {string.Join(",", processIds)} -executable \"{GetSelfExecutablePath()}\"" +
-                  (string.IsNullOrWhiteSpace(_startupArgs) ? "" : " -executable_args " + "BASE64:" + Convert.ToBase64String(Encoding.UTF8.GetBytes(GetStartupArguments()))),
-                UseShellExecute = true
-            });
+                Process.Start(new ProcessStartInfo()
+                {
+                    FileName = executable,
+                    Arguments = $"reboot -process_ids {string.Join(",", processIds)} -executable \"{selfExecutablePath}\"" +
+                      (string.IsNullOrWhiteSpace(_startupArgs) ? "" : " -executable_args " + "BASE64:" + Convert.ToBase64String(Encoding.UTF8.GetBytes(GetStartupArguments()))),
+                    UseShellExecute = true
+                });
+            }
+            else
+                Logger.e(nameof(Updater), "Failed to start updater directly, could not find self executable path.");
         }
 
         [SupportedOSPlatform("linux")]
