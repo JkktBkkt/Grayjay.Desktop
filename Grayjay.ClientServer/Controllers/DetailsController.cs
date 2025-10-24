@@ -27,6 +27,7 @@ using Grayjay.Engine.Pagers;
 using Grayjay.Engine.V8;
 using Grayjay.Engine.Web;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Formatters;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -705,6 +706,13 @@ namespace Grayjay.ClientServer.Controllers
                 state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, task);
                 return (task, metadata);
             }
+            else if(sourceVideo is DashManifestRawSource videoRawSource2)
+            {
+                V8PromiseMetadata? metadata = null;
+                var task = GenerateSourceDashRaw(state, videoRawSource2, proxySettings, out metadata);
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, task);
+                return (task, metadata);
+            }
 
 
             if (sourceVideo != null && !(sourceVideo is VideoUrlSource || sourceVideo is LocalVideoSource))
@@ -911,19 +919,92 @@ namespace Grayjay.ClientServer.Controllers
 
                 foreach (Match representation in DashBuilder.REGEX_REPRESENTATION.Matches(dash))
                 {
+                    var representationInner = representation.Groups[2];
                     var mediaType = representation.Groups[1].Value ?? throw new InvalidDataException("Media type not found for dash representation");
-                    dash = DashBuilder.REGEX_MEDIA_INITIALIZATION.Replace(dash, new MatchEvaluator((m) =>
+                    if (DashBuilder.REGEX_BASEURL.IsMatch(representationInner.Value))
                     {
-                        if (m.Index < representation.Index || (m.Index + m.Length) > (representation.Index + representation.Length))
-                            return m.Value;
+                        dash = DashBuilder.REGEX_BASEURL.Replace(dash, new MatchEvaluator((m) =>
+                        {
+                            if (m.Index < representation.Index || (m.Index + m.Length) > (representation.Index + representation.Length))
+                                return m.Value;
 
-                        if (mediaType.StartsWith("video/"))
-                            return $"{m.Groups[1].Value}=\"{videoUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
-                        else if (mediaType.StartsWith("audio/"))
-                            return $"{m.Groups[1].Value}=\"{audioUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
-                        else
-                            throw new InvalidDataException("Expected video or audio? got: " + mediaType);
-                    }));
+                            return $"<BaseUrl>{videoUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}</BaseUrl>";
+                        }));
+                    }
+                    else
+                    {
+                        dash = DashBuilder.REGEX_MEDIA_INITIALIZATION.Replace(dash, new MatchEvaluator((m) =>
+                        {
+                            if (m.Index < representation.Index || (m.Index + m.Length) > (representation.Index + representation.Length))
+                                return m.Value;
+
+                            if (mediaType.StartsWith("video/"))
+                                return $"{m.Groups[1].Value}=\"{videoUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
+                            else if (mediaType.StartsWith("audio/"))
+                                return $"{m.Groups[1].Value}=\"{audioUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
+                            else
+                                throw new InvalidDataException("Expected video or audio? got: " + mediaType);
+                        }));
+                    }
+                }
+
+                return dash;
+            });
+        }
+        public static Task<string> GenerateSourceDashRaw(WindowState state, DashManifestRawSource videoSource, ProxySettings? proxySettings, out V8PromiseMetadata promiseMeta)
+        {
+
+            var dashTask = videoSource.GenerateAsync(out promiseMeta);
+
+            return dashTask.ContinueWith((t) =>
+            {
+                var dash = dashTask.Result;
+                var oldVReqEx = state.DetailsState._videoRequestExecutor;
+                var oldAReqEx = state.DetailsState._audioRequestExecutor;
+                oldVReqEx?.Cleanup();
+                state.DetailsState._videoRequestExecutor = null;
+                oldAReqEx?.Cleanup();
+                state.DetailsState._audioRequestExecutor = null;
+
+                string videoUrl = null;
+                string audioUrl = null;
+
+                if (videoSource.HasRequestExecutor)
+                    videoUrl = getRequestExecutorProxy("https://grayjay.app/internal/video", videoSource.GetRequestExecutor(), proxySettings);
+                else
+                    throw new NotImplementedException();
+
+
+                foreach (Match representation in DashBuilder.REGEX_REPRESENTATION.Matches(dash))
+                {
+
+                    var representationInner = representation.Groups[2];
+                    var mediaType = representation.Groups[1].Value ?? throw new InvalidDataException("Media type not found for dash representation");
+                    if (DashBuilder.REGEX_BASEURL.IsMatch(representationInner.Value))
+                    {
+                        dash = DashBuilder.REGEX_BASEURL.Replace(dash, new MatchEvaluator((m) =>
+                        {
+                            if (m.Index < representation.Index || (m.Index + m.Length) > (representation.Index + representation.Length))
+                                return m.Value;
+
+                            return $"<BaseURL>{videoUrl}?url={HttpUtility.UrlEncode(m.Groups[1].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}&amp;suffix=</BaseURL>";
+                        }));
+                    }
+                    else
+                    {
+                        dash = DashBuilder.REGEX_MEDIA_INITIALIZATION.Replace(dash, new MatchEvaluator((m) =>
+                        {
+                            if (m.Index < representation.Index || (m.Index + m.Length) > (representation.Index + representation.Length))
+                                return m.Value;
+
+                            if (mediaType.StartsWith("video/"))
+                                return $"{m.Groups[1].Value}=\"{videoUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
+                            else if (mediaType.StartsWith("audio/"))
+                                return $"{m.Groups[1].Value}=\"{audioUrl}?url={HttpUtility.UrlEncode(m.Groups[2].Value).Replace("%24Number%24", "$Number$")}&amp;mediaType={HttpUtility.UrlEncode(mediaType)}\"";
+                            else
+                                throw new InvalidDataException("Expected video or audio? got: " + mediaType);
+                        }));
+                    }
                 }
 
                 return dash;
@@ -944,6 +1025,8 @@ namespace Grayjay.ClientServer.Controllers
                         if (queryParams["url"] != null)
                         {
                             string url = HttpUtility.UrlDecode(queryParams["url"]);
+                            if (queryParams["suffix"] != null)
+                                url = url + queryParams["suffix"];
                             if (reqExecutor.DidCleanup)
                                 return null;
                             var result = reqExecutor.ExecuteRequest(url, new Dictionary<string, string>());
@@ -1074,6 +1157,10 @@ namespace Grayjay.ClientServer.Controllers
                     });
                 if (video.Live is HLSManifestSource)
                     return DirectHLSUrlSource(state, videoIndex, -1, new ProxySettings(true));
+                if(video.Live is DashManifestRawSource das)
+                {
+                    return new SourceDescriptor($"/details/SourceDash?videoIndex={videoIndex}&audioIndex={-1}&subtitleIndex={-1}&videoIsLocal={false}&audioIsLocal={false}&subtitleIsLocal={false}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}&tag={tag}", "application/dash+xml", videoIndex, -1, -1, false, false, false);
+                }
                 else throw new DialogException(new ExceptionModel()
                 {
                     Title = "Livestream type not supported",
