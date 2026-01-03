@@ -380,7 +380,7 @@ public static class HLS
             currentPair.Append(pair);
             if (currentPair.ToString().Count(c => c == '\"') % 2 == 0)
             {
-                var pairParts = currentPair.ToString().Split('=');
+                var pairParts = currentPair.ToString().Split('=', 2);
                 if (pairParts.Length < 2)
                     continue;
                 attributes[pairParts[0].Trim()] = pairParts[1].Trim().Trim('"');
