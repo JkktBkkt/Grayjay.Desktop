@@ -16,7 +16,7 @@
 }
 
 .sideBarButton.selected {
-    background: rgba(255, 255, 255, 0.105);
+    background: #FFF !important;
 }
 
 .sideBarButton.collapsed {
@@ -35,9 +35,8 @@
 
 .sideBarButton.selected .icon {
     margin-left: 35px;
-}
-.sideBarButton.selected .icon {
     opacity: 1.0;
+    filter: invert(1);
 }
 
 .sideBarButton .text {
@@ -55,7 +54,7 @@
     overflow-x: hidden;
 }
 .sideBarButton.selected .text {
-    color: white;
+    color: #000;
 }
 
 .sideBarButton.collapsed .text {

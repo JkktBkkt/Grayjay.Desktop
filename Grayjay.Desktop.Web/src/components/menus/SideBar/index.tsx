@@ -283,6 +283,13 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
           {(btn, i) => {
             const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
+            const handleFocus = () => {
+              globalFocus();
+              // Auto-navigate when focusing via keyboard (not mouse)
+              if (focus?.lastInputSource?.() !== 'pointer') {
+                press();
+              }
+            };
             return (
               <SideBarButton
                 collapsed={isCollapsed()}
@@ -299,7 +306,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                   groupRememberLast: true,
                   onPress: () => press(),
                 }}
-                onFocus={globalFocus}
+                onFocus={handleFocus}
                 onBlur={globalBlur}
               />
             );
@@ -363,6 +370,14 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         <For each={bottomButtons$()}>
           {(btn, i) => {
             const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
+            const isSettings = btn.name === 'Settings';
+            const handleFocus = () => {
+              globalFocus();
+              // Auto-navigate when focusing via keyboard (not mouse), except for Settings which requires Enter
+              if (focus?.lastInputSource?.() !== 'pointer' && !isSettings) {
+                press();
+              }
+            };
             return (
               <SideBarButton
                 collapsed={isCollapsed()}
@@ -378,7 +393,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                   groupRememberLast: true,
                   onPress: press
                 }}
-                onFocus={globalFocus}
+                onFocus={handleFocus}
                 onBlur={globalBlur}
               />
             );
@@ -406,6 +421,13 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                     setMoreOverlayVisible(false);
                     btn.action ? btn.action() : navigateTo(btn.path!, options);
                   };
+                  const handleFocus = () => {
+                    globalFocus();
+                    // Auto-navigate when focusing via keyboard (not mouse)
+                    if (focus?.lastInputSource?.() !== 'pointer') {
+                      press();
+                    }
+                  };
                   return (
                     <SideBarButton
                       collapsed={false}
@@ -430,7 +452,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                         }
                       }}
                       data-more-first={i() === 0 ? "1" : undefined}
-                      onFocus={globalFocus}
+                      onFocus={handleFocus}
                       onBlur={globalBlur}
                     />
                   );

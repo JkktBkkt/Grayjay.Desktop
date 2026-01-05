@@ -17,7 +17,7 @@
 
 .sideBarButton.selected {
     /*border-left: #019BE7 2px solid;*/
-    background: rgba(255, 255, 255, 0.105);
+    background: #FFF !important;
 }
 
 .sideBarButton.collapsed {
@@ -25,7 +25,7 @@
 }
 
 .sideBarButton.selected:focus {
-    background: rgba(255, 255, 255, 0.15);
+    background: #FFF !important;
 }
 
 .sideBarButton:focus {
@@ -43,9 +43,8 @@
 
 .sideBarButton.selected .icon {
     margin-left: 14px;
-}
-.sideBarButton.selected .icon {
     opacity: 1.0;
+    filter: invert(1);
 }
 
 .sideBarButton .text {
@@ -62,7 +61,7 @@
     overflow-x: hidden;
 }
 .sideBarButton.selected .text {
-    color: white;
+    color: #000;
 }
 
 .sideBarButton.collapsed .text {
