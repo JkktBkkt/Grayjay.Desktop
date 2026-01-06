@@ -264,21 +264,15 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         </Show>
         <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>
           <img src={grayjay} />
-          <Show when={!isCollapsed()}>
-            <div style="font-size: 20px; top: 2px; left: 60px; position: absolute;">
+          <div class={styles.grayjayTitle}>
             Grayjay
-            </div>
-          </Show>
-          <Show when={!isCollapsed()}>
-            <div style="font-size: 12px; top: 25px; left: 60px; position: absolute;">
-              Alpha
-            </div>
-          </Show>
-          <Show when={isCollapsed()}>
-            <div style="font-size: 12px; top: 45px; left: 0px; position: absolute; width: 50px; text-align: center;">
-              Alpha
-            </div>
-          </Show>
+          </div>
+          <div class={styles.grayjaySubtitle}>
+            Alpha
+          </div>
+          <div class={styles.grayjaySubtitleCollapsed}>
+            Alpha
+          </div>
         </div>
         <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
           {(btn, i) => {
@@ -335,7 +329,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
           />
         </Show>
       </div>
-      <Show when={!isCollapsed() && subscriptions$()?.length && remainingSpace$() > 200 && focus?.isControllerMode() !== true} fallback={<div style="flex-grow:1"></div>}>
+      <Show when={!isCollapsed() && subscriptions$()?.length && remainingSpace$() > 200 && focus?.isControllerMode() !== true} fallback={<div style="flex-grow:1; width:100%"></div>}>
         <div class={styles.buttonListFill}>
           <div classList={{[styles.expandHeader]: true, [styles.expanded]: expand$()}} onClick={()=>setExpand(!expand$())}>
               Subscriptions

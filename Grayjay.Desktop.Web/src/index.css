@@ -13,6 +13,10 @@ body {
   overflow: hidden;
 }
 
+#root {
+  width: 100%;
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
@@ -49,7 +53,9 @@ code {
   display: flex;
   flex-direction: row;
   height: 100vh;
-  width: 100vw;
+  width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
   overflow: hidden;
 }
 
@@ -58,6 +64,7 @@ code {
   max-height: 100vh;
   overflow: hidden;
   background-color: #141414;
+  width: 100%;
 }
 
 .icon {

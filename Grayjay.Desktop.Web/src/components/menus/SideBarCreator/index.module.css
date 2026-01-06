@@ -1,13 +1,21 @@
 .sideBarButton {
     width: 100%;
-    padding-top: 14px;
-    padding-bottom: 14px;
+    height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: 12px;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: row;
+    align-items: center;
     border-radius: 6px;
     border-left: transparent 2px solid;
-    transition: border-left 0.3s;
+    transition: border-left 0.3s ease-in-out, width 0.3s ease-in-out, height 0.3s ease-in-out, padding-left 0.3s ease-in-out, margin-left 0.3s ease-in-out, margin-right 0.3s ease-in-out;
 }
 
 .sideBarButton:hover {
@@ -20,34 +28,60 @@
 }
 
 .sideBarButton.collapsed {
-        
+    width: 44px;
+    height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 0;
+    margin-bottom: 0;
+    justify-content: center;
+    align-items: center;
+    transition: border-left 0.3s ease-in-out, width 0.3s ease-in-out, height 0.3s ease-in-out, padding-left 0.3s ease-in-out, margin-left 0.3s ease-in-out, margin-right 0.3s ease-in-out;
 }
 
 .sideBarButton .icon {
     height: 32px;
     width: 32px;
-    margin-left: 12px;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
     opacity: 1.0;
     border-radius: 100px;
+    transition: margin-left 0.3s ease-in-out, margin-right 0.3s ease-in-out, margin-top 0.3s ease-in-out, margin-bottom 0.3s ease-in-out, opacity 0.3s ease-in-out;
+}
 
-    transition: margin-left 0.3s;
+.sideBarButton.collapsed .icon {
+    margin-left: 0;
 }
 
 .sideBarButton.selected .icon {
-    margin-left: 35px;
+    margin-left: 0;
     opacity: 1.0;
     filter: invert(1);
 }
 
+.sideBarButton.collapsed.selected .icon {
+    margin-left: 0;
+}
+
 .sideBarButton .text {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 14px;
     margin-left: 12px;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
     line-height: 32px;
-    transition: opacity 0.3s ease;
+    transition: opacity 0s ease-in-out 0.3s, width 0.3s ease-in-out, max-width 0.3s ease-in-out, margin-left 0.3s ease-in-out, margin-right 0.3s ease-in-out, margin-top 0.3s ease-in-out, margin-bottom 0.3s ease-in-out;
     opacity: 1;
     color: #BFBFBF;
-    
+    width: auto;
+    max-width: 172px;
     white-space: nowrap;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -58,5 +92,5 @@
 }
 
 .sideBarButton.collapsed .text {
-    opacity: 0;
+    display: none;
 }

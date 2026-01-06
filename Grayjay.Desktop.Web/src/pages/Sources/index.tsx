@@ -231,18 +231,13 @@ const SourcesPage: Component = () => {
         </div>
       </Show>
       <Show when={enabledSources$() && disabledSources$() && (enabledSources$()!.length + disabledSources$()!.length == 0)}>
-        <EmptyContentView icon={iconSources} title='You have no sources' description='Please install some sources to use Grayjay.' actions={[
+        <EmptyContentView icon={iconSources} title='Add platforms to start watching' description='Grayjay plays videos from YouTube, Twitch, Rumble, and more—all in one app.' actions={[
             {
               icon: iconGrayjay,
-              title: "Install Official Sources",
+              title: "Add Platforms",
               action: ()=>{
                 UIOverlay.overlayOfficialPlugins();
               }
-            },
-            {
-              icon: iconSources,
-              title: "Install Other Source",
-              action: ()=>installSource()
             }
         ]} />
       </Show>
