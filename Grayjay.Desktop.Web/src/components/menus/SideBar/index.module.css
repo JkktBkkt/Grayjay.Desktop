@@ -1,27 +1,42 @@
 .sidebar {
-    width: 260px;
+    width: 240px;
     height: calc(100vh - 20px);
     border-right: #2E2E2E 1px solid;
     background: #1B1B1B;
-    padding: 10px;
+    padding-top: 8px;
+    padding-right: 16px;
+    padding-bottom: 8px;
+    padding-left: 16px;
+    gap: 0px;
     display: flex;
     flex-direction: column;
+    justify-content: center;
+    align-items: center;
     flex-shrink: 0;
-    /*transition: width 0.3s ease;*/
+    transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1), padding-right 300ms cubic-bezier(0.4, 0, 0.2, 1), padding-left 300ms cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+    overflow: hidden;
+    text-align: center;
 }
 
 .sidebar.collapsed {
-    width: 48px;
-    margin-left: auto;
-    margin-right: auto;
+    width: 46px;
+    align-items: center;
+    padding-top: 8px;
+    padding-right: 6px;
+    padding-bottom: 8px;
+    padding-left: 6px;
 }
 
 .buttonList {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 6px;
+    width: 100%;
+    height: fit-content;
+    text-align: center;
 }
 .buttonListFill {
     display: flex;
@@ -38,11 +53,8 @@
 .buttonListBottom {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     gap: 4px;
     border-top: 1px solid #2E2E2E;
     padding-bottom: 0px;
@@ -52,8 +64,8 @@
 
 .collapse {
     width: 24px;
-    height: 24px;
-    padding: 16px;
+    height: 20px;
+    padding: 12px;
     cursor: pointer;
     border-radius: 6px;
 }
@@ -85,10 +97,16 @@
     width: 100%;
     align-items: center;
     justify-content: end;
-    margin-top: 16px;
-    margin-left: 4px;
+    margin-top: 4px;
+    margin-left: 0px;
     margin-right: auto;
     margin-bottom: 4px;
+    transition: margin-left 0.3s ease-in-out;
+}
+
+.sidebar.collapsed .containerCollapse {
+    justify-content: end;
+    margin-left: 0;
 }
 
 .expandHeader {
@@ -104,6 +122,7 @@
     letter-spacing: 2.94px;
     color: #8C8C8C;
     font-size: 14px;
+    font-weight: 600;
     cursor: pointer;
 }
 .expandHeader .toggle {
@@ -125,10 +144,11 @@
     flex-direction: row;
     align-items: center;
     flex-shrink: 0;
-    gap: 8px;
+    gap: 0px;
     width: 100%;
-    margin-left: 4px;
-    margin-bottom: 8px;
+    height: 40px;
+    margin-left: 0;
+    margin-bottom: 20px;
     color: #FFF;
     font-family: Sen;
     font-size: 20px;
@@ -136,4 +156,69 @@
     font-weight: 700;
     line-height: normal;
     position: relative;
+    transition: margin-left 0.3s ease-in-out;
+}
+
+.sidebar.collapsed .grayjay {
+    margin-left: 0;
+    justify-content: flex-start;
+}
+
+.grayjay img {
+    width: 44px;
+}
+
+.grayjayTitle {
+    font-size: 20px;
+    font-weight: 800;
+    vertical-align: middle;
+    top: 2px;
+    left: 60px;
+    position: absolute;
+    opacity: 1;
+    transition: opacity 200ms ease;
+    pointer-events: none;
+}
+
+.sidebar.collapsed .grayjayTitle {
+    opacity: 0;
+}
+
+.grayjaySubtitle {
+    font-size: 12px;
+    top: 25px;
+    left: 60px;
+    position: absolute;
+    opacity: 1;
+    font-weight: 400;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    color: rgba(5, 163, 231, 1);
+    pointer-events: none;
+    transition: opacity 200ms ease;
+    vertical-align: middle;
+}
+
+.sidebar.collapsed .grayjaySubtitle {
+    opacity: 0;
+}
+
+.grayjaySubtitleCollapsed {
+    font-size: 12px;
+    top: 40px;
+    left: 0px;
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    vertical-align: middle;
+    color: rgba(5, 163, 231, 1);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 400;
+    transition: opacity 200ms ease;
+}
+
+.sidebar.collapsed .grayjaySubtitleCollapsed {
+    opacity: 0.9;
+    width: 100%;
 }
