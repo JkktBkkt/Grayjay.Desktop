@@ -6,21 +6,21 @@ import { NavigateOptions, useLocation, useNavigate } from '@solidjs/router';
 import { useVideo } from '../../../contexts/VideoProvider';
 import grayjay from '../../../assets/grayjay.svg';
 
-import home from '../../../assets/icons/icon_nav_home.png';
-import subscriptions from '../../../assets/icons/icon_nav_subscriptions.png';
-import playlists from '../../../assets/icons/icon_nav_playlists.png';
-import creators from '../../../assets/icons/icon_nav_creators.png';
-import ic_sidebarOpen from '../../../assets/icons/sidebar-open.png';
-import ic_sidebarClose from '../../../assets/icons/sidebar-close.png';
+import home from '../../../assets/icons/icon_nav_home.svg';
+import subscriptions from '../../../assets/icons/icon_nav_subscriptions.svg';
+import playlists from '../../../assets/icons/icon_nav_playlists.svg';
+import creators from '../../../assets/icons/icon_nav_creators.svg';
+import ic_sidebarOpen from '../../../assets/icons/sidebar-open.svg';
+import ic_sidebarClose from '../../../assets/icons/sidebar-close.svg';
 import ic_more from '../../../assets/icons/icon_button_more.svg';
-import history from '../../../assets/icons/icon_nav_history.png';
-import download from '../../../assets/icons/icon24_download.png';
+import history from '../../../assets/icons/icon_nav_history.svg';
+import download from '../../../assets/icons/icon24_download.svg';
 import iconSync from '../../../assets/icons/ic_sync.svg';
-import iconWatchLater from '../../../assets/icons/icon24_watch_later.png';
+import iconWatchLater from '../../../assets/icons/icon24_watch_later.svg';
 import iconSettings from '../../../assets/icons/ic_settings_color.svg';
 import iconBuy from '../../../assets/icons/ic_buy.svg';
 import iconLink from '../../../assets/icons/icon_link.svg';
-import iconSources from '../../../assets/icons/ic_circles.png';
+import sources from '../../../assets/icons/ic_circles.svg';
 import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
 import iconPlus from '../../../assets/icons/icon24_add.svg';
 import iconExitToApp from '../../../assets/icons/icon_exit_to_app.svg';
@@ -90,6 +90,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   type ButtonItem = {
     icon: string;
     name: string;
+    subtitle?: string;
     getSelected: Accessor<boolean>;
     path?: string;
     action?: () => any;
@@ -101,7 +102,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const creatorsBtn: ButtonItem = { icon: creators, name: 'Creators', path: '/web/creators', getSelected: createMemo(() => location.pathname === '/web/creators') };
   const playlistsBtn: ButtonItem = { icon: playlists, name: 'Playlists', path: '/web/playlists', getSelected: createMemo(() => location.pathname === '/web/playlists') };
   const watchLaterBtn: ButtonItem = { icon: iconWatchLater, name: 'Watch Later', path: '/web/watchLater', getSelected: createMemo(() => location.pathname === '/web/watchLater') };
-  const sourcesBtn: ButtonItem = { icon: iconSources, name: 'Sources', path: '/web/sources', getSelected: createMemo(() => location.pathname === '/web/sources') };
+  const sourcesBtn: ButtonItem = { icon: sources, name: 'Sources', path: '/web/sources', getSelected: createMemo(() => location.pathname === '/web/sources') };
   const downloadsBtn: ButtonItem = { icon: download, name: 'Downloads', path: '/web/downloads', getSelected: createMemo(() => location.pathname === '/web/downloads') };
   const historyBtn: ButtonItem = { icon: history, name: 'History', path: '/web/history', getSelected: createMemo(() => location.pathname === '/web/history') };
   const syncBtn: ButtonItem = { icon: iconSync, name: 'Sync', path: '/web/sync', getSelected: createMemo(() => location.pathname === '/web/sync') };
@@ -140,7 +141,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const [remainingSpace$, setRemainingSpace] = createSignal<number>(0);
   const [topButtonListHeight$, setTopButtonListHeight] = createSignal<number>(0);
 
-  const buyBtn: ButtonItem = { icon: iconBuy, name: 'Buy Grayjay', path: '/web/buy', getSelected: createMemo(() => location.pathname === '/web/buy') };
+  const buyBtn: ButtonItem = { icon: iconBuy, name: 'Buy Grayjay', subtitle: 'Support development. One-time license', path: '/web/buy', getSelected: createMemo(() => location.pathname === '/web/buy') };
   const settingsBtn: ButtonItem = { icon: iconSettings, name: 'Settings', action: () => UIOverlay.overlaySettings(), getSelected: createMemo(() => location.pathname === '/web/settings') };
 
   const bottomButtons$ = createMemo(() => {
@@ -364,6 +365,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 collapsed={isCollapsed()}
                 icon={btn.icon}
                 name={btn.name}
+                subtitle={btn.subtitle}
                 selected={btn.getSelected()}
                 onClick={press}
                 focusableOpts={{

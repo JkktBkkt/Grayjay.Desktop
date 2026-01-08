@@ -48,8 +48,14 @@
     filter: brightness(0);
 }
 
+.sideBarButton .textContainer {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .sideBarButton .text {
-    font-weight: 400;
+    font-weight: 500;
     font-size: 15px;
     line-height: 32px;
     margin-left: 10px;
@@ -69,4 +75,20 @@
 
 .sideBarButton.collapsed .text {
     opacity: 0;
+}
+
+.sideBarButton .subtitle {
+    font-weight: 400;
+    font-size: 11px;
+    line-height: 14px;
+    margin-left: 10px;
+    color: #8C8C8C;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    transition: opacity 0.3s ease;
+}
+
+.sideBarButton.selected .subtitle {
+    color: #4A4A4A;
 }
