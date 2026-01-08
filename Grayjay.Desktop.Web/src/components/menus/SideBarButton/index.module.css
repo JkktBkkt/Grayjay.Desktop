@@ -17,19 +17,17 @@
 
 .sideBarButton.selected {
     /*border-left: #019BE7 2px solid;*/
-    background: rgba(255, 255, 255, 0.105);
+    background: #FFFFFF;
 }
 
-.sideBarButton.collapsed {
-        
-}
+.sideBarButton.collapsed {}
 
 .sideBarButton.selected:focus {
-    background: rgba(255, 255, 255, 0.15);
+    background: #FFFFFF;
 }
 
 .sideBarButton:focus {
-  background: rgba(255, 255, 255, 0.055);
+    background: rgba(255, 255, 255, 0.055);
 }
 
 .sideBarButton .icon {
@@ -44,8 +42,10 @@
 .sideBarButton.selected .icon {
     margin-left: 14px;
 }
+
 .sideBarButton.selected .icon {
     opacity: 1.0;
+    filter: brightness(0);
 }
 
 .sideBarButton .text {
@@ -60,9 +60,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow-x: hidden;
+    transition: opacity 0.3s ease;
 }
+
 .sideBarButton.selected .text {
-    color: white;
+    color: #1B1B1B;
 }
 
 .sideBarButton.collapsed .text {
