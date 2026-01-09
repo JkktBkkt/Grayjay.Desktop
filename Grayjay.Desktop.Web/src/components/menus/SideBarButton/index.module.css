@@ -31,16 +31,12 @@
 }
 
 .sideBarButton .icon {
-    height: 22px;
-    width: 22px;
-    margin-left: 14px;
-    margin-top: 4px;
+    height: 24px;
+    width: 24px;
+    margin-left: 12px;
+    margin-top: 3px;
     opacity: 0.8;
     transition: margin-left 0.3s;
-}
-
-.sideBarButton.selected .icon {
-    margin-left: 14px;
 }
 
 .sideBarButton.selected .icon {
@@ -56,11 +52,11 @@
 
 .sideBarButton .text {
     font-weight: 500;
-    font-size: 15px;
+    font-size: 16px;
     line-height: 32px;
-    margin-left: 10px;
+    margin-left: 8px;
     opacity: 1;
-    color: #BFBFBF;
+    color: #f5f5f5;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -91,4 +87,22 @@
 
 .sideBarButton.selected .subtitle {
     color: #4A4A4A;
+}
+
+.sideBarButton.highlight {
+    transition: background 0.2s ease;
+}
+
+.sideBarButton.highlight:hover,
+.sideBarButton.highlight.selected {
+    background: #0084D3;
+}
+
+.sideBarButton.highlight .icon {
+    opacity: 1.0;
+    filter: none;
+}
+
+.sideBarButton.highlight .text {
+    color: #ffffff;
 }

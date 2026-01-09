@@ -19,6 +19,7 @@ import iconSync from '../../../assets/icons/ic_sync.svg';
 import iconWatchLater from '../../../assets/icons/icon24_watch_later.svg';
 import iconSettings from '../../../assets/icons/ic_settings_color.svg';
 import iconBuy from '../../../assets/icons/ic_buy.svg';
+import iconBuyHover from '../../../assets/icons/ic_buy_hover.svg';
 import iconLink from '../../../assets/icons/icon_link.svg';
 import sources from '../../../assets/icons/ic_circles.svg';
 import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
@@ -89,8 +90,10 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
 
   type ButtonItem = {
     icon: string;
+    iconHover?: string;
     name: string;
     subtitle?: string;
+    highlight?: boolean;
     getSelected: Accessor<boolean>;
     path?: string;
     action?: () => any;
@@ -141,7 +144,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const [remainingSpace$, setRemainingSpace] = createSignal<number>(0);
   const [topButtonListHeight$, setTopButtonListHeight] = createSignal<number>(0);
 
-  const buyBtn: ButtonItem = { icon: iconBuy, name: 'Buy Grayjay', subtitle: 'Support development. One-time license', path: '/web/buy', getSelected: createMemo(() => location.pathname === '/web/buy') };
+  const buyBtn: ButtonItem = { icon: iconBuy, iconHover: iconBuyHover, name: 'Buy Grayjay', path: '/web/buy', highlight: true, getSelected: createMemo(() => location.pathname === '/web/buy') };
   const settingsBtn: ButtonItem = { icon: iconSettings, name: 'Settings', action: () => UIOverlay.overlaySettings(), getSelected: createMemo(() => location.pathname === '/web/settings') };
 
   const bottomButtons$ = createMemo(() => {
@@ -364,8 +367,10 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
               <SideBarButton
                 collapsed={isCollapsed()}
                 icon={btn.icon}
+                iconHover={btn.iconHover}
                 name={btn.name}
                 subtitle={btn.subtitle}
+                highlight={btn.highlight}
                 selected={btn.getSelected()}
                 onClick={press}
                 focusableOpts={{
