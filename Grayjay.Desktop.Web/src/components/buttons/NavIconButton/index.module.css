@@ -1,0 +1,24 @@
+.button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 0;
+    transition: background 0.12s ease-in-out;
+    flex-shrink: 0;
+}
+
+.button:hover {
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.button img {
+    display: block;
+    width: 24px;
+    height: 24px;
+}

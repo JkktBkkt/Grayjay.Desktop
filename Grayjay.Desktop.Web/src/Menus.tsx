@@ -17,9 +17,9 @@ import { SubscriptionsBackend } from "./backend/SubscriptionsBackend";
 export class Menus {
     static getSubscriptionMenu(subscription: ISubscription, subscriptionSettings: ISubscriptionSettings, sourceState?: ISourceConfigState) {
         const hasStreams = (sourceState?.capabilitiesChannel?.types?.indexOf("STREAMS") ?? -1) !== -1;
-        const hasVideos = (sourceState?.capabilitiesChannel?.types?.indexOf("VIDEOS") ?? -1) !== -1 
-          || (sourceState?.capabilitiesChannel?.types?.indexOf("MIXED") ?? -1) !== -1
-          || (sourceState?.capabilitiesChannel?.types?.length ?? 0) === 0;
+        const hasVideos = (sourceState?.capabilitiesChannel?.types?.indexOf("VIDEOS") ?? -1) !== -1
+            || (sourceState?.capabilitiesChannel?.types?.indexOf("MIXED") ?? -1) !== -1
+            || (sourceState?.capabilitiesChannel?.types?.length ?? 0) === 0;
 
         return {
             subscription,
@@ -69,27 +69,27 @@ export class Menus {
 
     static getPlaylistItems(id: string, afterRemove?: () => void) {
         return [
-          new MenuItemButton("Rename", ic_addToPlaylist, undefined, () => {
-              UIOverlay.overlayTextPrompt("Playlist rename", "Enter the new name for the playlist.", "Some name", "Rename", async (str)=>{
-                if(str && str.length > 0)
-                    await PlaylistsBackend.renamePlaylist(id, str);
-              });
-          }),
-          new MenuItemButton("Download", ic_download, undefined, async () => {
-              const playlist = await PlaylistsBackend.get(id);
-              UIOverlay.overlayDownloadPlaylist(playlist.id, (px, bitrate)=>{
+            new MenuItemButton("Rename", ic_addToPlaylist, undefined, () => {
+                UIOverlay.overlayTextPrompt("Playlist rename", "Enter the new name for the playlist.", "Some name", "Rename", async (str) => {
+                    if (str && str.length > 0)
+                        await PlaylistsBackend.renamePlaylist(id, str);
+                });
+            }),
+            new MenuItemButton("Download", ic_download, undefined, async () => {
+                const playlist = await PlaylistsBackend.get(id);
+                UIOverlay.overlayDownloadPlaylist(playlist.id, (px, bitrate) => {
 
-              });
-          }),
-          new MenuSeperator(),
-          new MenuItemButton("Remove", ic_trash, undefined, async () => {
-            UIOverlay.overlayConfirm({
-              yes: async () => {
-                await PlaylistsBackend.delete(id)
-                afterRemove?.();
-              }
-            });
-          })
+                });
+            }),
+            new MenuSeperator(),
+            new MenuItemButton("Remove", ic_trash, undefined, async () => {
+                UIOverlay.overlayConfirm({
+                    yes: async () => {
+                        await PlaylistsBackend.delete(id)
+                        afterRemove?.();
+                    }
+                });
+            })
         ];
-      };
+    };
 }

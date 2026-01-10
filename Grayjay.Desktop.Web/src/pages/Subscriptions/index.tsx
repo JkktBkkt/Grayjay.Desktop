@@ -50,18 +50,18 @@ const SubscriptionsPage: Component = () => {
   const navigate = useNavigate();
 
   const [subProgress$, setSubProgress] = createSignal<number>(0);
-  
+
   let [selectedCreators$, setSelectedCreators] = createSignal<string[]>([]);
-  const hasSelectedCreator$ = createMemo(()=> selectedCreators$() && selectedCreators$().length > 0);
+  const hasSelectedCreator$ = createMemo(() => selectedCreators$() && selectedCreators$().length > 0);
   let [selectedGroup$, setSelectedGroup] = createSignal<string>();
 
-  StateWebsocket.registerHandlerNew("subProgress", (packet)=>{
+  StateWebsocket.registerHandlerNew("subProgress", (packet) => {
     setSubProgress(packet.payload.progress / packet.payload.total);
   }, "subsbar");
-  StateWebsocket.registerHandlerNew("SubscriptionGroupsChanged", (packet)=>{
+  StateWebsocket.registerHandlerNew("SubscriptionGroupsChanged", (packet) => {
     subGroupsResource.refetch()
   }, "subsbar");
-  StateWebsocket.registerHandlerNew("SubscriptionsChanged", (packet)=>{
+  StateWebsocket.registerHandlerNew("SubscriptionsChanged", (packet) => {
     subsResource.refetch();
   }, "subsbar");
 
@@ -70,7 +70,7 @@ const SubscriptionsPage: Component = () => {
     return await SubscriptionsBackend.subscriptions();
   });
   const [subGroups$, subGroupsResource] = createResourceDefault(async () => [], async () => await SubscriptionsBackend.subscriptionGroups());
-  
+
   const [subCachePager$, subPagerCacheResource] = createResourceDefault(async () => {
     return await SubscriptionsBackend.subscriptionCachePager();
   });
@@ -83,30 +83,30 @@ const SubscriptionsPage: Component = () => {
   });
   const [subGroupPager$, subGroupPagerResource] = createResourceDefault(async () => {
     const id = selectedGroup$();
-    if(!id)
+    if (!id)
       return undefined;
 
     return await SubscriptionsBackend.subscriptionGroupPager(id, false);
   });
   const [filterPager$, filterPagerResource] = createResourceDefault(async () => {
     const url = selectedCreators$();
-    if(!url || url.length == 0)
+    if (!url || url.length == 0)
       return undefined;
 
-    const filterPager =  await SubscriptionsBackend.subscriptionFilterChannelPager(url[0]);
+    const filterPager = await SubscriptionsBackend.subscriptionFilterChannelPager(url[0]);
     return filterPager;
   });
-  createEffect(()=>{
+  createEffect(() => {
     console.log("Group changed: " + selectedGroup$());
     subGroupPagerResource.refetch();
   });
-  const currentPager$ = createMemo(()=>{
-    if(!selectedGroup$()) {
-      if(selectedCreators$() && selectedCreators$().length > 0 && filterPager$.state == "ready") {
+  const currentPager$ = createMemo(() => {
+    if (!selectedGroup$()) {
+      if (selectedCreators$() && selectedCreators$().length > 0 && filterPager$.state == "ready") {
         const filterPagerResult = filterPager$();
         return filterPagerResult;
       }
-      if(subPager$.state == "ready" && subPager$()?.hadInitialUpdate$())
+      if (subPager$.state == "ready" && subPager$()?.hadInitialUpdate$())
         return subPager$();
       else
         return subCachePager$();
@@ -114,10 +114,10 @@ const SubscriptionsPage: Component = () => {
     else
       return subGroupPager$();
   });
-  createEffect(()=>{
+  createEffect(() => {
     const pager = currentPager$();
-    console.log("Current pager changed", {filteredItems: pager?.dataFiltered.length, items: pager?.data.length});
-    if(pager)
+    console.log("Current pager changed", { filteredItems: pager?.dataFiltered.length, items: pager?.data.length });
+    if (pager)
       updateFilter(pager, getFilter());
   })
 
@@ -129,7 +129,7 @@ const SubscriptionsPage: Component = () => {
     Planned,
     Watched
   }
-  
+
   const filters = [
     {
       name: "Media",
@@ -156,36 +156,36 @@ const SubscriptionsPage: Component = () => {
       active: createSignal(true)
     }
   ];
-  function toggleFilter(index: number){
+  function toggleFilter(index: number) {
     filters[index].active[1](!filters[index].active[0]());
     const pager = currentPager$();
-    if(pager)
+    if (pager)
       updateFilter(pager, getFilter());
   }
   function getFilter() {
-    return (obj: IPlatformContent)=>{
+    return (obj: IPlatformContent) => {
       //const creators = selectedCreators$();
       //if(creators.length > 0 && creators.indexOf(obj.author.url) < 0)
       //  return false;
 
-      if(obj.contentType == ContentType.MEDIA) {
+      if (obj.contentType == ContentType.MEDIA) {
         const video = obj as IPlatformVideo;
         if (!filters[FilterType.Media].active[0]())
           return false;
-        if(!filters[FilterType.Live].active[0]() && video.isLive)
+        if (!filters[FilterType.Live].active[0]() && video.isLive)
           return false;
-        if(!filters[FilterType.Planned].active[0]() && ((dateFromAny(video.dateTime)?.diffNow()?.milliseconds ?? 0) > 0))
+        if (!filters[FilterType.Planned].active[0]() && ((dateFromAny(video.dateTime)?.diffNow()?.milliseconds ?? 0) > 0))
           return false;
       }
-      else if(obj.contentType == ContentType.POST && !filters[FilterType.Posts].active[0]())
+      else if (obj.contentType == ContentType.POST && !filters[FilterType.Posts].active[0]())
         return false;
-      else if(obj.contentType == ContentType.PLAYLIST && !filters[FilterType.Playlists].active[0]())
+      else if (obj.contentType == ContentType.PLAYLIST && !filters[FilterType.Playlists].active[0]())
         return false;
-      else if(obj.contentType == ContentType.NESTED_VIDEO && !filters[FilterType.Media].active[0]())
+      else if (obj.contentType == ContentType.NESTED_VIDEO && !filters[FilterType.Media].active[0]())
         return false;
 
-      if(!filters[FilterType.Watched].active[0]()) {
-        if(((obj as any)?.metadata)?.watched)
+      if (!filters[FilterType.Watched].active[0]()) {
+        if (((obj as any)?.metadata)?.watched)
           return false;
       }
       return true;
@@ -193,7 +193,7 @@ const SubscriptionsPage: Component = () => {
   }
 
   function toggleCreator(channelUrl: string) {
-    if(selectedCreators$() && selectedCreators$().indexOf(channelUrl) >= 0)
+    if (selectedCreators$() && selectedCreators$().indexOf(channelUrl) >= 0)
       setSelectedCreators([]);
     else
       setSelectedCreators([channelUrl]);
@@ -210,7 +210,7 @@ const SubscriptionsPage: Component = () => {
       */
   }
 
-  function updateFilter(pager: Pager<IPlatformContent>, condition: (obj: IPlatformContent)=>boolean){
+  function updateFilter(pager: Pager<IPlatformContent>, condition: (obj: IPlatformContent) => boolean) {
     pager.setFilter(condition);
   }
 
@@ -219,12 +219,12 @@ const SubscriptionsPage: Component = () => {
   const reloadMenu = {
     title: "",
     items: [
-      new MenuItemButton("Reload from Update", iconRefresh, "Updates the subscriptions", ()=>{
+      new MenuItemButton("Reload from Update", iconRefresh, "Updates the subscriptions", () => {
         doUpdate = true;
         subPagerResource.refetch();
         setShowReloadMenu(false);
       }),
-      new MenuItemButton("Reload from Cache", iconRefresh, "Just reloads the cached view", ()=>{
+      new MenuItemButton("Reload from Cache", iconRefresh, "Just reloads the cached view", () => {
         doUpdate = false;
         subPagerResource.refetch();
         setShowReloadMenu(false);
@@ -236,7 +236,7 @@ const SubscriptionsPage: Component = () => {
   }
 
   function newSubscriptionGroup() {
-    UIOverlay.overlayNewSubscriptionGroup((group)=>{
+    UIOverlay.overlayNewSubscriptionGroup((group) => {
       subGroupsResource.refetch();
     });
   }
@@ -263,10 +263,10 @@ const SubscriptionsPage: Component = () => {
     } as DialogDescriptor)
   }
 
-  const hasSubGroups$ = createMemo(()=>{
+  const hasSubGroups$ = createMemo(() => {
     return subGroups$() && subGroups$()!.length > 0;
   })
-  createEffect(()=>{
+  createEffect(() => {
     const subs = subGroups$();
     const a = subs;
   })
@@ -276,25 +276,25 @@ const SubscriptionsPage: Component = () => {
   return (
     <div class={styles.container}>
       <NavigationBar isRoot={true} childrenAfter={
-          <img src={iconRefresh} style={{"margin-left": "24px", "cursor": "pointer", "height": "30px", "width": "30px" }}
-            ref={setReloadButtonRef}
-            use:focusable={{ 
-              onPress: () => setShowReloadMenu(true),
-              groupId: 'nav-bar',
-              groupIndices: [1],
-              groupType: 'horizontal'
-            }}
-            onClick={()=>{ setShowReloadMenu(true) }} />
+        <img src={iconRefresh} style={{ "margin-left": "24px", "cursor": "pointer", "height": "30px", "width": "30px" }}
+          ref={setReloadButtonRef}
+          use:focusable={{
+            onPress: () => setShowReloadMenu(true),
+            groupId: 'nav-bar',
+            groupIndices: [1],
+            groupType: 'horizontal'
+          }}
+          onClick={() => { setShowReloadMenu(true) }} />
       } />
       <ScrollContainer ref={scrollContainerRef}>
         <Show when={subs$() && subs$()!.length > 0}>
           <div style="flex-shrink: 0; position: relative;">
             <div class={styles.subBar}>
               <For each={subs$()}>{(sub, i) =>
-                <div 
-                  class={styles.channel} 
-                  onClick={() => toggleCreator(sub.channel.url)} 
-                  classList={{[styles.active]: selectedCreators$().indexOf(sub.channel.url) >= 0}} 
+                <div
+                  class={styles.channel}
+                  onClick={() => toggleCreator(sub.channel.url)}
+                  classList={{ [styles.active]: selectedCreators$().indexOf(sub.channel.url) >= 0 }}
                   use:focusable={{
                     groupEscapeTo: {
                       down: ['subgroups', 'filters']
@@ -302,7 +302,7 @@ const SubscriptionsPage: Component = () => {
                     groupId: 'creators',
                     groupIndices: [i()],
                     groupType: 'horizontal',
-                    onPress: () => toggleCreator(sub.channel.url) 
+                    onPress: () => toggleCreator(sub.channel.url)
                   }}
                 >
                   <div>
@@ -331,7 +331,7 @@ const SubscriptionsPage: Component = () => {
                 <div class={styles.bannerButtons}>
                   <Button text="Create a subscription group" color="linear-gradient(267deg, #01D6E6 -100.57%, #0182E7 90.96%)" focusColor="linear-gradient(267deg, #00eeffff -100.57%, #0091ffff 90.96%)"
                     onClick={() => newSubscriptionGroup()} focusableOpts={{ onPress: () => newSubscriptionGroup() }} />
-                  <Button text="Dismiss" color="transparant" focusColor="#FFFFFF22" style={{ border: "1px solid rgba(1, 155, 231, 0)", "margin-left": "16px" }} 
+                  <Button text="Dismiss" color="transparant" focusColor="#FFFFFF22" style={{ border: "1px solid rgba(1, 155, 231, 0)", "margin-left": "16px" }}
                     onClick={() => dismissSubscriptionGroups()} focusableOpts={{ onPress: () => dismissSubscriptionGroups() }} />
                 </div>
               </div>
@@ -372,7 +372,7 @@ const SubscriptionsPage: Component = () => {
                   class={styles.subgroup}
                   style="cursor: pointer"
                   onClick={() => newSubscriptionGroup()}
-                  use:focusable={{ 
+                  use:focusable={{
                     groupEscapeTo: {
                       down: ['filters'],
                       up: ['creators']
@@ -380,7 +380,7 @@ const SubscriptionsPage: Component = () => {
                     groupId: 'subgroups',
                     groupType: 'horizontal',
                     groupIndices: [subGroups$()?.length ?? 0],
-                    onPress: () => newSubscriptionGroup() 
+                    onPress: () => newSubscriptionGroup()
                   }}
                 >
                   <div class={styles.image} style={{ background: "#222" }} />
@@ -391,10 +391,10 @@ const SubscriptionsPage: Component = () => {
             <Show when={!!filters}>
               <div class={styles.filters}>
                 <For each={filters}>{(filter, i) =>
-                  <div 
+                  <div
                     class={styles.filter}
-                    classList={{[styles.active]: filter.active[0]()}}
-                    onClick={()=>toggleFilter(i())}
+                    classList={{ [styles.active]: filter.active[0]() }}
+                    onClick={() => toggleFilter(i())}
                     use:focusable={{
                       groupEscapeTo: {
                         up: ['subgroups', 'creators']
@@ -402,7 +402,7 @@ const SubscriptionsPage: Component = () => {
                       groupId: 'filters',
                       groupType: 'horizontal',
                       groupIndices: [i()],
-                      onPress: () => toggleFilter(i()) 
+                      onPress: () => toggleFilter(i())
                     }}
                   >
                     <div class={styles.name}>
@@ -413,9 +413,9 @@ const SubscriptionsPage: Component = () => {
               </div>
             </Show>
             <Show when={subProgress$() > 0 && subProgress$() < 1}>
-                <div style={{height: "2px", width: (subProgress$() * 100) + "%", position: "absolute", bottom: "1px", background: "linear-gradient(267deg, rgb(1, 214, 230) -100.57%, rgb(1, 130, 231) 90.96%)"}}>
-                </div>
-              </Show>
+              <div style={{ height: "2px", width: (subProgress$() * 100) + "%", position: "absolute", bottom: "1px", background: "linear-gradient(267deg, rgb(1, 214, 230) -100.57%, rgb(1, 130, 231) 90.96%)" }}>
+              </div>
+            </Show>
           </div>
           <Show when={!currentPager$() || (hasSelectedCreator$() && filterPager$.state != "ready")}>
             <LoaderGrid itemCount={18} />
@@ -423,7 +423,7 @@ const SubscriptionsPage: Component = () => {
           <Show when={currentPager$() && (!hasSelectedCreator$() || filterPager$.state == "ready")}>
             <div class={styles.content}>
               <Portal>
-                <SettingsMenu menu={reloadMenu} show={showReloadMenu$()} anchor={anchor} onHide={()=>setShowReloadMenu(false)} />
+                <SettingsMenu menu={reloadMenu} show={showReloadMenu$()} anchor={anchor} onHide={() => setShowReloadMenu(false)} />
               </Portal>
               <ContentGrid pager={currentPager$()} outerContainerRef={scrollContainerRef} useCache={true} openChannelButton={true} />
             </div>
@@ -431,21 +431,21 @@ const SubscriptionsPage: Component = () => {
         </Show>
         <Show when={(!subs$() || subs$()!.length == 0) && !subs$.loading}>
 
-          <EmptyContentView 
+          <EmptyContentView
             icon={iconSubscriptions}
             title='You have no subscriptions'
             description='Subscribe to some creators or import them from elsewhere.'
             actions={[
               {
-                icon:iconSubscriptions,
+                icon: iconSubscriptions,
                 title: "Import Subscriptions",
-                action: ()=>{UIOverlay.dismiss(); UIOverlay.overlayImportSelect()}
+                action: () => { UIOverlay.dismiss(); UIOverlay.overlayImportSelect() }
               },
               {
                 icon: iconSearch,
                 title: "Search Creators",
                 color: "#019BE7",
-                action: ()=>{navigate("/web/search?type=" + ContentType.CHANNEL)}
+                action: () => { navigate("/web/search?type=" + ContentType.CHANNEL) }
               }
             ]} />
         </Show>

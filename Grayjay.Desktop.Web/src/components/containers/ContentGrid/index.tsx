@@ -38,9 +38,9 @@ import LockedContentThumbnailView from "../../content/LockedContentThumbnailView
 import { IPlatformLockedContent } from "../../../backend/models/content/IPlatformLockedContent";
 import { LocalBackend } from "../../../backend/LocalBackend";
 import { Event0, Event1 } from "../../../utility/Event";
-import { focusable } from "../../../focusable";import { FocusableOptions, InputSource } from "../../../nav";
+import { focusable } from "../../../focusable"; import { FocusableOptions, InputSource } from "../../../nav";
 import { useFocus } from "../../../FocusProvider";
- void focusable;
+void focusable;
 
 export interface ContentGridProps {
     pager: Pager<IPlatformContent> | undefined;
@@ -81,18 +81,18 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
     const [settingsContent$, setSettingsContent] = createSignal<IPlatformContent>();
     const [settingsMenuInputSource$, setSettingsMenuInputSource] = createSignal<InputSource>();
     const settingsMenu$ = createMemo(() => {
-        const content = settingsContent$();        
+        const content = settingsContent$();
         return {
             title: "",
             items: [
-            
-                ... (content?.contentType === ContentType.MEDIA ? [ 
-                    ... props.openChannelButton === true ? [ new MenuItemButton("Open channel", iconCreator, undefined, ()=>{
+
+                ... (content?.contentType === ContentType.MEDIA ? [
+                    ...props.openChannelButton === true ? [new MenuItemButton("Open channel", iconCreator, undefined, () => {
                         const author = content?.author;
-                        if(author)
+                        if (author)
                             navigate("/web/channel?url=" + encodeURIComponent(author.url), { state: { author } });
-                    }) ] : [],
-                    new MenuItemButton("Add to queue", iconQueue, undefined, ()=>{
+                    })] : [],
+                    new MenuItemButton("Add to queue", iconQueue, undefined, () => {
                         video?.actions.addToQueue(content as IPlatformVideo);
                     }),
                     /*
@@ -107,13 +107,13 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                     new MenuItemButton("Add to playlist", iconAddToPlaylist, undefined, async () => {
                         await UIOverlay.overlayAddToPlaylist(content as IPlatformVideo);
                     }),
-                    new MenuItemButton("Download video", iconDownload, undefined, ()=>{
+                    new MenuItemButton("Download video", iconDownload, undefined, () => {
                         UIOverlay.overlayDownload(content.url);
                     }),
                 ] : [
-                    new MenuItemButton("Open channel", iconCreator, undefined, ()=>{
+                    new MenuItemButton("Open channel", iconCreator, undefined, () => {
                         const author = content?.author;
-                        if(author)
+                        if (author)
                             navigate("/web/channel?url=" + encodeURIComponent(author.url), { state: { author } });
                     }),
                 ]),
@@ -131,7 +131,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
 
     function onSettingsClicked(element: HTMLElement, content: IPlatformContent, inputSource: InputSource) {
         contentAnchor.setElement(element);
-        
+
         batch(() => {
             setSettingsContent(content);
             setSettingsMenuInputSource(inputSource);
@@ -176,7 +176,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
         }, this);
         lastFilterChangedEvent = filterChangedEvent;
     };
-    
+
     createEffect(() => attachAddedItems(props.pager?.addedFilteredItemsEvent));
     createEffect(() => attachNoFilteredItems(props.pager?.noFilteredItemsEvent));
     createEffect(() => attachFilterChanged(props.pager?.filterChangedEvent));
@@ -222,7 +222,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
             const plugin = StateGlobal.getSourceConfig(item()?.id?.pluginID);
             return plugin?.absoluteIconUrl;
         });
-        
+
         return (
             <PlaylistView itemCount={item().videoCount}
                 name={item().name}
@@ -261,11 +261,11 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                         const margin2 = 16;
                         const dataHeight = 32;
                         const totalHeight = thumbnailHeight + margin1 + textHeight + margin2 + dataHeight;
-                        return totalHeight;                        
+                        return totalHeight;
                     }}
                     autosizeWidth={true}
                     notifyEndOnLast={5}
-                    onScroll={()=>{}}
+                    onScroll={() => { }}
                     onEnd={onScrollEnd}
                     style={{
                         /*"margin-left": "15px",*/
@@ -275,13 +275,13 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                     elementStyle={{
                         "margin-left": "0px"
                     }}
-                    builder={(index, item, row, col) => 
+                    builder={(index, item, row, col) =>
                         <>
                             <Show when={item()?.contentType == ContentType.MEDIA}>
                                 <VideoThumbnailView video={item() as IPlatformVideo}
                                     useCache={!!props?.useCache}
-                                    onSettings={(e, content)=> onSettingsClicked(e, content, "pointer")}
-                                    onAddtoQueue={(e, content)=>video?.actions.addToQueue(content as IPlatformVideo)}
+                                    onSettings={(e, content) => onSettingsClicked(e, content, "pointer")}
+                                    onAddtoQueue={(e, content) => video?.actions.addToQueue(content as IPlatformVideo)}
                                     focusableOpts={item() ? {
                                         groupId: groupId,
                                         groupType: 'grid',
@@ -300,14 +300,14 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                         const url = item().backendUrl ?? item().url;
                                         if (url)
                                             video?.actions.openVideo(item() as IPlatformVideo);
-                                        }} />
+                                    }} />
                             </Show>
                             <Show when={item()?.contentType == ContentType.POST}>
                                 <PostThumbnailView post={item() as IPlatformPost}
-                                    onSettings={(e, content)=> onSettingsClicked(e, content, "pointer")}
-                                    onClick={() =>{
+                                    onSettings={(e, content) => onSettingsClicked(e, content, "pointer")}
+                                    onClick={() => {
                                         const url = item().backendUrl ?? item().url;
-                                        if(url)
+                                        if (url)
                                             navigate("/web/details/post?url=" + encodeURIComponent(url));
                                     }}
                                     focusableOpts={item() ? {
@@ -316,7 +316,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                         groupIndices: [row(), col()],
                                         onPress: () => {
                                             const url = item().backendUrl ?? item().url;
-                                            if(url)
+                                            if (url)
                                                 navigate("/web/details/post?url=" + encodeURIComponent(url));
                                         },
                                         onOptions: (e, inputSource) => onSettingsClicked(e, item(), inputSource),
@@ -325,10 +325,10 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                             </Show>
                             <Show when={item()?.contentType == ContentType.NESTED_VIDEO}>
                                 <NestedMediaThumbnailView video={item() as IPlatformNestedMedia}
-                                    onSettings={(e, content)=> onSettingsClicked(e, content, "pointer")}
-                                    onClick={() =>{
+                                    onSettings={(e, content) => onSettingsClicked(e, content, "pointer")}
+                                    onClick={() => {
                                         const url = item().backendUrl ?? item().contentUrl;
-                                        if(url) {
+                                        if (url) {
                                             Globals.handleUrl(url, video!, navigate);
                                         }
                                     }}
@@ -338,7 +338,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                         groupIndices: [row(), col()],
                                         onPress: () => {
                                             const url = item().backendUrl ?? item().contentUrl;
-                                            if(url) {
+                                            if (url) {
                                                 Globals.handleUrl(url, video!, navigate);
                                             }
                                         },
@@ -348,10 +348,10 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                             </Show>
                             <Show when={item()?.contentType == ContentType.LOCKED}>
                                 <LockedContentThumbnailView content={item() as IPlatformLockedContent}
-                                    onSettings={(e, content)=> onSettingsClicked(e, content, "pointer")}
-                                    onClick={() =>{
+                                    onSettings={(e, content) => onSettingsClicked(e, content, "pointer")}
+                                    onClick={() => {
                                         const url = item().backendUrl ?? item().url;
-                                        if(url) {
+                                        if (url) {
                                             LocalBackend.open(url);
                                         }
                                     }}
@@ -361,7 +361,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                         groupIndices: [row(), col()],
                                         onPress: () => {
                                             const url = item().backendUrl ?? item().contentUrl;
-                                            if(url) {
+                                            if (url) {
                                                 Globals.handleUrl(url, video!, navigate);
                                             }
                                         },
@@ -382,7 +382,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                     } />
             </Show>
             <Portal>
-                <SettingsMenu menu={settingsMenu$()} show={show$()} onHide={()=>onSettingsHidden()} anchor={contentAnchor} inputSource={settingsMenuInputSource$()} />
+                <SettingsMenu menu={settingsMenu$()} show={show$()} onHide={() => onSettingsHidden()} anchor={contentAnchor} inputSource={settingsMenuInputSource$()} />
             </Portal>
         </div>
     );

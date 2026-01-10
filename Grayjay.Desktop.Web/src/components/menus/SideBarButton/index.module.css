@@ -35,8 +35,12 @@
     width: 24px;
     margin-left: 12px;
     margin-top: 3px;
-    opacity: 0.8;
-    transition: margin-left 0.3s;
+    opacity: 0.72;
+    transition: margin-left 0.3s, opacity 0.12s ease-in-out;
+}
+
+.sideBarButton:hover .icon {
+    opacity: 1.0;
 }
 
 .sideBarButton.selected .icon {

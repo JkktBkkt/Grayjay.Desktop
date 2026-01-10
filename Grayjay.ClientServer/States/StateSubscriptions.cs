@@ -237,7 +237,10 @@ namespace Grayjay.Desktop.POC.Port.States
                 new PlaceholderPager<PlatformContent>(5, () => new PlatformContentPlaceholder("")), 
                 async (changedPager) =>
                 {
-                    var result = changedPager.AsPagerResult();
+                    var result = changedPager.AsPagerResult(x => x is PlatformVideo, y => 
+                    {
+                        return StateHistory.AddVideoMetadata((PlatformVideo)y);
+                    });
                     Logger.i(nameof(StateSubscriptions), $"Resolving {result.Results.Length} lazy results ({result.PagerID})");
                     await GrayjayServer.Instance.WebSocket.Broadcast(result, "PagerUpdated", changedPager.ID);
                 }, 20);

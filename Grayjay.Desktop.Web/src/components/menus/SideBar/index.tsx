@@ -26,6 +26,7 @@ import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
 import iconPlus from '../../../assets/icons/icon24_add.svg';
 import iconExitToApp from '../../../assets/icons/icon_exit_to_app.svg';
 import ScrollContainer from '../../containers/ScrollContainer';
+import BuyPromo from './BuyPromo';
 import { SubscriptionsBackend } from '../../../backend/SubscriptionsBackend';
 import SideBarCreator from '../SideBarCreator';
 import UIOverlay from '../../../state/UIOverlay';
@@ -122,9 +123,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
     }
 
     list = list.concat([sourcesBtn, downloadsBtn, historyBtn, syncBtn]);
-    if (focus?.isControllerMode() !== true) {
-      list.push(newWindowBtn);
-    } else {
+    if (focus?.isControllerMode() === true) {
       list.push(closeWindowBtn);
     }
 
@@ -151,7 +150,9 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
     const list: ButtonItem[] = [];
 
     if (!StateGlobal.didPurchase$()) {
-      list.push(buyBtn);
+      if (isCollapsed()) {
+        list.push(buyBtn);
+      }
     }
 
     list.push(settingsBtn);
@@ -177,8 +178,11 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         }
       }
 
+      const promoHeight = (!isCollapsed() && !StateGlobal.didPurchase$()) ? 200 : 0;
       const bottomButtonCount = bottomButtons$().length;
-      const totalBottomButtonHeight = 44 /* button height */ * bottomButtonCount + 4 /* gap */ * (bottomButtonCount - 1) + 10 /* margin top */ + 1 /* divider */;
+      const totalItems = bottomButtonCount + (promoHeight > 0 ? 1 : 0);
+      const gaps = Math.max(0, totalItems - 1) * 4;
+      const totalBottomButtonHeight = (44 * bottomButtonCount) + promoHeight + gaps + 10 /* margin top */ + 1 /* divider */;
       const availableSideBarTopHeight = window.innerHeight - 10 /* margin top */ - 10 /* margin bottom */ - totalBottomButtonHeight;
       const topButtonsRootHeight = (canToggleCollapse() ? (56 + 16 /* top margin */ + 4 /* bottom margin */ + 6 /* gap */) : 0) + (48 + 8 /* bottom margin */ + 6 /* gap */);
       const availableSidebarTopButtonsHeight = availableSideBarTopHeight - topButtonsRootHeight;
@@ -246,7 +250,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
 
   return (
     <div class={styles.sidebar} style={props.style} classList={{ [styles.collapsed]: isCollapsed(), ...props.classList }}>
-      <div class={styles.buttonList}>
+      {/* Fixed Header: Collapse toggle + Logo */}
+      <div class={styles.fixedHeader}>
         <Show when={canToggleCollapse()}>
           <div class={styles.containerCollapse}>
             <img
@@ -278,88 +283,100 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
               Alpha
             </div>
           </Show>
-
         </div>
-        <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
-          {(btn, i) => {
-            const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
-            return (
-              <SideBarButton
-                collapsed={isCollapsed()}
-                icon={btn.icon}
-                name={btn.name}
-                selected={btn.getSelected()}
-                onClick={press}
-                onRightClick={btn.onRightClick}
-                focusableOpts={{
-                  groupId: 'sidebar',
-                  groupType: 'vertical',
-                  groupIndices: [i() + 1],
-                  groupEscapeDirs: ['right'],
-                  groupRememberLast: true,
-                  onPress: () => press(),
-                }}
-                onFocus={globalFocus}
-                onBlur={globalBlur}
-              />
-            );
-          }}
-        </For>
-        <Show when={moreTopButtonCount$() > 0}>
-          <SideBarButton
-            collapsed={isCollapsed()}
-            icon={ic_more}
-            name={"More"}
-            selected={false}
-            onClick={() => { props?.onMoreOpened?.(); setMoreOverlayVisible(true); }}
-            focusableOpts={{
-              groupId: 'sidebar',
-              groupType: 'vertical',
-              groupIndices: [visibleTopButtonCount$() + 1],
-              groupEscapeDirs: ['right'],
-              groupRememberLast: true,
-              onPress: () => {
-                props?.onMoreOpened?.();
-                setMoreOverlayVisible(true);
-              }
-            }}
-            onFocus={globalFocus}
-            onBlur={globalBlur}
-          />
-        </Show>
       </div>
-      <Show when={!isCollapsed() && subscriptions$()?.length && remainingSpace$() > 200 && focus?.isControllerMode() !== true} fallback={<div style="flex-grow:1"></div>}>
-        <div class={styles.buttonListFill}>
-          <div classList={{ [styles.expandHeader]: true, [styles.expanded]: expand$() }} onClick={() => setExpand(!expand$())}>
-            Subscriptions
-            <div class={styles.toggle}>
-              <img src={iconChevronDown} />
-            </div>
-          </div>
-          <Show when={expand$()}>
-            <div class={styles.expandItems}>
-              <Switch>
-                <Match when={expandType$() == "subs"}>
-                  <ScrollContainer ref={scrollContainerRef}>
-                    <FlexibleArrayList outerContainerRef={scrollContainerRef}
-                      items={subscriptions$()}
-                      builder={(_, item$) =>
-                        <SideBarCreator onClick={() => {
-                          const author = item$()?.channel;
-                          if (!author) {
-                            return;
-                          }
-                          navigate("/web/channel?url=" + encodeURIComponent(author!.url), { state: { author } });
-                        }} icon={item$()?.channel?.thumbnail} name={item$()?.channel?.name} selected={false} />
-                      } />
-                  </ScrollContainer>
-                </Match>
-              </Switch>
-            </div>
+
+      {/* Scrollable Middle Section: All navigation buttons + Subscriptions */}
+      <div class={styles.scrollableContent}>
+        <div class={styles.buttonList}>
+          <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
+            {(btn, i) => {
+              const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
+              return (
+                <SideBarButton
+                  collapsed={isCollapsed()}
+                  icon={btn.icon}
+                  name={btn.name}
+                  selected={btn.getSelected()}
+                  onClick={press}
+                  onRightClick={btn.onRightClick}
+                  focusableOpts={{
+                    groupId: 'sidebar',
+                    groupType: 'vertical',
+                    groupIndices: [i() + 1],
+                    groupEscapeDirs: ['right'],
+                    groupRememberLast: true,
+                    onPress: () => press(),
+                  }}
+                  onFocus={globalFocus}
+                  onBlur={globalBlur}
+                />
+              );
+            }}
+          </For>
+          <Show when={moreTopButtonCount$() > 0}>
+            <SideBarButton
+              collapsed={isCollapsed()}
+              icon={ic_more}
+              name={"More"}
+              selected={false}
+              onClick={() => { props?.onMoreOpened?.(); setMoreOverlayVisible(true); }}
+              focusableOpts={{
+                groupId: 'sidebar',
+                groupType: 'vertical',
+                groupIndices: [visibleTopButtonCount$() + 1],
+                groupEscapeDirs: ['right'],
+                groupRememberLast: true,
+                onPress: () => {
+                  props?.onMoreOpened?.();
+                  setMoreOverlayVisible(true);
+                }
+              }}
+              onFocus={globalFocus}
+              onBlur={globalBlur}
+            />
           </Show>
         </div>
-      </Show>
+        <Show when={!isCollapsed() && subscriptions$()?.length && focus?.isControllerMode() !== true}>
+          <div class={styles.buttonListFill}>
+            <div classList={{ [styles.expandHeader]: true, [styles.expanded]: expand$() }} onClick={() => setExpand(!expand$())}>
+              Subscriptions
+              <div class={styles.toggle}>
+                <img src={iconChevronDown} />
+              </div>
+            </div>
+            <div classList={{ [styles.expandItems]: true, [styles.expanded]: expand$() }}>
+              <div class={styles.expandItemsInner}>
+                <For each={subscriptions$()}>
+                  {(item) => {
+                    const channelUrl = item?.channel?.url;
+                    const isSelected = () => {
+                      const searchParams = new URLSearchParams(location.search);
+                      const currentChannelUrl = searchParams.get('url');
+                      return currentChannelUrl === channelUrl;
+                    };
+                    return (
+                      <SideBarCreator onClick={() => {
+                        const author = item?.channel;
+                        if (!author) {
+                          return;
+                        }
+                        navigate("/web/channel?url=" + encodeURIComponent(author!.url), { state: { author } });
+                      }} icon={item?.channel?.thumbnail} name={item?.channel?.name ?? ''} selected={isSelected()} />
+                    );
+                  }}
+                </For>
+              </div>
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Fixed Footer: Buy Grayjay + Settings */}
       <div class={styles.buttonListBottom}>
+        <Show when={!isCollapsed() && !StateGlobal.didPurchase$()}>
+          <BuyPromo />
+        </Show>
         <For each={bottomButtons$()}>
           {(btn, i) => {
             const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);

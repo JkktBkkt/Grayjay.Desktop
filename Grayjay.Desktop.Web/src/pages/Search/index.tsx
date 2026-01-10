@@ -32,7 +32,7 @@ const SearchPage: Component = () => {
   const [filterValues$, setFilterValues] = createSignal<Record<string, string[]> | undefined>(params.filters ? JSON.parse(params.filters) : undefined);
   const [sortBy$, setSortBy] = createSignal(params.sortBy);
   const [enabledSources$, setEnabledSources] = createSignal<string[]>(params.clientIds ? JSON.parse(params.clientIds) : (StateGlobal.sourceStates$() ?? []).map(v => v.config.id));
-  const disabledSources$ = createMemo<string[]>(()=>((StateGlobal.sourceStates$() ?? []).filter(x=>enabledSources$().indexOf(x.config.id) < 0).map(v => v.config.id)));
+  const disabledSources$ = createMemo<string[]>(() => ((StateGlobal.sourceStates$() ?? []).filter(x => enabledSources$().indexOf(x.config.id) < 0).map(v => v.config.id)));
   let filtersChanged = false;
 
   createEffect(() => {
@@ -83,9 +83,9 @@ const SearchPage: Component = () => {
     }
 
     const sourceFilters = sourceStates.map<ToggleBigButtonGroupItemMulti>(s => {
-      return { 
+      return {
         text: s.config.name,
-        value: s.config.id, 
+        value: s.config.id,
         icon: s.config.absoluteIconUrl!
       };
     });
@@ -103,16 +103,16 @@ const SearchPage: Component = () => {
   createEffect(async () => {
     const caps = commonCapabilities$();
     const filterValues = untrack(filterValues$);
-    
+
     batch(() => {
       if (caps && filterValues) {
         const newFilterValues: { [key: string]: string[] } = {};
         Object.keys(filterValues).forEach(key => {
           const currentFilter = caps.filters.find(filter => filter.id === key);
-          
+
           if (currentFilter) {
             const validValues = currentFilter.filters.map(f => f.value);
-            
+
             if (currentFilter.isMultiSelect) {
               const validArray = (filterValues[key] as string[]).filter(value => validValues.includes(value));
               if (validArray.length > 0) {
@@ -125,12 +125,12 @@ const SearchPage: Component = () => {
             }
           }
         });
-        
+
         setFilterValues(newFilterValues);
       } else {
         setFilterValues(undefined);
       }
-      
+
       const sort = untrack(sortBy$);
       if (sort) {
         if (!caps?.sorts.includes(sort)) {
@@ -141,7 +141,7 @@ const SearchPage: Component = () => {
       console.log("Common capabilities changed", { caps, filterValues });
     });
   });
-  
+
   const sortItems$ = createMemo(() => commonCapabilities$()?.sorts.map<ToggleButtonGroupItem>(v => {
     return {
       text: v,
@@ -154,89 +154,89 @@ const SearchPage: Component = () => {
   return (
     <>
       <div class={styles.container}>
-          <NavigationBar initialText={query$()} defaultSearchType={searchType$()} />
-          <div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 24px; gap: 24px; margin-left: 24px; margin-right: 24px;">
-            <ToggleItemButtonGroup items={[
-              { text: "Media", value: ContentType.MEDIA, icon: iconVideos },
-              { text: "Creators", value: ContentType.CHANNEL, icon: iconCreators },
-              { text: "Playlists", value: ContentType.PLAYLIST, icon: iconPlaylist }
-            ]} defaultSelectedValue={searchType$()} onValueChanged={(v) => {
-              setSearchType(v);
-              performSearch(v, sortBy$(), filterValues$(), enabledSources$());
+        <NavigationBar initialText={query$()} defaultSearchType={searchType$()} />
+        <div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 24px; gap: 24px; margin-left: 24px; margin-right: 24px;">
+          <ToggleItemButtonGroup items={[
+            { text: "Media", value: ContentType.MEDIA, icon: iconVideos },
+            { text: "Creators", value: ContentType.CHANNEL, icon: iconCreators },
+            { text: "Playlists", value: ContentType.PLAYLIST, icon: iconPlaylist }
+          ]} defaultSelectedValue={searchType$()} onValueChanged={(v) => {
+            setSearchType(v);
+            performSearch(v, sortBy$(), filterValues$(), enabledSources$());
+          }} />
+          <Show when={searchType$() === ContentType.MEDIA}>
+            <CustomButton text='Filters' icon={iconFilters} border='1px solid #2E2E2E' style={{ "height": "44px" }} onClick={() => setFiltersDialogVisible(true)} focusableOpts={{
+              onPress: () => setFiltersDialogVisible(true)
             }} />
-            <Show when={searchType$() === ContentType.MEDIA}>
-              <CustomButton text='Filters' icon={iconFilters} border='1px solid #2E2E2E' style={{"height": "44px" }} onClick={() => setFiltersDialogVisible(true)} focusableOpts={{
-                onPress: () => setFiltersDialogVisible(true)
-              }} />
-            </Show>
-          </div>
-          <Show when={searchPager.state == 'ready'}>
-            <ScrollContainer ref={scrollContainerRef}>
-              <ContentGrid pager={searchPager()} outerContainerRef={scrollContainerRef} openChannelButton={true} />
-            </ScrollContainer>
           </Show>
+        </div>
+        <Show when={searchPager.state == 'ready'}>
+          <ScrollContainer ref={scrollContainerRef}>
+            <ContentGrid pager={searchPager()} outerContainerRef={scrollContainerRef} openChannelButton={true} />
+          </ScrollContainer>
+        </Show>
       </div>
       <Portal>
-          <Show when={filtersDialogVisible$()}>
-            <div class={styles.filtersDialogBackground} onClick={() => setFiltersDialogVisible(false)} use:focusScope={{
-                initialMode: 'trap'
+        <Show when={filtersDialogVisible$()}>
+          <div class={styles.filtersDialogBackground} onClick={() => setFiltersDialogVisible(false)} use:focusScope={{
+            initialMode: 'trap'
+          }}>
+            <div class={styles.filtersDialog} onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
             }}>
-              <div class={styles.filtersDialog} onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}>
-                <div style="display: flex; align-items: center; width: 100%;">
-                  <div class={styles.filtersDialogTitle}>Filters</div>
-                  <div style="flex-grow: 1"></div>
-                  <IconButton icon={iconClose} height='24px' width='24px' style={{ "margin-left": "24px" }} onClick={() => setFiltersDialogVisible(false)} focusableOpts={{
-                    onPress: () => setFiltersDialogVisible(false),
-                    onBack: () => setFiltersDialogVisible(false)
-                  }} />
-                </div>
-                <ScrollContainer ref={filtersScrollContainerRef} wrapperStyle={{ "width": "100%" }} scrollToTopButton={false}>
-                  <div class={styles.filterHeader}>Select sources</div>
-                  <ToggleItemBigButtonGroupMulti items={sourceFilters$()} defaultSelectedValues={enabledSources$()} onValueChanged={(items) => {
-                    setEnabledSources(items);
-                    filtersChanged = true; 
-                  }} />
-                  <Show when={sortItems$() && sortItems$()?.length}>
-                    <div class={styles.filterHeader}>Sort by</div>
-                    <ToggleItemButtonGroup items={sortItems$()} defaultSelectedValue={sortBy$()} onValueChanged={(item) => {
-                      setSortBy(item);
-                      filtersChanged = true;
-                    }} />
-                  </Show>
-                  <For each={commonCapabilities$()?.filters}>{(item, i) => {
-                    const items$ = createMemo(() => item.filters.map<ToggleButtonGroupItem>(v => {
-                      return {
-                        text: v.name,
-                        value: v.id ?? v.name
-                      };
-                    }));
-                    const selectedValue$ = createMemo(() => {
-                        return filterValues$()?.[item.id ?? item.name];
-                    });
-                    return (
-                      <>
-                        <div class={styles.filterHeader}>{item.name}</div>
-                        <Show when={item.isMultiSelect} fallback={
-                          <ToggleItemButtonGroup items={items$()} defaultSelectedValue={selectedValue$()} onValueChanged={(v) => {
-                            setFilterValues({ ... filterValues$(), [item.id ?? item.name]: v ? [ v ] : [] });
-                            filtersChanged = true;
-                          }} />
-                        }>
-                          <ToggleItemButtonGroupMulti items={items$()} defaultSelectedValues={selectedValue$()} onValueChanged={(v) => {
-                            setFilterValues({ ... filterValues$(), [item.id ?? item.name]: v });
-                            filtersChanged = true;
-                          }} />
-                        </Show>
-                      </>
-                    );
-                  }}</For>
-                </ScrollContainer>
+              <div style="display: flex; align-items: center; width: 100%;">
+                <div class={styles.filtersDialogTitle}>Filters</div>
+                <div style="flex-grow: 1"></div>
+                <IconButton icon={iconClose} height='24px' width='24px' style={{ "margin-left": "24px" }} onClick={() => setFiltersDialogVisible(false)} focusableOpts={{
+                  onPress: () => setFiltersDialogVisible(false),
+                  onBack: () => setFiltersDialogVisible(false)
+                }} />
               </div>
+              <ScrollContainer ref={filtersScrollContainerRef} wrapperStyle={{ "width": "100%" }} scrollToTopButton={false}>
+                <div class={styles.filterHeader}>Select sources</div>
+                <ToggleItemBigButtonGroupMulti items={sourceFilters$()} defaultSelectedValues={enabledSources$()} onValueChanged={(items) => {
+                  setEnabledSources(items);
+                  filtersChanged = true;
+                }} />
+                <Show when={sortItems$() && sortItems$()?.length}>
+                  <div class={styles.filterHeader}>Sort by</div>
+                  <ToggleItemButtonGroup items={sortItems$()} defaultSelectedValue={sortBy$()} onValueChanged={(item) => {
+                    setSortBy(item);
+                    filtersChanged = true;
+                  }} />
+                </Show>
+                <For each={commonCapabilities$()?.filters}>{(item, i) => {
+                  const items$ = createMemo(() => item.filters.map<ToggleButtonGroupItem>(v => {
+                    return {
+                      text: v.name,
+                      value: v.id ?? v.name
+                    };
+                  }));
+                  const selectedValue$ = createMemo(() => {
+                    return filterValues$()?.[item.id ?? item.name];
+                  });
+                  return (
+                    <>
+                      <div class={styles.filterHeader}>{item.name}</div>
+                      <Show when={item.isMultiSelect} fallback={
+                        <ToggleItemButtonGroup items={items$()} defaultSelectedValue={selectedValue$()} onValueChanged={(v) => {
+                          setFilterValues({ ...filterValues$(), [item.id ?? item.name]: v ? [v] : [] });
+                          filtersChanged = true;
+                        }} />
+                      }>
+                        <ToggleItemButtonGroupMulti items={items$()} defaultSelectedValues={selectedValue$()} onValueChanged={(v) => {
+                          setFilterValues({ ...filterValues$(), [item.id ?? item.name]: v });
+                          filtersChanged = true;
+                        }} />
+                      </Show>
+                    </>
+                  );
+                }}</For>
+              </ScrollContainer>
             </div>
-          </Show>
+          </div>
+        </Show>
       </Portal>
     </>
   );

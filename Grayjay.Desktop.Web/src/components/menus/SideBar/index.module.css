@@ -9,6 +9,7 @@
     flex-shrink: 0;
     transition: width 0.3s ease;
     position: relative;
+    overflow: hidden;
 }
 
 .sidebar.collapsed {
@@ -17,11 +18,41 @@
     margin-right: auto;
 }
 
+.fixedHeader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.scrollableContent {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    margin-top: 20px;
+    scroll-behavior: smooth;
+}
+
+.scrollableContent::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
 .buttonList {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
+    width: 100%;
 }
 
 .buttonListFill {
@@ -29,12 +60,9 @@
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    height: 100%;
+    flex-shrink: 0;
+    width: 100%;
     margin-top: 10px;
-    margin-bottom: 10px;
-    padding-bottom: 48px;
-    flex-shrink: 1;
-    min-height: 0px;
 }
 
 .buttonListBottom {
@@ -57,7 +85,7 @@
     height: 22px;
     padding: 11px;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 8px;
 }
 
 .collapse:hover {
@@ -82,8 +110,7 @@
 }
 
 .containerCollapse {
-    padding-top: 6px;
-    padding-bottom: 6px;
+
     box-sizing: border-box;
     display: flex;
     border-radius: 6px;
@@ -93,25 +120,47 @@
 }
 
 .expandHeader {
-    position: relative;
-    width: 98%;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    padding-left: 32px;
+    width: 100%;
+    padding: 0px 0 4px 12px;
     box-sizing: border-box;
     display: flex;
     flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     text-transform: uppercase;
-    letter-spacing: 2.94px;
+    letter-spacing: 2.24px;
     color: #8C8C8C;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
     font-size: 14px;
     cursor: pointer;
+    transition: color 0.12s ease-in-out;
+}
+
+.expandHeader:hover {
+    color: #B8B8B8;
 }
 
 .expandHeader .toggle {
-    position: absolute;
-    right: 20px;
-    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.expandHeader .toggle img {
+    width: 16px;
+    height: 16px;
+    opacity: 0.72;
+    transition: transform 0.2s ease, opacity 0.12s ease-in-out;
+}
+
+.expandHeader:hover .toggle img {
+    opacity: 1.0;
 }
 
 .expandHeader.expanded .toggle img {
@@ -119,7 +168,21 @@
 }
 
 .expandItems {
-    height: 100%;
+    width: 100%;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s ease;
+    overflow: hidden;
+}
+
+.expandItems.expanded {
+    grid-template-rows: 1fr;
+}
+
+.expandItemsInner {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     width: 100%;
 }
 
@@ -131,8 +194,6 @@
     gap: 8px;
     width: 100%;
     margin-left: 4px;
-    margin-top: 24px;
-    margin-bottom: 8px;
     color: #FFF;
     font-family: Sen;
     font-size: 20px;

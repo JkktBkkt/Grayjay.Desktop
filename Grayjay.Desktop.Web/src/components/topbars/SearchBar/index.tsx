@@ -30,10 +30,10 @@ interface SearchBarProps {
   suggestionsVisible?: boolean;
   id?: string;
   focusableGroupOpts?: {
-      groupId?: string;
-      groupType?: "grid" | "horizontal" | "vertical";
-      groupIndices?: (number | undefined)[];
-      groupEscapeTo?: Partial<Record<Direction, string[]>>;
+    groupId?: string;
+    groupType?: "grid" | "horizontal" | "vertical";
+    groupIndices?: (number | undefined)[];
+    groupEscapeTo?: Partial<Record<Direction, string[]>>;
   };
 }
 
@@ -50,7 +50,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
     "font-size": "12px",
     "font-style": "normal",
     "font-weight": 400
-  };  
+  };
 
   const buttonIconStyle: JSX.CSSProperties = {
     "width": "16px",
@@ -101,7 +101,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
       setIsLoadingSuggestions(true);
 
       let previousSuggestions: string[];
-      try {      
+      try {
         previousSuggestions = await SearchBackend.previousSearches();
         if (suggestionIndex !== suggestionCounter) {
           return;
@@ -125,7 +125,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
     setSuggestionsVisible(false);
     const currentPath = window.location.pathname;
     let searchParams = new URLSearchParams(window.location.search);
-    
+
     if (currentPath === "/web/search") {
       searchParams.set("q", query);
       searchParams.set("type", (type ?? ContentType.MEDIA).toString());
@@ -134,7 +134,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
       searchParams.append("q", query);
       searchParams.append("type", (type ?? ContentType.MEDIA).toString());
     }
-    
+
     navigate("/web/search?" + searchParams.toString(), {});
     props.onSearch?.(query, type);
     await SearchBackend.addPreviousSearch(query);
@@ -147,12 +147,12 @@ const SearchBar: Component<SearchBarProps> = (props) => {
   };
 
   return (
-    <div style={{ ... props.style, "position": "relative" }}>
+    <div style={{ ...props.style, "position": "relative" }}>
       <InputText icon={search} style={props.inputStyle}
         placeholder={props.placeholder || "Search"}
         value={query$()}
         showClearButton={true}
-        focusable={true} 
+        focusable={true}
         focusableGroupOpts={props.focusableGroupOpts}
         onClick={async () => {
           if (!suggestionsVisible$()) {
@@ -169,66 +169,66 @@ const SearchBar: Component<SearchBarProps> = (props) => {
         }}
         onTextChanged={(v) => setQuery(v)}
         onSubmit={async (v) => await searchFor(v, searchType$())} />
-        <Show when={(props.suggestionsVisible !== undefined ? props.suggestionsVisible : true) && suggestionsVisible$() && focus?.isControllerMode() !== true}>
-          <div class={styles.suggestionsContainer} onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }} style={props.overlayStyle}>
-            <div>Choose content type to search</div>
-            <div style="display: flex; flex-direction: row; gap: 4px; margin-top: 16px;">
-              <CustomButton icon={iconVideos} text='Media' style={{ ... buttonStyle, "background-color": searchType$() === ContentType.MEDIA ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.MEDIA)} />
-              <CustomButton icon={iconCreators} text='Creators' style={{ ... buttonStyle, "background-color": searchType$() === ContentType.CHANNEL ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.CHANNEL)} />
-              <CustomButton icon={iconPlaylist} text='Playlists' style={{ ... buttonStyle, "background-color": searchType$() === ContentType.PLAYLIST ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.PLAYLIST)} />
-            </div>
-            <div style="width: 100%; background-color: #2E2E2E; height: 1px; margin-top: 20px; margin-bottom: 20px;"></div>
-            <Show when={historical$()}>
-              <div style="display: flex; flex-direction: row; margin-bottom: 12px; width: 100%;">
-                <div>Your previous searches</div>
-                <div style="flex-grow: 1"></div>
+      <Show when={(props.suggestionsVisible !== undefined ? props.suggestionsVisible : true) && suggestionsVisible$() && focus?.isControllerMode() !== true}>
+        <div class={styles.suggestionsContainer} onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }} style={props.overlayStyle}>
+          <div>Choose content type to search</div>
+          <div style="display: flex; flex-direction: row; gap: 4px; margin-top: 16px;">
+            <CustomButton icon={iconVideos} text='Media' style={{ ...buttonStyle, "background-color": searchType$() === ContentType.MEDIA ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.MEDIA)} />
+            <CustomButton icon={iconCreators} text='Creators' style={{ ...buttonStyle, "background-color": searchType$() === ContentType.CHANNEL ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.CHANNEL)} />
+            <CustomButton icon={iconPlaylist} text='Playlists' style={{ ...buttonStyle, "background-color": searchType$() === ContentType.PLAYLIST ? "#2E2E2E" : undefined }} iconStyle={buttonIconStyle} onMouseDown={(e) => changeSearchType(e, ContentType.PLAYLIST)} />
+          </div>
+          <div style="width: 100%; background-color: #2E2E2E; height: 1px; margin-top: 20px; margin-bottom: 20px;"></div>
+          <Show when={historical$()}>
+            <div style="display: flex; flex-direction: row; margin-bottom: 12px; width: 100%;">
+              <div>Your previous searches</div>
+              <div style="flex-grow: 1"></div>
 
+            </div>
+          </Show>
+          <Switch fallback={<div>No results found</div>}>
+            <Match when={isLoadingSuggestions$()}>
+              <div style="display: flex; flex-direction: row; width: 100%; align-items: center; justify-content: center;">
+                <LoaderSmall />
               </div>
-            </Show>
-            <Switch fallback={<div>No results found</div>}>
-              <Match when={isLoadingSuggestions$()}>
-                <div style="display: flex; flex-direction: row; width: 100%; align-items: center; justify-content: center;">
-                  <LoaderSmall />
-                </div>
-              </Match>
-              <Match when={suggestionItems$() && (suggestionItems$()?.length ?? 0) > 0}>
-                <ScrollContainer wrapperStyle={{"max-height": "40vh", "width": "100%"}} scrollToTopButton={false}>
-                  <For each={suggestionItems$()}>{(item, i) => {
-                    return (
-                      <div class={styles.suggestionItem} onClick={async (e) => {
-                        batch(() => {
-                          setQuery(item);
-                          setSuggestionsVisible(false);
-                        });
-                        await searchFor(item, searchType$());
-                      }}>
-                        <img src={iconSearch} style="width: 16px; height: 16px;" />
-                        <div style="margin-left: 12px;">{item}</div>
-                        <div style="flex-grow: 1"></div>
-                        <img src={iconAddToQuery} style="width: 16px; height: 16px;" onMouseDown={(e) => {
-                          setQuery(item);
+            </Match>
+            <Match when={suggestionItems$() && (suggestionItems$()?.length ?? 0) > 0}>
+              <ScrollContainer wrapperStyle={{ "max-height": "40vh", "width": "100%" }} scrollToTopButton={false}>
+                <For each={suggestionItems$()}>{(item, i) => {
+                  return (
+                    <div class={styles.suggestionItem} onClick={async (e) => {
+                      batch(() => {
+                        setQuery(item);
+                        setSuggestionsVisible(false);
+                      });
+                      await searchFor(item, searchType$());
+                    }}>
+                      <img src={iconSearch} style="width: 16px; height: 16px;" />
+                      <div style="margin-left: 12px;">{item}</div>
+                      <div style="flex-grow: 1"></div>
+                      <img src={iconAddToQuery} style="width: 16px; height: 16px;" onMouseDown={(e) => {
+                        setQuery(item);
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }} />
+                      <Show when={historical$()}>
+                        <img src={iconClose} style="width: 16px; height: 16px; margin-left: 16px;" onMouseDown={async (e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          await SearchBackend.removePreviousSearch(item);
+                          await getSuggestions(query$());
                         }} />
-                        <Show when={historical$()}>
-                          <img src={iconClose} style="width: 16px; height: 16px; margin-left: 16px;" onMouseDown={async (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            await SearchBackend.removePreviousSearch(item);
-                            await getSuggestions(query$());
-                          }} />
-                        </Show>
-                      </div>
-                    );
-                  }}</For>
-                </ScrollContainer>
-              </Match>
-            </Switch>
-          </div>
-        </Show>
+                      </Show>
+                    </div>
+                  );
+                }}</For>
+              </ScrollContainer>
+            </Match>
+          </Switch>
+        </div>
+      </Show>
     </div>
   );
 };
