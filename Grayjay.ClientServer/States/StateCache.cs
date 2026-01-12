@@ -7,6 +7,7 @@ using Grayjay.Engine.Models.Feed;
 using Grayjay.Engine.Pagers;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Grayjay.ClientServer.States
 {
@@ -32,15 +33,81 @@ namespace Grayjay.ClientServer.States
             }
         }
 
+        private static int _didClearSubscriptionCacheDueToJsonError = 0;
+        private static void ClearSubscriptionCacheOnce(Exception ex)
+        {
+            if (Interlocked.Exchange(ref _didClearSubscriptionCacheDueToJsonError, 1) == 1)
+                return;
+
+            Logger.e(TAG, "subscriptionCache deserialization failed; clearing cache to recover.", ex);
+            _subscriptionCache.DeleteAll();
+        }
+
         public static IPager<PlatformContent> GetChannelCachePager(string channelUrl)
         {
-            return _subscriptionCache.QueryPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrl, 20, it => it.Object);
+            try
+            {
+                return _subscriptionCache.QueryPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrl, 20, it => it.Object);
+            }
+            catch (JsonException ex)
+            {
+                ClearSubscriptionCacheOnce(ex);
+                try
+                {
+                    return _subscriptionCache.QueryPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrl, 20, it => it.Object);
+                }
+                catch (JsonException ex2)
+                {
+                    Logger.e(TAG, "subscriptionCache still failing after clear; returning empty pager.", ex2);
+                    return new EmptyPager<PlatformContent>();
+                }
+            }
         }
 
         public static IPager<PlatformContent> GetAllChannelCachePager(IEnumerable<string> channelUrls)
         {
-            return _subscriptionCache.QueryInPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrls, 20, it => it.Object);
+            try
+            {
+                return _subscriptionCache.QueryInPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrls, 20, it => it.Object);
+            }
+            catch (JsonException ex)
+            {
+                ClearSubscriptionCacheOnce(ex);
+
+                try
+                {
+                    return _subscriptionCache.QueryInPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrls, 20, it => it.Object);
+                }
+                catch (JsonException ex2)
+                {
+                    Logger.e(TAG, "subscriptionCache still failing after clear; returning empty pager.", ex2);
+                    return new EmptyPager<PlatformContent>();
+                }
+            }
         }
+
+        private static IPager<PlatformContent> SafeChannelPager(string channelUrl, int pageSize)
+        {
+            try
+            {
+                return _subscriptionCache.QueryPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrl, pageSize, it => it.Object);
+            }
+            catch (JsonException ex)
+            {
+                ClearSubscriptionCacheOnce(ex);
+
+                try
+                {
+                    return _subscriptionCache.QueryPager(nameof(DBSubscriptionCacheIndex.ChannelUrl), channelUrl, pageSize, it => it.Object);
+                }
+                catch (JsonException ex2)
+                {
+                    Logger.e(TAG, "subscriptionCache still failing after clear; returning empty pager.", ex2);
+                    return new EmptyPager<PlatformContent>();
+                }
+            }
+        }
+
 
         public static IPager<PlatformContent> GetChannelCachePager(IEnumerable<string> channelUrls, int pageSize = 20)
         {

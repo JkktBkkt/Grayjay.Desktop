@@ -43,7 +43,7 @@ namespace Grayjay.ClientServer.Database.Indexes
             Url = content.Url;
             ChannelUrl = content.Author.Url;
             DateTime = content.DateTime;
-            Serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(content));
+            Serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(content, content.GetType(), _serializerOptions));
         }
     }
 }

@@ -17,28 +17,20 @@ namespace Grayjay.ClientServer.Serializers
         {
             Utf8JsonReader readerClone = reader;
 
-            if (readerClone.TokenType != JsonTokenType.StartObject)
-                throw new JsonException();
+            using var doc = JsonDocument.ParseValue(ref readerClone);
 
-            readerClone.Read();
-            if (readerClone.TokenType != JsonTokenType.PropertyName)
-                throw new JsonException();
+            if (!doc.RootElement.TryGetProperty(nameof(PlatformContent.ContentType), out var ctProp))
+                throw new JsonException($"Missing '{nameof(PlatformContent.ContentType)}' discriminator.");
 
-            string? propertyName = readerClone.GetString();
-            if (propertyName != nameof(PlatformContent.ContentType))
-                throw new JsonException();
+            if (ctProp.ValueKind != JsonValueKind.Number)
+                throw new JsonException($"'{nameof(PlatformContent.ContentType)}' must be a number.");
 
-            readerClone.Read();
-            if (readerClone.TokenType != JsonTokenType.Number)
-                throw new JsonException();
-
-            ContentType typeDiscriminator = (ContentType)readerClone.GetInt32();
-            PlatformContent content = typeDiscriminator switch
+            var typeDiscriminator = (ContentType)ctProp.GetInt32();
+            return typeDiscriminator switch
             {
                 ContentType.MEDIA => JsonSerializer.Deserialize<PlatformVideo>(ref reader)!,
-                _ => JsonSerializer.Deserialize<PlatformContent>(ref reader)
+                _ => JsonSerializer.Deserialize<PlatformContent>(ref reader)! //TODO: Recursion intended??
             };
-            return content;
         }
 
         public override void Write(Utf8JsonWriter writer, PlatformContent value, JsonSerializerOptions options)
