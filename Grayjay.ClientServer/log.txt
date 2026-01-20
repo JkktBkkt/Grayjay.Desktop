@@ -1,0 +1,12 @@
+[2026-01-12 18:33:01.185] [INFO] [GrayjayServer] RunServerAsync: Called with (proxyUrl = ).
+[2026-01-12 18:33:01.367] [INFO] [GrayjayServer] Running in Server mode, listening to all ips on port 11338
+[2026-01-12 18:33:01.370] [INFO] [ManagedThreadPool] New threadpool created (16)
+[2026-01-12 18:33:01.370] [INFO] [ManagedThreadPool] New threadpool created (4)
+[2026-01-12 18:33:01.442] [INFO] [GrayjayServer] RunServerAsync: Static files path '/Users/mac.studio/Grayjay.Desktop/Grayjay.ClientServer/bin/Debug/net8.0/osx-arm64/wwwroot'.
+[2026-01-12 18:33:01.443] [INFO] [GrayjayServer] RunServerAsync: MapWhen Websocket.
+[2026-01-12 18:33:01.444] [INFO] [GrayjayServer] RunServerAsync: Start StateCasting.
+[2026-01-12 18:33:01.444] [INFO] [GrayjayServer] RunServerAsync: _app.RunAsync(cancellationToken) starting...
+[2026-01-12 18:33:01.448] [INFO] [StateDownloads] Started downloading cycle
+[2026-01-12 18:33:01.449] [INFO] [StateDownloads] Ended downloading cycle
+[2026-01-12 18:33:01.483] [WARNING] [Microsoft.AspNetCore.Server.Kestrel] Overriding address(es) 'https://localhost:57249, http://localhost:57250'. Binding to endpoints defined via IConfiguration and/or UseKestrel() instead.
+[2026-01-12 18:33:01.487] [INFO] [GrayjayServer] RunServerAsync: Server running on http://0.0.0.0:11338.

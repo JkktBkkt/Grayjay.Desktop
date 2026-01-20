@@ -2,7 +2,6 @@ import { Component, createSignal, onCleanup, onMount, For, JSX, createMemo, Show
 import styles from './index.module.css';
 import { Portal } from "solid-js/web";
 import Button from "../../buttons/Button";
-import IconButton from "../../buttons/IconButton";
 import ic_arrowUp from '../../../assets/icons/arrow_upward.svg';
 import ic_arrowDown from "../../../assets/icons/arrow_downward.svg";
 import { useFocus } from "../../../FocusProvider";
@@ -26,10 +25,10 @@ const ScrollContainer: Component<ScrollContainerProps> = (p) => {
     }
 
     const [buttonVisible, setButtonVisible] = createSignal(false);
-    
+
     let scrollingElement: HTMLDivElement | undefined;
     const handleScroll = (e: Event) => {
-        scrollingElement =  e.target as HTMLDivElement;
+        scrollingElement = e.target as HTMLDivElement;
 
         const scrollTop = scrollingElement.scrollTop;
         const scrollHeight = scrollingElement.scrollHeight;
@@ -62,15 +61,15 @@ const ScrollContainer: Component<ScrollContainerProps> = (p) => {
             <div class={styles.scrollWrapper} style={props.wrapperStyle}>
                 <div ref={props.ref} class={styles.containerScroll} onScroll={handleScroll} style={props.scrollStyle}>
                     {props.children}
-                    <Show when={buttonVisible() && focus?.isControllerMode() !== true}>
-                        <div class={styles.scrollButton} onClick={handleButtonClick}>
-                            <IconButton
-                                icon={props.scrollToTopButton ? ic_arrowUp : ic_arrowDown}
-                                style={{ border: "1px solid #454545" }}
-                            />
-                        </div>
-                    </Show>
                 </div>
+                <Show when={buttonVisible() && focus?.isControllerMode() !== true}>
+                    <div class={styles.scrollButton} onClick={handleButtonClick}>
+                        <img
+                            src={props.scrollToTopButton ? ic_arrowUp : ic_arrowDown}
+                            alt=""
+                        />
+                    </div>
+                </Show>
             </div>
         </>
     );

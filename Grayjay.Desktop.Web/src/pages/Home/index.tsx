@@ -11,8 +11,8 @@ import IconButton from '../../components/buttons/IconButton';
 import NavIconButton from '../../components/buttons/NavIconButton';
 
 import iconRefresh from "../../assets/icons/icon_reload_temp.svg"
-import iconHome from "../../assets/icons/icon_nav_home.svg"
-import iconSources from "../../assets/icons/ic_circles.svg"
+import iconWarning from "../../assets/icons/icon_warning_triangle.svg"
+import iconSourcesSmall from "../../assets/icons/icon_sources_small.svg"
 import { useNavigate } from '@solidjs/router';
 import EmptyContentView from '../../components/EmptyContentView';
 import { focusable } from '../../focusable'; void focusable;
@@ -38,7 +38,6 @@ const HomePage: Component = () => {
       <NavigationBar isRoot={true} childrenAfter={
         <NavIconButton
           icon={iconRefresh}
-          style={{ "margin-left": "24px" }}
           onClick={() => { StateGlobal.reloadHome() }}
           focusableOpts={{
             groupId: 'nav-bar',
@@ -54,10 +53,10 @@ const HomePage: Component = () => {
           </ScrollContainer>
         </Show>
         <Show when={homePager() && homePager()!.data.length == 0}>
-          <EmptyContentView icon={iconHome} title='No home results' description='Install, configure, or enable more sources' actions={[
+          <EmptyContentView icon={iconWarning} title='No sources enabled' description='To start watching videos, enable at least one source (YouTube, PeerTube, etc.)' actions={[
             {
-              icon: iconSources,
-              title: "Go to Sources",
+              icon: iconSourcesSmall,
+              title: "Enable sources",
               action: () => nav("/web/sources")
             }
           ]} />

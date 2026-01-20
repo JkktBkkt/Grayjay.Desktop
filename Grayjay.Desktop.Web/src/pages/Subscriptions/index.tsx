@@ -22,6 +22,7 @@ import LoaderGrid from '../../components/basics/loaders/LoaderGrid';
 import { Pager } from '../../backend/models/pagers/Pager';
 import Button from '../../components/buttons/Button';
 import UIOverlay from '../../state/UIOverlay';
+import NavIconButton from '../../components/buttons/NavIconButton';
 
 import { IPlatformContent } from '../../backend/models/content/IPlatformContent';
 import { IPlatformVideo } from '../../backend/models/content/IPlatformVideo';
@@ -276,15 +277,17 @@ const SubscriptionsPage: Component = () => {
   return (
     <div class={styles.container}>
       <NavigationBar isRoot={true} childrenAfter={
-        <img src={iconRefresh} style={{ "margin-left": "24px", "cursor": "pointer", "height": "30px", "width": "30px" }}
+        <NavIconButton
+          icon={iconRefresh}
           ref={setReloadButtonRef}
-          use:focusable={{
+          style={{ "margin-left": "24px" }}
+          onClick={() => { setShowReloadMenu(true) }}
+          focusableOpts={{
             onPress: () => setShowReloadMenu(true),
             groupId: 'nav-bar',
             groupIndices: [1],
             groupType: 'horizontal'
-          }}
-          onClick={() => { setShowReloadMenu(true) }} />
+          }} />
       } />
       <ScrollContainer ref={scrollContainerRef}>
         <Show when={subs$() && subs$()!.length > 0}>
@@ -420,11 +423,11 @@ const SubscriptionsPage: Component = () => {
           <Show when={!currentPager$() || (hasSelectedCreator$() && filterPager$.state != "ready")}>
             <LoaderGrid itemCount={18} />
           </Show>
+          <Portal>
+            <SettingsMenu menu={reloadMenu} show={showReloadMenu$()} anchor={anchor} onHide={() => setShowReloadMenu(false)} />
+          </Portal>
           <Show when={currentPager$() && (!hasSelectedCreator$() || filterPager$.state == "ready")}>
             <div class={styles.content}>
-              <Portal>
-                <SettingsMenu menu={reloadMenu} show={showReloadMenu$()} anchor={anchor} onHide={() => setShowReloadMenu(false)} />
-              </Portal>
               <ContentGrid pager={currentPager$()} outerContainerRef={scrollContainerRef} useCache={true} openChannelButton={true} />
             </div>
           </Show>

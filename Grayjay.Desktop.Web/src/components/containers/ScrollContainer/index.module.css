@@ -37,8 +37,29 @@
 }
 
 .scrollButton {
-    position: absolute;
-    bottom: 10px;
-    right: 22px;
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
     z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    background: #0f0f0f;
+    border: 1px solid #242424;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.scrollButton:hover {
+    background: #1a1a1a;
+    border-color: #3E3E3E;
+}
+
+.scrollButton img {
+    width: 24px;
+    height: 24px;
+    filter: brightness(0.86);
 }

@@ -24,6 +24,7 @@ import iconLink from '../../../assets/icons/icon_link.svg';
 import sources from '../../../assets/icons/ic_circles.svg';
 import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
 import iconPlus from '../../../assets/icons/icon24_add.svg';
+import iconNewWindow from '../../../assets/icons/icon_nav_new_window.svg';
 import iconExitToApp from '../../../assets/icons/icon_exit_to_app.svg';
 import ScrollContainer from '../../containers/ScrollContainer';
 import BuyPromo from './BuyPromo';
@@ -110,7 +111,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const downloadsBtn: ButtonItem = { icon: download, name: 'Downloads', path: '/web/downloads', getSelected: createMemo(() => location.pathname === '/web/downloads') };
   const historyBtn: ButtonItem = { icon: history, name: 'History', path: '/web/history', getSelected: createMemo(() => location.pathname === '/web/history') };
   const syncBtn: ButtonItem = { icon: iconSync, name: 'Sync', path: '/web/sync', getSelected: createMemo(() => location.pathname === '/web/sync') };
-  const newWindowBtn: ButtonItem = { icon: iconPlus, name: 'New Window', action: () => WindowBackend.startWindow(), getSelected: createMemo(() => false) };
+  const newWindowBtn: ButtonItem = { icon: iconNewWindow, name: 'New Window', action: () => WindowBackend.startWindow(), getSelected: createMemo(() => false) };
   const closeWindowBtn: ButtonItem = { icon: iconExitToApp, name: 'Close', action: () => WindowBackend.closeWindow(), getSelected: createMemo(() => false) };
   const delayBtn: ButtonItem = { icon: iconPlus, name: 'Delay', action: () => { WindowBackend.echo('test'); WindowBackend.delay(10000); }, getSelected: createMemo(() => false) };
   const developerBtn: ButtonItem = { icon: iconLink, name: 'Developer', path: '/Developer/Index', getSelected: createMemo(() => location.pathname === '/Developer/Index'), onRightClick: () => LocalBackend.open(`http://${window.location.host}/Developer/Index`) };

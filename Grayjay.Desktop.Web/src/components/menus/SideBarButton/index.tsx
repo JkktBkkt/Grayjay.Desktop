@@ -23,6 +23,10 @@ const SideBarButton: Component<SideBarButtonProps> = (props) => {
   const [isHovered, setIsHovered] = createSignal(false);
 
   const handleClick = (event: MouseEvent) => {
+    // Blur the button to remove focus state after clicking
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.blur();
+    }
     if (props.onClick) {
       props.onClick(event);
     }

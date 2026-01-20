@@ -9,11 +9,10 @@
 }
 
 .containerInputText {
-    border-radius: 6px;
+    border-radius: 8px;
     border: 1px solid #2E2E2E;
     background: #1B1B1B;
-    padding-top: 16px;
-    padding-bottom: 16px;
+    height: 48px;
     padding-left: 12px;
     padding-right: 12px;
 
@@ -21,10 +20,10 @@
     flex-direction: row;
     align-items: center;
     width: 100%;
-    height: 52px;
     cursor: text;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, border-color 0.2s ease, background 0.2s ease;
     position: relative;
+    box-sizing: border-box;
 }
 
 .containerInputText.hasLabel .searchInput {
@@ -50,7 +49,8 @@
 }
 
 .containerInputText:hover {
-    border: 1px solid #595959;
+    border: 1px solid #3E3E3E;
+    background: #1F1F1F;
 }
 
 .containerInputText.disabled {
@@ -63,10 +63,8 @@
 }
 
 .icon {
-    height: 16px;
-    width: 16px;
-    margin-left: 10px;
-    margin-right: 10px;
+    height: 18px;
+    width: 18px;
 }
 
 .iconClear {
@@ -91,6 +89,7 @@
     height: 100%;
     margin-right: 12px;
     font-family: "Inter";
+    padding-left: 8px;
 }
 
 .searchInput:focus {
@@ -110,7 +109,8 @@
     font-size: 18px;
     font-style: normal;
     font-weight: 400;
-    line-height: 22px; /* 122.222% */
+    line-height: 22px;
+    /* 122.222% */
     position: absolute;
     top: 24px;
     margin-top: -8px;
@@ -130,5 +130,6 @@
     font-size: 12px;
     font-style: normal;
     font-weight: 500;
-    line-height: 22px; /* 183.333% */
+    line-height: 22px;
+    /* 183.333% */
 }

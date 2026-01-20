@@ -27,66 +27,74 @@
     margin-left: 24px;
     margin-right: 24px;
     margin-bottom: 15px;
-    padding-bottom: 10px;
     flex-shrink: 0;
     overflow-x: auto;
     overflow-y: none;
     white-space: nowrap;
     scrollbar-width: thin;
     scrollbar-color: #555 #333;
+    display: flex;
+    gap: 4px;
 }
 
 .channel {
     position: relative;
-    display:inline-block; 
-    height: 105px; 
-    width: 88px;
-    margin-left: 6px;
-    margin-right: 6px;
-    vertical-align: top;    
-    padding: 12px 8px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    width: 96px;
+    vertical-align: top;
+    padding: 10px 4px;
     border-radius: 8px;
-    background: #1B1B1B;
+    background: transparent;
     text-align: center;
-    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.15s ease;
 }
+
+.channel:hover {
+    background: #1a1a1a;
+}
+
 .channel:focus {
-    background: #303030;
+    background: #1a1a1a;
 }
 
 .channel.active {
-    border: 1px solid #4D4D4D;
-    background: #1B1B1B;
+    background: #1a1a1a;
 }
+
 .channel.active .channelText {
     color: white;
 }
+
 .channelImg {
     width: 60px;
     height: 60px;
-    border-radius: 50px;
-    margin-bottom: 5px;
-    margin-top: 3px;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
+
 .channelText {
-    color: #989898;
+    color: white;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
-    align-items: center;
-    justify-content: center;
     text-align: center;
     white-space: normal;
-    font-family: Inter;
+    font-family: Inter, sans-serif;
     font-size: 14px;
     font-style: normal;
-    font-weight: 400;
-    line-height: 1.2em;
+    font-weight: 300;
+    line-height: normal;
     word-break: break-word;
+    margin-top: 4px;
+    height: 33px;
 }
+
 .sourceIcon {
     position: absolute;
     display: grid;
@@ -98,8 +106,9 @@
     width: 20px;
     background-color: white;
     border-radius: 20px;
-    
+
 }
+
 .sourceIcon img {
     max-width: 15px;
     max-height: 15px;
@@ -124,6 +133,7 @@
     scrollbar-width: thin;
     scrollbar-color: #555 #333;
 }
+
 .subgroup {
     display: inline-block;
     flex-shrink: 0;
@@ -145,9 +155,11 @@
     margin-bottom: 2px;
     cursor: pointer;
 }
+
 .subgroup.active {
     border: 2px solid #02C6E7;
 }
+
 .subgroup .editIcon {
     position: absolute;
     right: 5px;
@@ -156,12 +168,15 @@
     width: 20px;
     opacity: 0.5;
 }
+
 .subgroup:focus {
     background: #303030;
 }
+
 .subgroup .editIcon:hover {
     opacity: 1;
 }
+
 .subgroup .image {
     position: absolute;
     width: calc(100% + 20px);
@@ -172,15 +187,16 @@
     background-size: cover;
     background-position: center;
 }
+
 .subgroup .name {
     position: absolute;
     bottom: 10px;
     left: 18px;
     overflow: hidden;
     color: #FFF;
-    
+
     leading-trim: both;
-    
+
     text-edge: cap;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -188,8 +204,10 @@
     font-size: 16px;
     font-style: normal;
     font-weight: 600;
-    line-height: 22px; /* 137.5% */
+    line-height: 22px;
+    /* 137.5% */
 }
+
 .subgroup .centerText {
     position: absolute;
     bottom: 0px;
@@ -201,9 +219,9 @@
     align-items: center;
     overflow: hidden;
     color: #FFF;
-    
+
     leading-trim: both;
-    
+
     text-edge: cap;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -230,19 +248,24 @@
 
     background: #1B1B1B;
 }
+
 .filter:focus {
     background: #474747;
 }
+
 .filter.active {
     border: 1px solid #454545;
-    background: #2E2E2E;
+    background: #1A1A1A;
 }
+
 .filter.active:focus {
     background: #666666;
 }
+
 .filter:focus .name {
     color: #b4b4b4;
 }
+
 .filter .name {
     color: #555555;
     text-align: center;
@@ -254,8 +277,10 @@
     font-size: 14px;
     font-style: normal;
     font-weight: 600;
-    line-height: 140%; /* 19.6px */
+    line-height: 140%;
+    /* 19.6px */
 }
+
 .filter.active .name {
     color: white !important;
 }
@@ -270,9 +295,9 @@
     padding-bottom: 24px;
     border-radius: 8px;
     border: 1px solid rgba(1, 155, 231, 0.00);
-    
+
     background: linear-gradient(0deg, rgba(27, 27, 27, 0.90) 0%, rgba(27, 27, 27, 0.90) 100%), linear-gradient(270deg, #01D6E6 -68.7%, #0182E7 97.07%);
-    
+
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -282,6 +307,7 @@
     max-width: 500px;
     flex-grow: 1;
 }
+
 .subgroupBanner .bannerTitle {
     color: #FFF;
     font-family: Inter;
@@ -291,6 +317,7 @@
     line-height: normal;
     padding-bottom: 12px;
 }
+
 .subgroupBanner .bannerDescription {
     color: rgba(255, 255, 255, 0.6);
     font-family: Inter;
@@ -308,10 +335,11 @@
 
 .noSubs {
     text-align: center;
-    height: 400px; 
+    height: 400px;
     margin-top: calc(50vh - 200px);
     width: 100%;
 }
+
 .noSubs .title {
     margin-top: 10px;
     color: #FFF;
@@ -323,6 +351,7 @@
     font-weight: 600;
     line-height: normal;
 }
+
 .noSubs .description {
     margin-top: 10px;
     color: #8C8C8C;
@@ -333,6 +362,7 @@
     font-weight: 500;
     line-height: normal;
 }
+
 .noSubs .buttons {
     margin-top: 28px;
 }

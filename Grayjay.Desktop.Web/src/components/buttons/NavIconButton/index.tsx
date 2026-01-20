@@ -10,11 +10,13 @@ interface NavIconButtonProps {
     style?: JSX.CSSProperties;
     imgStyle?: JSX.CSSProperties;
     focusableOpts?: FocusableOptions;
+    ref?: (el: HTMLDivElement) => void;
 }
 
 const NavIconButton: Component<NavIconButtonProps> = (props) => {
     return (
         <div class={styles.button}
+            ref={props.ref}
             onClick={(e) => props.onClick?.(e)}
             style={props.style}
             use:focusable={props.focusableOpts}>
