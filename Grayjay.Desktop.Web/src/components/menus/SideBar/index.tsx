@@ -278,13 +278,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>
           <img src={grayjay} />
           <Show when={!isCollapsed()}>
-            <div style="font-size: 20px; top: 2px; left: 60px; position: absolute;">
+            <div style="font-size: 20px; left: 60px; position: absolute; top: 50%; transform: translateY(-50%);">
             Grayjay
-            </div>
-          </Show>
-          <Show when={!isCollapsed()}>
-            <div style="font-size: 12px; top: 25px; left: 60px; position: absolute;">
-              Alpha
             </div>
           </Show>
         </div>
