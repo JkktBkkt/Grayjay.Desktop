@@ -322,10 +322,13 @@ const ChannelPage: Component = () => {
                     "margin-bottom": "24px",
                     "width": "calc(100% - 48px)"
                   }}
+                  inputContainerStyle={{
+                    "height": "48px"
+                  }}
                   onSubmit={() => {
                     console.log("Channel Search Submit");
                     updatePager(query$(), channel$()?.url ?? params.url)
-                    }} 
+                    }}
                   focusable={true} />
                 </Show>
                       

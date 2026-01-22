@@ -629,7 +629,7 @@ const DownloadsPage: Component = () => {
           <div style="margin-left: 30px; margin-right: 30px; margin-bottom: 30px; flex-grow: 1; display: flex; flex-direction: column; overflow: hidden;">
             <h2 style="margin-bottom: 5px;">Downloaded</h2>
             <div class={styles.downloadFilterBar}>
-              <InputText placeholder='Search' onTextChanged={(v) => setVideoSearch(v)} focusable={true} inputContainerStyle={{ 'height': '38px' }} />
+              <InputText placeholder='Search' onTextChanged={(v) => setVideoSearch(v)} focusable={true} inputContainerStyle={{ 'height': '48px' }} />
               <div class={styles.filters}>
                   <TogglePill name='Media' value={videoType$() == "media"} onToggle={()=>{setVideoType("media")}} focusableOpts={{}} />
                   <TogglePill name='Videos' value={videoType$() == "video"} onToggle={()=>{setVideoType("video")}} focusableOpts={{}} />
