@@ -71,7 +71,7 @@ const Dropdown: Component<DropdownProps> = (props) => {
                         <Show when={props.label}>
                             <div class={styles.labelText}>{props.label}</div>
                         </Show>
-                        {props.options[selectedIndex$()]}
+                        <div class={styles.valueText}>{props.options[selectedIndex$()]}</div>
                     </div>
                 </div>
                 <div style={{"flex-grow": 1}}></div>

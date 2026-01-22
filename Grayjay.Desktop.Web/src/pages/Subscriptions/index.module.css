@@ -43,6 +43,7 @@
     flex-direction: column;
     align-items: center;
     width: 96px;
+    height: 120px;
     vertical-align: top;
     padding: 10px 4px;
     border-radius: 8px;
@@ -50,6 +51,7 @@
     text-align: center;
     cursor: pointer;
     transition: background 0.15s ease;
+    box-sizing: border-box;
 }
 
 .channel:hover {
@@ -58,6 +60,21 @@
 
 .channel:focus {
     background: #1a1a1a;
+}
+
+body[data-input-source="keyboard"] .channel:focus,
+body[data-input-source="gamepad"] .channel:focus {
+    background: #fff;
+}
+
+body[data-input-source="keyboard"] .channel:focus .channelText,
+body[data-input-source="gamepad"] .channel:focus .channelText {
+    color: #000;
+}
+
+body[data-input-source="keyboard"] .channel:focus .channelImg,
+body[data-input-source="gamepad"] .channel:focus .channelImg {
+    border: 2px solid #000;
 }
 
 .channel.active {
@@ -73,6 +90,8 @@
     height: 60px;
     border-radius: 50%;
     flex-shrink: 0;
+    border: 2px solid transparent;
+    box-sizing: border-box;
 }
 
 .channelText {
@@ -173,6 +192,27 @@
     background: #303030;
 }
 
+body[data-input-source="keyboard"] .subgroup:focus,
+body[data-input-source="gamepad"] .subgroup:focus {
+    background: #fff;
+    border-color: #fff;
+}
+
+body[data-input-source="keyboard"] .subgroup:focus .name,
+body[data-input-source="gamepad"] .subgroup:focus .name {
+    color: #000;
+}
+
+body[data-input-source="keyboard"] .subgroup:focus .centerText,
+body[data-input-source="gamepad"] .subgroup:focus .centerText {
+    color: #000;
+}
+
+body[data-input-source="keyboard"] .subgroup:focus .editIcon,
+body[data-input-source="gamepad"] .subgroup:focus .editIcon {
+    filter: invert(1);
+}
+
 .subgroup .editIcon:hover {
     opacity: 1;
 }
@@ -251,6 +291,17 @@
 
 .filter:focus {
     background: #474747;
+}
+
+body[data-input-source="keyboard"] .filter:focus,
+body[data-input-source="gamepad"] .filter:focus {
+    background: #fff;
+    border-color: #fff;
+}
+
+body[data-input-source="keyboard"] .filter:focus .name,
+body[data-input-source="gamepad"] .filter:focus .name {
+    color: #000 !important;
 }
 
 .filter.active {

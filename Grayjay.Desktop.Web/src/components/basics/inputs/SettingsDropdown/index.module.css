@@ -137,3 +137,8 @@ body[data-input-source="gamepad"] .select:focus {
   font-weight: 500;
   line-height: 22px; /* 183.333% */
 }
+
+.valueText {
+  font-size: 14px;
+  font-weight: 200;
+}

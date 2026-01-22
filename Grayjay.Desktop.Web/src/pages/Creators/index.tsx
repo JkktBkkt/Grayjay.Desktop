@@ -123,7 +123,7 @@ const CreatorsPage: Component = () => {
       <Show when={subs$() && subs$()!.length > 0}>
         <ScrollContainer ref={scrollContainerRef}>
           <div class={styles.containerFilters}>
-            <SettingsDropdown label="Sources" valueString={valueString$()} style={{ "max-width": "200px" }} anchorStyle={AnchorStyle.BottomLeft} menu={{
+            <SettingsDropdown label="Sources" valueString={valueString$()} style={{ "max-width": "200px" }} selectStyle={{ "height": "48px" }} anchorStyle={AnchorStyle.BottomLeft} menu={{
               items: StateGlobal.sources$()?.map(i => new MenuItemCheckbox({
                 isSelected: true,
                 name: i.name,
@@ -140,14 +140,14 @@ const CreatorsPage: Component = () => {
               value={filterText()}
               showClearButton={true}
               inputContainerStyle={{
-                "height": "70px",
+                "height": "48px",
                 "background": "#141414"
               }}
               onTextChanged={(v) => {
                 setFilterText(v);
               }}
               focusable={true} />
-            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{ "width": "230px" }} />
+            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{ "width": "230px" }} selectStyle={{ "height": "48px" }} />
           </div>
 
           <VirtualGrid outerContainerRef={scrollContainerRef}

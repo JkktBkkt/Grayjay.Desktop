@@ -13,6 +13,7 @@ export interface SettingsDropdownProps {
     anchorStyle?: AnchorStyle;
     label?: string;
     style?: JSX.CSSProperties;
+    selectStyle?: JSX.CSSProperties;
     valueString?: string;
     focusable?: boolean;
 };
@@ -48,13 +49,13 @@ const SettingsDropdown: Component<SettingsDropdownProps> = (props) => {
   return (
     <>
       <div class={styles.selectContainer} ref={selectElement} onClick={() => onPress("pointer")} style={props.style} use:focusable={props.focusable === true ? { onPress: () => onPress("gamepad") } : undefined}>
-          <div class={styles.select} classList={{[styles.open]: showMenu$()}}>
+          <div class={styles.select} classList={{[styles.open]: showMenu$()}} style={props.selectStyle}>
               <div class={styles.selectText}>
                   <div style={{"display": "flex", "flex-direction": "column", "white-space": "nowrap", "text-overflow": "ellipsis"}}>
                       <Show when={props.label}>
                           <div class={styles.labelText}>{props.label}</div>
                       </Show>
-                      {props.valueString ?? ""}
+                      <div class={styles.valueText}>{props.valueString ?? ""}</div>
                   </div>
               </div>
               <div style={{"flex-grow": 1}}></div>
