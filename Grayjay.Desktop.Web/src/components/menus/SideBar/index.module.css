@@ -51,11 +51,12 @@
 }
 
 .collapse {
-    width: 24px;
-    height: 24px;
-    padding: 16px;
+    width: 44px;
+    height: 44px;
+    padding: 11px;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 8px;
+    box-sizing: border-box;
 }
 
 .collapse:hover {
@@ -88,11 +89,13 @@
     flex-direction: row;
     width: 100%;
     align-items: center;
-    justify-content: end;
+    justify-content: flex-end;
     margin-top: 16px;
-    margin-left: 4px;
-    margin-right: auto;
     margin-bottom: 4px;
+}
+
+.sidebar.collapsed .containerCollapse {
+    justify-content: center;
 }
 
 .expandHeader {

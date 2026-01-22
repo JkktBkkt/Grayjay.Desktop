@@ -5,6 +5,7 @@ import styles from './index.module.css';
 import { useNavigate } from '@solidjs/router';
 import back from '../../../assets/icons/icon24_back.svg';
 import cast from '../../../assets/icons/icon_32_cast.svg';
+import reload from '../../../assets/icons/icon_reload_temp.svg';
 import SearchBar from '../SearchBar';
 import { useCasting } from '../../../contexts/Casting';
 import { ContentType } from '../../../backend/models/ContentType';
@@ -59,19 +60,41 @@ const NavigationBar: Component<NavigationBarProps> = (props) => {
         {props.childrenAfter}
       </Show>
 
-      <IconButton
-        icon={cast}
-        variant="none"
-        style={{ "margin-left": "24px" }}
-        onClick={() => casting?.actions.open()}
-        focusableOpts={{
-          groupId: 'nav-bar',
-          groupIndices: [props.childrenAfter ? 2 : 1],
-          groupType: 'horizontal',
-          groupEscapeTo: props.groupEscapeTo,
-          onPress: () => casting?.actions.open(),
-        }}
-      />
+      <div class={styles.actionButtons}>
+        <IconButton
+          icon={reload}
+          variant="none"
+          shape="rounded"
+          width="44px"
+          height="44px"
+          iconInset="11px"
+          onClick={() => window.location.reload()}
+          focusableOpts={{
+            groupId: 'nav-bar',
+            groupIndices: [props.childrenAfter ? 2 : 1],
+            groupType: 'horizontal',
+            groupEscapeTo: props.groupEscapeTo,
+            onPress: () => window.location.reload(),
+          }}
+        />
+        <div class={styles.divider}></div>
+        <IconButton
+          icon={cast}
+          variant="none"
+          shape="rounded"
+          width="44px"
+          height="44px"
+          iconInset="11px"
+          onClick={() => casting?.actions.open()}
+          focusableOpts={{
+            groupId: 'nav-bar',
+            groupIndices: [props.childrenAfter ? 3 : 2],
+            groupType: 'horizontal',
+            groupEscapeTo: props.groupEscapeTo,
+            onPress: () => casting?.actions.open(),
+          }}
+        />
+      </div>
     </div>
   );
 };

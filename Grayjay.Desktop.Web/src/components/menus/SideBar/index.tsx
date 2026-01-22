@@ -283,11 +283,6 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
               Alpha
             </div>
           </Show>
-          <Show when={isCollapsed()}>
-            <div style="font-size: 12px; top: 45px; left: 0px; position: absolute; width: 50px; text-align: center;">
-              Alpha
-            </div>
-          </Show>
         </div>
         <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
           {(btn, i) => {

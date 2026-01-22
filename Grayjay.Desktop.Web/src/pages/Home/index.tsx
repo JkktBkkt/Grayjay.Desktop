@@ -34,26 +34,7 @@ const HomePage: Component = () => {
   let scrollContainerRef: HTMLDivElement | undefined;
   return (
     <div class={styles.container}>
-        <NavigationBar isRoot={true} childrenAfter={
-          <IconButton
-            icon={iconRefresh}
-            variant="none"
-            shape="circle"
-            width="30px"
-            height="30px"
-            iconInset="0px"
-            style={{ "margin-left": "24px" }}
-            onClick={() => {
-              StateGlobal.reloadHome();
-            }}
-            focusableOpts={{
-              groupId: 'nav-bar',
-              groupIndices: [1],
-              groupType: 'horizontal',
-              onPress: () => StateGlobal.reloadHome(),
-            }}
-          />
-        } />
+        <NavigationBar isRoot={true} />
         <Show when={homePager.state == 'ready'}>
           <Show when={homePager() && homePager()!.data.length > 0}>
             <ScrollContainer ref={scrollContainerRef}>

@@ -6,3 +6,17 @@
     flex-shrink: 0;
     margin: 24px;
 }
+
+.actionButtons {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.divider {
+    width: 1px;
+    height: 100%;
+    min-height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 16px;
+}

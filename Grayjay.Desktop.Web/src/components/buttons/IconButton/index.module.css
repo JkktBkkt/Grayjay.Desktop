@@ -33,7 +33,7 @@
 }
 
 .rounded {
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* variants */
@@ -47,6 +47,22 @@
 
 .none {
   --ib-bg: transparent;
+}
+
+.none:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.none:hover .icon {
+  filter: none;
+}
+
+.none:focus-visible {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.none:focus-visible .icon {
+  filter: none;
 }
 
 .icon {
