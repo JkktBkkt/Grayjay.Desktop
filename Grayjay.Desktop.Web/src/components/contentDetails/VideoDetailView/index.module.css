@@ -250,9 +250,9 @@ body[data-input-source="gamepad"] .authorName:focus {
     justify-content: center;
     align-items: end;
     bottom: 10px;
-    left: 0px;
+    left: 50%;
+    transform: translateX(-50%);
     position: absolute;
-    width: 100%;
     color: #019BE7;
     cursor: pointer;
 }
@@ -270,7 +270,6 @@ body[data-input-source="gamepad"] .showMoreShowLess:focus {
 body[data-input-source="keyboard"] .showMoreShowLess:focus span,
 body[data-input-source="gamepad"] .showMoreShowLess:focus span {
     background: #fff;
-    border: 1px solid #fff;
 }
 
 .commentHeader {

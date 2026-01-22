@@ -25,3 +25,9 @@
 .toggle.enabled {
     background-color: #019BE7;
 }
+
+body[data-input-source="keyboard"] .toggle:focus,
+body[data-input-source="gamepad"] .toggle:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff;
+}

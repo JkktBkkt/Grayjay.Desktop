@@ -78,3 +78,23 @@
     padding: 10px;
     flex-shrink: 0;
 }
+
+.advancedRow {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+body[data-input-source="keyboard"] .advancedRow:focus,
+body[data-input-source="gamepad"] .advancedRow:focus {
+    background: #fff;
+    outline: none;
+}
+
+body[data-input-source="keyboard"] .advancedRow:focus div,
+body[data-input-source="gamepad"] .advancedRow:focus div {
+    color: #000 !important;
+}
