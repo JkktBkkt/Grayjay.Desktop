@@ -80,25 +80,40 @@
     flex-shrink: 0;
 }
 
-.collapse {
-    width: 22px;
-    height: 22px;
+.collapseWrapper {
+    width: 44px;
+    height: 44px;
     padding: 11px;
     cursor: pointer;
     border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
 }
 
-.collapse:hover {
-    cursor: pointer;
+.collapseWrapper:hover {
     background: rgba(255, 255, 255, 0.055);
 }
 
-.collapse.selected:focus {
-    background: rgba(255, 255, 255, 0.15);
+.collapseWrapper:focus {
+    background: rgba(255, 255, 255, 0.055);
 }
 
-.collapse:focus {
-    background: rgba(255, 255, 255, 0.055);
+body[data-input-source="keyboard"] .collapseWrapper:focus,
+body[data-input-source="gamepad"] .collapseWrapper:focus {
+    background: #fff !important;
+}
+
+body[data-input-source="keyboard"] .collapseWrapper:focus .collapse,
+body[data-input-source="gamepad"] .collapseWrapper:focus .collapse {
+    filter: invert(1);
+}
+
+.collapse {
+    width: 22px;
+    height: 22px;
+    display: block;
 }
 
 .width.selected:focus {
@@ -116,6 +131,7 @@
     justify-content: flex-end;
     width: 100%;
     margin-bottom: 0px;
+    margin-top: 14px;
 }
 
 .expandHeader {

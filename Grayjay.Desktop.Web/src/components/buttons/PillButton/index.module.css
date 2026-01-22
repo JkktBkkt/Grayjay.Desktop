@@ -15,6 +15,21 @@
     cursor: pointer;
 }
 
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+    background-color: #fff;
+}
+
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
+    filter: invert(1);
+}
+
+body[data-input-source="keyboard"] .container:focus .text,
+body[data-input-source="gamepad"] .container:focus .text {
+    color: #000;
+}
+
 .icon {
     width: 24px;
     height: 24px;

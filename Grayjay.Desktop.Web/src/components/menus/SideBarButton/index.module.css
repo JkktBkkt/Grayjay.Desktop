@@ -17,17 +17,38 @@
 
 .sideBarButton.selected {
     /*border-left: #019BE7 2px solid;*/
-    background: #FFFFFF;
+    background: rgba(255, 255, 255, 0.055);
 }
 
 .sideBarButton.collapsed {}
 
 .sideBarButton.selected:focus {
-    background: #FFFFFF;
+    background: rgba(255, 255, 255, 0.055);
 }
 
 .sideBarButton:focus {
     background: rgba(255, 255, 255, 0.055);
+}
+
+body[data-input-source="keyboard"] .sideBarButton:focus,
+body[data-input-source="gamepad"] .sideBarButton:focus {
+    background: rgba(255, 255, 255, 0.055);
+}
+
+body[data-input-source="keyboard"] .sideBarButton:focus .icon,
+body[data-input-source="gamepad"] .sideBarButton:focus .icon {
+    opacity: 1.0;
+    filter: brightness(0) invert(1);
+}
+
+body[data-input-source="keyboard"] .sideBarButton:focus .text,
+body[data-input-source="gamepad"] .sideBarButton:focus .text {
+    color: #fff;
+}
+
+body[data-input-source="keyboard"] .sideBarButton:focus .subtitle,
+body[data-input-source="gamepad"] .sideBarButton:focus .subtitle {
+    color: #ccc;
 }
 
 .sideBarButton .icon {
@@ -44,7 +65,6 @@
 
 .sideBarButton.selected .icon {
     opacity: 1.0;
-    filter: brightness(0);
 }
 
 .sideBarButton .textContainer {
@@ -59,7 +79,7 @@
     line-height: 32px;
     margin-left: 8px;
     opacity: 1;
-    color: #f5f5f5;
+    color: #B8B8B8;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -69,7 +89,7 @@
 }
 
 .sideBarButton.selected .text {
-    color: #1B1B1B;
+    color: #B8B8B8;
 }
 
 .sideBarButton.collapsed .text {
@@ -89,7 +109,7 @@
 }
 
 .sideBarButton.selected .subtitle {
-    color: #4A4A4A;
+    color: #8C8C8C;
 }
 
 .sideBarButton.highlight {

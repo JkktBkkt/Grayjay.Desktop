@@ -1,7 +1,7 @@
 import { Component, createSignal, onCleanup, Show, Index, JSX, createMemo, batch } from "solid-js";
 import styles from './index.module.css';
 import { AnchorStyle } from "../../../../utility/Anchor";
-import chevDown from "../../../../assets/icons/icon_chrevron_down.svg"
+import iconDropdownArrows from "../../../../assets/icons/icon_dropdown_arrows.svg"
 import check from "../../../../assets/icons/icon_checkmark.svg"
 import StateGlobal from "../../../../state/StateGlobal";
 import { focusScope } from '../../../../focusScope'; void focusScope;
@@ -65,7 +65,7 @@ const Dropdown: Component<DropdownProps> = (props) => {
     
     return (
         <div class={styles.selectContainer} onClick={() => toggleShow("pointer")} style={props.style} use:focusable={{ ... (props.focusableGroupOpts ?? {}), onPress: () => toggleShow("gamepad"), onBack: props.onBack }}>
-            <div ref={refSelectElement} class={styles.select} style={props.selectStyle}>
+            <div ref={refSelectElement} class={styles.select} classList={{[styles.open]: showOptions$().show}} style={props.selectStyle}>
                 <div class={styles.selectText}>
                     <div style={{"display": "flex", "flex-direction": "column"}}>
                         <Show when={props.label}>
@@ -76,7 +76,7 @@ const Dropdown: Component<DropdownProps> = (props) => {
                 </div>
                 <div style={{"flex-grow": 1}}></div>
                 <div class={styles.selectArrow}>
-                    <img src={chevDown} style={{ transform: (showOptions$()) ? "rotate(-180deg)" : undefined }} />
+                    <img src={iconDropdownArrows} />
                 </div>
             </div>
             <Show when={showOptions$().show}>

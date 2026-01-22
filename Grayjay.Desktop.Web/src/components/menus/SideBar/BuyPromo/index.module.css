@@ -64,3 +64,10 @@
     background-color: #b45309;
     border-color: rgba(245, 158, 11, 1);
 }
+
+body[data-input-source="keyboard"] .button:focus,
+body[data-input-source="gamepad"] .button:focus {
+    background-color: #fff;
+    border-color: #fff;
+    color: #000;
+}

@@ -209,20 +209,18 @@ const SourcesPage: Component = () => {
                   }
                 </For>
               </div>
-              <div style="margin-top:24px; margin-bottom: 24px;">
-                  <button onClick={[(installSource), null]} 
-                      style="border: 0px; cursor: pointer; padding: 18px; border-radius: 8px; background-color: #019BE7; color: white; font-size: 20px; margin-left: 24px; width: calc(100% - 40px);" use:focusable={{
+<div class={styles.buttonContainer}>
+                  <button class={styles.installUrlButton} onClick={[(installSource), null]} use:focusable={{
                       onPress: installSource
                     }}>
-                    Install Source
+                    Install from URL
                   </button>
-                  <button onClick={[()=>{UIOverlay.overlayOfficialPlugins()}, null]} 
-                      style="border: 0px; cursor: pointer; padding: 18px; border-radius: 8px; background-color: #019BE7; color: white; font-size: 20px; margin-left: 24px; margin-top: 10px; width: calc(100% - 40px);" use:focusable={{
+                  <button class={styles.installOfficialButton} onClick={[()=>{UIOverlay.overlayOfficialPlugins()}, null]} use:focusable={{
                       onPress: () => UIOverlay.overlayOfficialPlugins()
                     }}>
-                    Install Official Sources
+                    Install Official
                   </button>
-              </div>
+                </div>
             </ScrollContainer>
           </div>
           <div class={styles.panelRight}>

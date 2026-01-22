@@ -11,16 +11,18 @@
     font-size: 18px;
     font-weight: bold;
 }
-.description{
+
+.description {
     font-size: 15px;
     font-weight: 200;
     color: #CCC;
     height: calc(100% - 110px);
     overflow: hidden;
     margin-top: 5px;
-    overflow:hidden;
+    overflow: hidden;
 }
-.descriptionOverlay {    
+
+.descriptionOverlay {
     background: linear-gradient(0deg, #141414, #141414, rgba(0, 0, 0, 0.0));
     width: 100%;
     position: absolute;
@@ -39,9 +41,11 @@
     position: relative;
     transition: transform 0.5s ease;
 }
+
 .container:hover .videoThumbnail {
     transform: scale(1.05);
 }
+
 .sourceIcon {
     position: absolute;
     bottom: 0px;
@@ -60,7 +64,7 @@
     color: #FFF;
 
     /*leading-trim: both; -NOT SUPPORTED YET BY BROWSERS*/
-    
+
     /*text-edge: cap; -NOT SUPPORTED YET BY BROWSERS*/
 
     font-family: Inter;
@@ -69,6 +73,7 @@
     font-weight: 200;
     line-height: normal;
 }
+
 .isLive {
     border-radius: 4px;
     background: red;
@@ -84,7 +89,7 @@
     color: #FFF;
 
 
-    
+
 
     font-family: Inter;
     font-size: 14px;
@@ -100,6 +105,7 @@
     font-weight: 200;
     line-height: normal;
 }
+
 .isPlanned {
     border-radius: 3px;
     background: #222;
@@ -111,7 +117,7 @@
     color: #FFF;
 
 
-    
+
     font-family: Inter;
     font-size: 14px;
     font-style: normal;
@@ -122,16 +128,16 @@
 .title {
     font-size: 16px;
     margin-top: 14px;
-    
+
     font-weight: 400;
     height: 4em;
     display: -webkit-box;
     -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;  
+    -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.2em;
-    max-height: 2.4em;  
+    max-height: 2.4em;
 }
 
 .bottomRow {
@@ -149,7 +155,7 @@
 }
 
 .authorThumbnail {
-    width: 30px;   
+    width: 30px;
     height: 30px;
     border-radius: 50%;
 }
@@ -191,6 +197,7 @@
     position: relative;
     z-index: 999;
 }
+
 .thumbnail {
     width: 30%;
     height: 95px;
@@ -199,6 +206,7 @@
     overflow: hidden;
     border-radius: 5px;
 }
+
 .thumbnail {
     z-index: 999;
 }

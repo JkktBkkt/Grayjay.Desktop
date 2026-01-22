@@ -8,7 +8,7 @@ import grayjay from '../../../assets/grayjay.svg';
 
 import home from '../../../assets/icons/icon_nav_home.svg';
 import subscriptions from '../../../assets/icons/icon_nav_subscriptions_new.svg';
-import playlists from '../../../assets/icons/icon_nav_playlists.svg';
+import playlists from '../../../assets/icons/icon_sidebar_playlists.svg';
 import creators from '../../../assets/icons/icon_nav_creators.svg';
 import ic_sidebarOpen from '../../../assets/icons/sidebar-open.svg';
 import ic_sidebarClose from '../../../assets/icons/sidebar-close.svg';
@@ -255,10 +255,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
       <div class={styles.fixedHeader}>
         <Show when={canToggleCollapse()}>
           <div class={styles.containerCollapse}>
-            <img
-              src={isCollapsed() ? ic_sidebarOpen : ic_sidebarClose}
-              class={styles.collapse}
-              alt=""
+            <div
+              class={styles.collapseWrapper}
               role="button"
               use:focusable={{
                 groupId: 'sidebar',
@@ -269,7 +267,13 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 onPress: handleCollapse,
               }}
               onClick={handleCollapse}
-            />
+            >
+              <img
+                src={isCollapsed() ? ic_sidebarOpen : ic_sidebarClose}
+                class={styles.collapse}
+                alt=""
+              />
+            </div>
           </div>
         </Show>
         <div class={styles.grayjay} oncontextmenu={() => setDevClicked(devClicked$() + 1)}>
@@ -408,11 +412,23 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
       {/* Fixed Footer: Buy Grayjay + Settings */}
       <div class={styles.buttonListBottom}>
         <Show when={!isCollapsed() && !StateGlobal.didPurchase$()}>
-          <BuyPromo />
+          <BuyPromo 
+            focusableOpts={{
+              groupId: 'sidebar',
+              groupType: 'vertical',
+              groupEscapeDirs: ['right'],
+              groupIndices: [visibleTopButtonCount$() + 1 + (moreTopButtonCount$() > 0 ? 1 : 0)],
+              groupRememberLast: true,
+              onPress: () => navigate('/web/buy')
+            }}
+            onFocus={globalFocus}
+            onBlur={globalBlur}
+          />
         </Show>
         <For each={bottomButtons$()}>
           {(btn, i) => {
             const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
+            const buyPromoOffset = !isCollapsed() && !StateGlobal.didPurchase$() ? 1 : 0;
             return (
               <SideBarButton
                 collapsed={isCollapsed()}
@@ -427,7 +443,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                   groupId: 'sidebar',
                   groupType: 'vertical',
                   groupEscapeDirs: ['right'],
-                  groupIndices: [visibleTopButtonCount$() + 1 + (moreTopButtonCount$() > 0 ? 1 : 0) + i()],
+                  groupIndices: [visibleTopButtonCount$() + 1 + (moreTopButtonCount$() > 0 ? 1 : 0) + buyPromoOffset + i()],
                   groupRememberLast: true,
                   onPress: press
                 }}

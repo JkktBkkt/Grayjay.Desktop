@@ -1680,7 +1680,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                                         }
                                     }
                                 }}>
-                                    Show {fullDescriptionVisible$() ? "less" : "more"}
+                                    <span>Show {fullDescriptionVisible$() ? "less" : "more"}</span>
                                 </div>
                             </div>
 

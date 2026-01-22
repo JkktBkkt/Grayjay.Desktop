@@ -13,6 +13,7 @@ interface ButtonProps {
     small?: boolean;
     style?: JSX.CSSProperties;
     focusableOpts?: FocusableOptions;
+    inverted?: boolean;
 }
 
 const Button: Component<ButtonProps> = (props) => {
@@ -32,7 +33,7 @@ const Button: Component<ButtonProps> = (props) => {
     });
 
     return (
-        <div class={styles.container} classList={{[styles.small]: props.small}} style={style()} onClick={handleClick} use:focusable={props.focusableOpts}>
+        <div class={styles.container} classList={{[styles.small]: props.small, [styles.inverted]: props.inverted}} style={style()} onClick={handleClick} use:focusable={props.focusableOpts}>
             <Show when={props.icon}>
                 <img src={props.icon} class={styles.icon} alt={props.text} />
             </Show>

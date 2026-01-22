@@ -74,3 +74,55 @@
     align-items: center;
     overflow: hidden;
 }
+
+.textButton {
+    background: transparent;
+    border: none;
+    color: #019BE7;
+    font-size: 16px;
+    font-weight: 400;
+    cursor: pointer;
+    padding: 10px 16px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.textButton:hover {
+    text-decoration: underline;
+}
+
+body[data-input-source="keyboard"] .textButton:focus,
+body[data-input-source="gamepad"] .textButton:focus {
+    background: #fff;
+    color: #000;
+    border-radius: 6px;
+}
+
+.uninstallButton {
+    width: calc(100% - 54px);
+    margin-bottom: 10px;
+    margin-left: 24px;
+    background: transparent;
+    border: 2px solid #aa000061;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 400;
+    cursor: pointer;
+    padding: 14px 16px;
+    border-radius: 6px;
+    box-sizing: border-box;
+}
+
+.uninstallButton:hover {
+    background: rgba(170, 0, 0, 0.1);
+}
+
+body[data-input-source="keyboard"] .uninstallButton:focus,
+body[data-input-source="gamepad"] .uninstallButton:focus {
+    background: #fff;
+    color: #000;
+    border-color: #AA0000;
+}

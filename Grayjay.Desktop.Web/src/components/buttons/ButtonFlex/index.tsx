@@ -12,6 +12,7 @@ interface ButtonProps {
     small?: boolean;
     style?: JSX.CSSProperties;
     focusableOpts?: FocusableOptions;
+    inverted?: boolean;
 }
 
 const ButtonFlex: Component<ButtonProps> = (props) => {
@@ -22,7 +23,7 @@ const ButtonFlex: Component<ButtonProps> = (props) => {
     style["justify-content"] = "center";
 
     return (
-        <Button icon={props.icon} text={props.text} color={props.color} onClick={props.onClick} small={props.small} style={style} focusableOpts={props.focusableOpts}></Button>
+        <Button icon={props.icon} text={props.text} color={props.color} onClick={props.onClick} small={props.small} style={style} focusableOpts={props.focusableOpts} inverted={props.inverted}></Button>
     );
 };
 

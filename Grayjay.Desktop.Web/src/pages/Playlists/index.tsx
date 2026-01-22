@@ -295,7 +295,7 @@ const PlaylistsPage: Component = () => {
                   setFilterText(v);
                 }}
                 focusable={true} />
-              <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "280px"}} />
+              <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "280px"}} selectStyle={{"height": "70px"}} />
               <ButtonFlex text='New playlist'
                 icon={icon_add}
                 color='#019BE7'

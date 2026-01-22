@@ -44,6 +44,9 @@
     margin-left: 24px;
     border-radius: 8px;
     border-bottom: 1px solid #1B1B1B;
+    padding-left: 8px;
+    padding-right: 8px;
+    box-sizing: border-box;
 }
 .source.enabled {
     background-color: #222;
@@ -117,4 +120,54 @@
     margin-right: 15px;
     vertical-align: top;
     margin-top: 10px;
+}
+
+.buttonContainer {
+    margin-top: 24px;
+    margin-bottom: 24px;
+    margin-left: 24px;
+    margin-right: 16px;
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.installUrlButton {
+    border: 2px solid #0084D3;
+    cursor: pointer;
+    padding: 10px 16px;
+    border-radius: 6px;
+    background-color: transparent;
+    color: white;
+    font-size: 16px;
+    font-weight: 400;
+    flex: 1;
+    height: 52px;
+    box-sizing: border-box;
+}
+
+body[data-input-source="keyboard"] .installUrlButton:focus,
+body[data-input-source="gamepad"] .installUrlButton:focus {
+    background-color: #fff;
+    color: #000;
+}
+
+.installOfficialButton {
+    border: 0px;
+    cursor: pointer;
+    padding: 10px 16px;
+    border-radius: 6px;
+    background-color: #019BE7;
+    color: white;
+    font-size: 16px;
+    font-weight: 400;
+    flex: 1;
+    height: 52px;
+    box-sizing: border-box;
+}
+
+body[data-input-source="keyboard"] .installOfficialButton:focus,
+body[data-input-source="gamepad"] .installOfficialButton:focus {
+    background-color: #fff;
+    color: #000;
 }

@@ -1,6 +1,6 @@
 import { type Component, createSignal, onCleanup, Show, JSX, batch } from 'solid-js';
 import styles from './index.module.css';
-import chevDown from "../../../../assets/icons/icon_chrevron_down.svg"
+import iconDropdownArrows from "../../../../assets/icons/icon_dropdown_arrows.svg"
 import { Portal } from 'solid-js/web';
 import Anchor, { AnchorStyle } from '../../../../utility/Anchor';
 import SettingsMenu, { Menu } from '../../../menus/Overlays/SettingsMenu';
@@ -48,7 +48,7 @@ const SettingsDropdown: Component<SettingsDropdownProps> = (props) => {
   return (
     <>
       <div class={styles.selectContainer} ref={selectElement} onClick={() => onPress("pointer")} style={props.style} use:focusable={props.focusable === true ? { onPress: () => onPress("gamepad") } : undefined}>
-          <div class={styles.select}>
+          <div class={styles.select} classList={{[styles.open]: showMenu$()}}>
               <div class={styles.selectText}>
                   <div style={{"display": "flex", "flex-direction": "column", "white-space": "nowrap", "text-overflow": "ellipsis"}}>
                       <Show when={props.label}>
@@ -59,7 +59,7 @@ const SettingsDropdown: Component<SettingsDropdownProps> = (props) => {
               </div>
               <div style={{"flex-grow": 1}}></div>
               <div class={styles.selectArrow}>
-                  <img src={chevDown} style={{ transform: (showMenu$()) ? "rotate(-180deg)" : undefined }} />
+                  <img src={iconDropdownArrows} />
               </div>
           </div>
       </div>

@@ -21,3 +21,21 @@
     width: 18px;
     margin-right: 10px;
 }
+
+.text {
+}
+
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+    background: #fff !important;
+}
+
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
+    filter: invert(1);
+}
+
+body[data-input-source="keyboard"] .container:focus .text,
+body[data-input-source="gamepad"] .container:focus .text {
+    color: #000;
+}

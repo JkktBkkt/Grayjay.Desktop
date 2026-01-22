@@ -6,15 +6,35 @@
 
 .select {
   border-radius: 8px;
-  border: 1px solid #2E2E2E;
-  background: #141414;
-  padding: 14px;
-  color: white;
+  border: 1px solid #242424;
+  background: #0f0f0f;
+  padding: 14px 16px;
+  color: #fff;
   cursor: pointer;
+  font-family: Inter;
+  font-size: 16px;
+  font-weight: 500;
+  height: 44px;
+  box-sizing: border-box;
 
   display: flex;
   flex-direction: row;
   align-items: center;
+}
+
+.select:hover {
+  border-color: #3d3d3d;
+}
+
+.select.open {
+  border-color: #fff;
+}
+
+body[data-input-source="keyboard"] .select:focus,
+body[data-input-source="gamepad"] .select:focus {
+  border-radius: 8px;
+  outline: none;
+  box-shadow: 0 0 0 1px #bbb;
 }
 
 .selectText {
@@ -29,9 +49,8 @@
   vertical-align: middle;
 }
 .selectArrow img {
-  height: 14px;
-  width: 14px;
-  transition: transform 0.1s;
+  height: 16px;
+  width: 16px;
 }
 
 
@@ -39,12 +58,17 @@
   position: absolute;
   
   border-radius: 10px;
-  border: 1px solid #2E2E2E;
-  background: #141414;
+  background: #1a1a1a;
+  border: 1px solid #242424;
   max-height: 200px;
   overflow-y: auto;
   scrollbar-width: 8px;
   scrollbar-color: #555 #333;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0px 32px 64px rgba(0, 0, 0, 0.56), 0px 2px 21px rgba(0, 0, 0, 0.55);
 }
 
 .optionsContainer::-webkit-scrollbar {
@@ -65,32 +89,40 @@
 }
 
 .option {
-  width: calc(100% - 60px);
-  font-size: 20px;
-  padding-left: 40px;
-  padding-right: 10px;
-  padding-bottom: 10px;
-  padding-top: 10px;
-  color: #FFF;
+  width: 100%;
+  padding: 10px;
+  padding-right: 40px;
+  color: #D9D9D9;
   font-family: Inter;
   font-size: 16px;
   font-style: normal;
   font-weight: 400;
-  line-height: 24px; /* 150% */
-  letter-spacing: 0.5px;
-  margin-left: 5px;
-  margin-right: 5px;
-  display: inline-block;
+  line-height: 24px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  text-align: left;
+  box-sizing: border-box;
+  cursor: pointer;
+  border-radius: 4px;
 }
+
+.option:hover {
+  background: #242424;
+  color: #fff;
+}
+
 .option.selected {
-  background: #1B1B1B;
-  border-radius: 5px;
+  background: #242424;
+  color: #fff;
 }
 
 .option .selectIcon {
   position: absolute;
-  left: 12px;
-  top: 12px;
+  right: 12px;
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%);
   height: 19px;
   width: 19px; 
 }

@@ -1,13 +1,22 @@
-
-
 .container {
     width: 100%;
     padding-top: 12px;
     padding-bottom: 12px;
+    padding-left: 16px;
+    padding-right: 16px;
     position: relative;
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    box-sizing: border-box;
+}
+
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+    background: #212121;
+    border: 2px solid #ddd;
 }
 .descriptor {
     width: 60%;

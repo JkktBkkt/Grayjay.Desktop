@@ -23,7 +23,7 @@ const CustomButton: Component<CustomButtonProps> = (props) => {
             <Show when={props.icon}>
                 <img src={props.icon} class={styles.icon} alt={props.text} style={props.iconStyle} />
             </Show>
-            <div style={props.textStyle}>{props.text}</div>
+            <div class={styles.text} style={props.textStyle}>{props.text}</div>
         </div>
     );
 };

@@ -11,10 +11,22 @@
     padding: 0;
     transition: background 0.12s ease-in-out;
     flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 .button:hover {
     background: rgba(255, 255, 255, 0.055);
+}
+
+body[data-input-source="keyboard"] .button:focus,
+body[data-input-source="gamepad"] .button:focus {
+    background: #fff;
+    padding: 0;
+}
+
+body[data-input-source="keyboard"] .button:focus img,
+body[data-input-source="gamepad"] .button:focus img {
+    filter: invert(1);
 }
 
 .button img {

@@ -340,6 +340,16 @@
     width: 24px;
     height: 24px;
     cursor: pointer;
+    box-sizing: border-box;
+    padding: 0;
+}
+
+body[data-input-source="keyboard"] .cast:focus,
+body[data-input-source="gamepad"] .cast:focus {
+    filter: invert(1);
+    background: #fff;
+    border-radius: 4px;
+    padding: 0;
 }
 
 .settings {

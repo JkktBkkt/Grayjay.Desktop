@@ -51,7 +51,7 @@ const NavigationBar: Component<NavigationBarProps> = (props) => {
         {props.childrenAfter}
       </Show>
 
-      <Show when={focus?.isControllerMode() !== true}>
+      <Show when={props.childrenAfter}>
         <div class={styles.divider}></div>
       </Show>
       <NavIconButton

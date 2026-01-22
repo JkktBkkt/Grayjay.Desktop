@@ -15,6 +15,8 @@ import { useCasting } from "../../../contexts/Casting";
 import { Event0 } from "../../../utility/Event";
 import { ChapterType, IChapter } from "../../../backend/models/contentDetails/IChapter";
 import { IPlatformVideoDetails } from "../../../backend/models/contentDetails/IPlatformVideoDetails";
+import { focusable } from "../../../focusable";
+void focusable;
 
 export interface PlayerControlsProps {
     duration: Duration;
@@ -597,7 +599,17 @@ const PlayerControlsView: Component<PlayerControlsProps> = (props) => {
                 <Show when={props.handleTheatre}>
                     <img src={iconTheatre} class={styles.theatre} alt="theatre" onClick={onTheatre} onDblClick={(e) => e.stopPropagation()} />
                 </Show>
-                <img src={cast} class={styles.cast} alt="cast" onClick={onCast} onDblClick={(e) => e.stopPropagation()} />
+                <img 
+                    src={cast} 
+                    class={styles.cast} 
+                    alt="cast" 
+                    onClick={onCast} 
+                    onDblClick={(e) => e.stopPropagation()}
+                    use:focusable={{
+                        onPress: () => casting?.actions.open()
+                    }}
+                    tabIndex={0}
+                />
                 <img ref={(el)=>settingsButton = el} src={settings} class={styles.settings} alt="settings" onClick={(ev)=>onSettings(ev)} onDblClick={(e) => e.stopPropagation()} />
                 {props.buttons}
             </div>

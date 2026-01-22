@@ -31,11 +31,49 @@
   background: var(--btn-bg-focus, var(--btn-bg, #212122));
 }
 
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+  background: #fff !important;
+}
+
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
+  filter: invert(1);
+}
+
+body[data-input-source="keyboard"] .container:focus .text,
+body[data-input-source="gamepad"] .container:focus .text {
+  color: #000;
+}
+
 .icon {
   height: 24px;
   width: 24px;
   margin-right: 8px;
   vertical-align: bottom;
+}
+
+.container.inverted .icon {
+  filter: invert(1);
+}
+
+.container.inverted .text {
+  color: #000;
+}
+
+body[data-input-source="keyboard"] .container.inverted:focus .icon,
+body[data-input-source="gamepad"] .container.inverted:focus .icon {
+  filter: none;
+}
+
+body[data-input-source="keyboard"] .container.inverted:focus .text,
+body[data-input-source="gamepad"] .container.inverted:focus .text {
+  color: #fff;
+}
+
+body[data-input-source="keyboard"] .container.inverted:focus,
+body[data-input-source="gamepad"] .container.inverted:focus {
+  background: #000 !important;
 }
 
 .text {

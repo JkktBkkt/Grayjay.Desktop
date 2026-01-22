@@ -37,7 +37,7 @@
     background-size: cover;
     border-radius: 8.88px;
     background: #262626;
-    
+
     position: absolute;
     left: 50%;
     top: 0px;
@@ -51,7 +51,7 @@
     background-size: cover;
     border-radius: 8.88px;
     background: #2F2F2F;
-    
+
     position: absolute;
     left: 50%;
     top: 8px;
@@ -64,7 +64,7 @@
     aspect-ratio: 16/9;
     border-radius: 8.88px;
     background: hsl(0, 0%, 22%);
-    
+
     position: absolute;
     left: 50%;
     top: 16px;

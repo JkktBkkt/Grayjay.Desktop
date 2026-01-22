@@ -281,22 +281,22 @@ const SourceDetails: Component<SourceDetailsProps> = (props: SourceDetailsProps)
                 }} />
               </Show>
               
-              <Button style={{width: "calc(100% - 54px)", "margin-bottom": "10px", "margin-left": "24px"}} text='Uninstall' color='#550000' onClick={()=>uninstall()} focusableOpts={{
+              <button class={styles.uninstallButton} onClick={()=>uninstall()} use:focusable={{
                 groupId: 'plugin-settings',
                 groupEscapeTo: {
                   left: ['sources']
                 },
                 groupType: 'vertical',
                 onPress: uninstall
-              }}></Button>
-              <Button style={{width: "calc(100% - 54px)", "margin-bottom": "10px", "margin-left": "24px"}} text='Copy Settings to Clipboard' color='#019BE7' onClick={()=>copySettingsToClipboard()} focusableOpts={{
+              }}>Uninstall</button>
+              <button class={styles.textButton} onClick={()=>copySettingsToClipboard()} use:focusable={{
                 groupId: 'plugin-settings',
                 groupEscapeTo: {
                   left: ['sources']
                 },
                 groupType: 'vertical',
                 onPress: copySettingsToClipboard
-              }}></Button>
+              }}>Copy Settings to Clipboard</button>
             </ScrollContainer>
           </div>
         </div>

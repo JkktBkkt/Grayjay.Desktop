@@ -139,8 +139,9 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
               value={filterText$()}
               showClearButton={true}
               inputContainerStyle={{
-                "height": "70px", 
-                "background": "#141414"
+                "height": "48px", 
+                "background": "#141414",
+                "margin-right": "16px"
               }}
               onTextChanged={(v) => {
                 setFilterText(v);
@@ -151,7 +152,9 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
             icon={iconPlay}
             style={{
               background: "linear-gradient(267deg, #01D6E6 -100.57%, #0182E7 90.96%)",
-              "flex-shrink": 0
+              "flex-shrink": 0,
+              "margin-left": "16px",
+              "margin-right": "16px"
             }}
             onClick={() => props.onPlayAll()}
             focusableOpts={{
@@ -162,7 +165,6 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
             icon={iconShuffle}
             style={{
               border: "1px solid #2E2E2E",
-              "margin-left": "16px",
               "margin-right": "16px",
               "flex-shrink": 0
             }}
@@ -171,11 +173,13 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
               onPress: () => props.onShuffleAll(VideoState.Fullscreen)
             }} />
             <Show when={props.id}>
-              <img src={iconSettings} style="width: 24px; height: 100%; margin-left: 16px; margin-right: 16px; padding-left: 16px; padding-right: 16px; cursor: pointer;" onClick={(ev) => {
-                onSettingsClicked(ev.target as HTMLElement, "pointer", undefined);
-              }}  use:focusable={{
-                onPress: (el, inputSource) => onSettingsClicked(el, inputSource, undefined)
-              }} />
+              <div class={styles.settingsButtonWrapper}>
+                <img src={iconSettings} class={styles.settingsButton} onClick={(ev) => {
+                  onSettingsClicked(ev.target as HTMLElement, "pointer", undefined);
+                }}  use:focusable={{
+                  onPress: (el, inputSource) => onSettingsClicked(el, inputSource, undefined)
+                }} />
+              </div>
             </Show>
           </div>
 
