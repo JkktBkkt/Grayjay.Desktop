@@ -78,28 +78,3 @@
     outline: unset;
 }
 
-/* Clear history button keyboard focus - target by icon alt text */
-body[data-input-source="keyboard"] img[alt="Clear history"]:focus,
-body[data-input-source="gamepad"] img[alt="Clear history"]:focus,
-body[data-input-source="keyboard"] img[alt="Clear history"]:focus ~ *,
-body[data-input-source="gamepad"] img[alt="Clear history"]:focus ~ * {
-    /* Target parent container */
-}
-
-body[data-input-source="keyboard"] img[alt="Clear history"]:focus-visible ~ .text,
-body[data-input-source="gamepad"] img[alt="Clear history"]:focus-visible ~ .text {
-    color: #fff;
-}
-
-/* Alternative: target container that contains Clear history icon */
-body[data-input-source="keyboard"] .container:has(img[alt="Clear history"]):focus,
-body[data-input-source="gamepad"] .container:has(img[alt="Clear history"]):focus {
-    background: #F62121 !important;
-    color: #fff !important;
-    border-color: #F62121 !important;
-}
-
-body[data-input-source="keyboard"] .container:has(img[alt="Clear history"]):focus .icon,
-body[data-input-source="gamepad"] .container:has(img[alt="Clear history"]):focus .icon {
-    filter: none;
-}

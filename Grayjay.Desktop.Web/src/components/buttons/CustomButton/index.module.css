@@ -35,13 +35,13 @@
 
 body[data-input-source="keyboard"] .container:focus,
 body[data-input-source="gamepad"] .container:focus {
-  background: #fff !important;
-  color: #141414;
+  background: var(--cb-bg-focus, #fff) !important;
+  color: var(--cb-text-focus, #141414);
 }
 
 body[data-input-source="keyboard"] .container:focus .icon,
 body[data-input-source="gamepad"] .container:focus .icon {
-  filter: brightness(0) saturate(100%);
+  filter: var(--cb-icon-filter-focus, brightness(0) saturate(100%));
 }
 
 .icon {

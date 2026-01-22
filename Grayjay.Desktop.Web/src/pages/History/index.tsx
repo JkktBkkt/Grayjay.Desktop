@@ -204,15 +204,24 @@ const HistoryPage: Component = () => {
                 groupEscapeTo: { up: ['nav-bar'] }
               }} />
 
-              <CustomButton 
+              <CustomButton
                 icon={ic_trash}
                 text='Clear history'
-                background="#2E2E2E"
-                border="1px solid #CCCCCC"
+                border="1px solid #F62121"
                 textColor="#FFF"
+                focusColor="#F62121"
+                focusTextColor="#FFF"
+                iconFilterFocus="brightness(0) invert(1)"
                 style={{
                   "margin-left": "16px",
                   "margin-right": "32px",
+                  "display": "inline-flex",
+                  "height": "44px",
+                  "padding": "10px 16px",
+                  "justify-content": "center",
+                  "align-items": "center",
+                  "gap": "4px",
+                  "border-radius": "8px"
                 }}
                 onClick={(e) => {
                   contentAnchor.setElement(e.target as HTMLElement);
