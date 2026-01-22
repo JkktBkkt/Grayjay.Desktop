@@ -207,10 +207,12 @@ const HistoryPage: Component = () => {
               <CustomButton 
                 icon={ic_trash}
                 text='Clear history'
+                background="#2E2E2E"
+                border="1px solid #CCCCCC"
+                textColor="#FFF"
                 style={{
                   "margin-left": "16px",
                   "margin-right": "32px",
-                  "border": "1px solid #f621215c",
                 }}
                 onClick={(e) => {
                   contentAnchor.setElement(e.target as HTMLElement);

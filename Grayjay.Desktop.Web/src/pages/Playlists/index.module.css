@@ -39,7 +39,7 @@
 }
 
 .containerSeeAll {
-    display: flex; 
+    display: flex;
     flex-direction: row;
     align-items: center;
     margin-right: 32px;
@@ -62,6 +62,20 @@
 
     border-radius: 6px;
     border: 1px solid #2E2E2E;
+    outline: none;
+}
+
+.containerSeeAll:focus,
+.containerSeeAll:focus-visible {
+    outline: none;
+    border: 1px solid #fff;
+    background: #fff;
+    color: #000;
+}
+
+.containerSeeAll:focus img,
+.containerSeeAll:focus-visible img {
+    filter: invert(1);
 }
 
 .containerPlaylists {

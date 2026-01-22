@@ -1,5 +1,5 @@
 .container {
-  border-radius: 8px;
+  border-radius: 6px;
   display: flex;
   height: 48px;
   padding-left: 20px;
@@ -20,29 +20,34 @@
 
 .container:hover {
   cursor: pointer;
-  background: var(--cb-bg-focus, #fff);
-  color: var(--cb-text-focus, #141414);
+  background: var(--cb-bg-hover, #3D3D3D);
   outline: unset;
 }
 
-.container:hover .icon {
-  filter: var(--cb-icon-filter-focus, brightness(0) saturate(100%));
+.container:active {
+  background: var(--cb-bg-pressed, #242424);
 }
 
 .container:focus-visible {
-  background: var(--cb-bg-focus, #fff);
-  color: var(--cb-text-focus, #141414);
+  background: var(--cb-bg-hover, var(--cb-bg, #212122));
   outline: unset;
 }
 
-.container:focus-visible .icon {
-  filter: var(--cb-icon-filter-focus, brightness(0) saturate(100%));
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+  background: #fff !important;
+  color: #141414;
+}
+
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
+  filter: brightness(0) saturate(100%);
 }
 
 .icon {
   height: 18px;
   width: 18px;
-  margin-right: 10px;
+  margin-right: 6px;
   display: block;
 }
 

@@ -147,7 +147,7 @@ const CreatorsPage: Component = () => {
                 setFilterText(v);
               }}
               focusable={true} />
-            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "230px"}} />
+            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "230px"}} selectStyle={{"height": "70px"}} />
           </div>
 
           <VirtualGrid outerContainerRef={scrollContainerRef}

@@ -92,6 +92,16 @@
     cursor: pointer;
 }
 
+body[data-input-source="keyboard"] .authorName:focus,
+body[data-input-source="gamepad"] .authorName:focus {
+    background: #fff;
+    border: 1px solid #fff;
+    border-radius: 2px;
+    color: #000;
+    padding: 2px 4px;
+    outline: none;
+}
+
 .authorMetadata {
     color: #808080;
     leading-trim: both;
@@ -200,6 +210,16 @@
     text-decoration: none;
 }
 
+body[data-input-source="keyboard"] .description > a:focus,
+body[data-input-source="gamepad"] .description > a:focus {
+    background: #fff;
+    border: 1px solid #fff;
+    border-radius: 2px;
+    color: #000;
+    padding: 2px 4px;
+    outline: none;
+}
+
 .descriptionContainer {
     margin-left: 40px;
     margin-right: 40px;
@@ -234,16 +254,26 @@
 
 .showMoreShowLess {
 
-    display: flex;
+    display: inline-flex;
     flex-direction: row;
     justify-content: center;
     align-items: end;
     bottom: 10px;
-    left: 0px;
+    left: 50%;
     position: absolute;
-    width: 100%;
+    transform: translateX(-50%);
     color: #019BE7;
     cursor: pointer;
+}
+
+body[data-input-source="keyboard"] .showMoreShowLess:focus,
+body[data-input-source="gamepad"] .showMoreShowLess:focus {
+    background: #fff;
+    border: 1px solid #fff;
+    border-radius: 2px;
+    color: #000;
+    padding: 2px 4px;
+    outline: none;
 }
 
 .commentHeader {

@@ -1,9 +1,10 @@
 .container {
     height: 100%;
     position: relative;
-    padding-left: 24px;
+    padding-left: 16px;
     padding-right: 24px;
     padding-bottom: 24px;
+    padding-top: 12px;
 }
 
 .container::-webkit-scrollbar {
@@ -27,5 +28,4 @@
     background-color: transparent;
 }
 
-.grid {
-}
+.grid {}

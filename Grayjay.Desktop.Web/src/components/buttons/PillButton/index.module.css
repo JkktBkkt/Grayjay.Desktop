@@ -6,7 +6,7 @@
     gap: 6px;
 
     border-radius: 26px;
-    background: var(--pill-bg, #212122);
+    background: var(--pill-bg, #2E2E2E);
 
     padding-left: 16px;
     padding-right: 16px;
@@ -14,29 +14,32 @@
 
 .container:hover {
     cursor: pointer;
-    background: var(--pill-bg-focus, #fff);
+    background: var(--pill-bg-hover, #3D3D3D);
     outline: unset;
 }
 
-.container:hover .icon {
-    filter: var(--pill-icon-filter-focus, brightness(0) saturate(100%));
-}
-
-.container:hover .text {
-    color: var(--pill-text-focus, #141414);
+.container:active {
+    background: var(--pill-bg-pressed, #242424);
 }
 
 .container:focus-visible {
-    background: var(--pill-bg-focus, #fff);
+    background: var(--pill-bg-hover, #3D3D3D);
     outline: unset;
 }
 
-.container:focus-visible .icon {
-    filter: var(--pill-icon-filter-focus, brightness(0) saturate(100%));
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+    background: #fff !important;
 }
 
-.container:focus-visible .text {
-    color: var(--pill-text-focus, #141414);
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
+    filter: brightness(0) saturate(100%);
+}
+
+body[data-input-source="keyboard"] .container:focus .text,
+body[data-input-source="gamepad"] .container:focus .text {
+    color: #141414;
 }
 
 .icon {

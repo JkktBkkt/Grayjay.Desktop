@@ -214,14 +214,13 @@ const PlaylistsPage: Component = () => {
               <div class={styles.containerWatchLaterHeader}>
                 <div class={styles.textHeader} style={{"margin-left": "24px"}}>Watch Later</div>
                 <div style="flex-grow: 1;"></div>
-                <Show when={focus?.isControllerMode() !== true}>
-                  <div class={styles.containerSeeAll} onClick={() => navigate("/web/watchLater")} use:focusable={{
-                    onPress: () => navigate("/web/watchLater")
-                  }}>
-                    <div>See all</div>
-                    <img style="width: 14px; height: 14px; margin-left: 6px;" src={chevron_right} />
-                  </div>
-                </Show>
+                <div class={styles.containerSeeAll} onClick={() => navigate("/web/watchLater")} use:focusable={{
+                  groupId: "watchlater-header",
+                  onPress: () => navigate("/web/watchLater")
+                }}>
+                  <div>See all</div>
+                  <img style="width: 14px; height: 14px; margin-left: 6px;" src={chevron_right} />
+                </div>
               </div>
 
               <div class={styles.watchLaterRow}>
@@ -253,26 +252,6 @@ const PlaylistsPage: Component = () => {
                     </div>
                   )}
                 </For>
-                <Show when={focus?.isControllerMode() === true}>
-                  <div
-                    class={styles.watchLaterSeeAll}
-                    onClick={() => navigate("/web/watchLater")}
-                    use:focusable={{
-                      groupId: "watchlater",
-                      groupType: "horizontal",
-                      groupIndices: [watchLaterPreview$().length],
-                      onPress: () => navigate("/web/watchLater")
-                    }}
-                  >
-                    <div class={styles.containerSeeAll} style={{ "margin-right": "0" }}>
-                      <div>See all</div>
-                      <img
-                        style="width: 14px; height: 14px; margin-left: 6px;"
-                        src={chevron_right}
-                      />
-                    </div>
-                  </div>
-                </Show>
               </div>
             </div>
           </Show>
@@ -295,7 +274,7 @@ const PlaylistsPage: Component = () => {
                   setFilterText(v);
                 }}
                 focusable={true} />
-              <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "280px"}} />
+              <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "280px"}} selectStyle={{"height": "48px"}} />
               <ButtonFlex text='New playlist'
                 icon={icon_add}
                 color='#019BE7'

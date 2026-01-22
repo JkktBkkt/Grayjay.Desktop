@@ -20,18 +20,26 @@
     background: rgba(255, 255, 255, 0.105);
 }
 
-.sideBarButton.collapsed {
-        
-}
+.sideBarButton.collapsed {}
 
 .sideBarButton.selected:focus {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgb(255, 255, 255);
     outline: unset;
 }
 
 .sideBarButton:focus {
-  background: rgba(255, 255, 255, 0.055);
-  outline: unset;
+    background: rgb(255, 255, 255);
+    outline: unset;
+}
+
+.sideBarButton:focus .text,
+.sideBarButton.selected:focus .text {
+    color: #000;
+}
+
+.sideBarButton:focus .icon,
+.sideBarButton.selected:focus .icon {
+    filter: invert(1);
 }
 
 .sideBarButton .icon {
@@ -46,6 +54,7 @@
 .sideBarButton.selected .icon {
     margin-left: 14px;
 }
+
 .sideBarButton.selected .icon {
     opacity: 1.0;
 }
@@ -63,6 +72,7 @@
     white-space: nowrap;
     overflow-x: hidden;
 }
+
 .sideBarButton.selected .text {
     color: white;
 }

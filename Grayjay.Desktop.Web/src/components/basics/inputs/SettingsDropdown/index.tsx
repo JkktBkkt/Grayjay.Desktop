@@ -13,6 +13,7 @@ export interface SettingsDropdownProps {
     anchorStyle?: AnchorStyle;
     label?: string;
     style?: JSX.CSSProperties;
+    selectStyle?: JSX.CSSProperties;
     valueString?: string;
     focusable?: boolean;
 };

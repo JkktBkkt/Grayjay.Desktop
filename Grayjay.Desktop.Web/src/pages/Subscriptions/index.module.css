@@ -26,7 +26,7 @@
 .subBar {
     margin-left: 24px;
     margin-right: 24px;
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     padding-bottom: 10px;
     flex-shrink: 0;
     overflow-x: auto;
@@ -38,18 +38,19 @@
 
 .channel {
     position: relative;
-    display:inline-block; 
-    height: 105px; 
+    display: inline-block;
+    height: 105px;
     width: 88px;
-    margin-left: 6px;
-    margin-right: 6px;
-    vertical-align: top;    
+    /*margin-left: 6px;*/
+    margin-right: 8px;
+    vertical-align: top;
     padding: 12px 8px;
     border-radius: 8px;
     background: #1B1B1B;
     text-align: center;
     border: 1px solid transparent;
 }
+
 .channel:focus {
     background: #303030;
 }
@@ -58,9 +59,11 @@
     border: 1px solid #4D4D4D;
     background: #1B1B1B;
 }
+
 .channel.active .channelText {
     color: white;
 }
+
 .channelImg {
     width: 60px;
     height: 60px;
@@ -68,6 +71,7 @@
     margin-bottom: 5px;
     margin-top: 3px;
 }
+
 .channelText {
     color: #989898;
     display: -webkit-box;
@@ -87,6 +91,7 @@
     line-height: 1.2em;
     word-break: break-word;
 }
+
 .sourceIcon {
     position: absolute;
     display: grid;
@@ -98,8 +103,9 @@
     width: 20px;
     background-color: white;
     border-radius: 20px;
-    
+
 }
+
 .sourceIcon img {
     max-width: 15px;
     max-height: 15px;
@@ -124,6 +130,7 @@
     scrollbar-width: thin;
     scrollbar-color: #555 #333;
 }
+
 .subgroup {
     display: inline-block;
     flex-shrink: 0;
@@ -145,9 +152,11 @@
     margin-bottom: 2px;
     cursor: pointer;
 }
+
 .subgroup.active {
     border: 2px solid #02C6E7;
 }
+
 .subgroup .editIcon {
     position: absolute;
     right: 5px;
@@ -156,12 +165,15 @@
     width: 20px;
     opacity: 0.5;
 }
+
 .subgroup:focus {
     background: #303030;
 }
+
 .subgroup .editIcon:hover {
     opacity: 1;
 }
+
 .subgroup .image {
     position: absolute;
     width: calc(100% + 20px);
@@ -172,15 +184,16 @@
     background-size: cover;
     background-position: center;
 }
+
 .subgroup .name {
     position: absolute;
     bottom: 10px;
     left: 18px;
     overflow: hidden;
     color: #FFF;
-    
+
     leading-trim: both;
-    
+
     text-edge: cap;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -188,8 +201,10 @@
     font-size: 16px;
     font-style: normal;
     font-weight: 600;
-    line-height: 22px; /* 137.5% */
+    line-height: 22px;
+    /* 137.5% */
 }
+
 .subgroup .centerText {
     position: absolute;
     bottom: 0px;
@@ -201,9 +216,9 @@
     align-items: center;
     overflow: hidden;
     color: #FFF;
-    
+
     leading-trim: both;
-    
+
     text-edge: cap;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -214,50 +229,98 @@
 }
 
 .filters {
+    display: flex;
+    align-items: center;
     margin-left: 24px;
-    height: 48px;
+    height: 38px;
 }
 
 .filter {
-    display: inline-block;
+    display: inline-flex;
     align-items: center;
-    justify-items: center;
-    width: 56px;
-    padding: 8px 24px;
-    border-radius: 6px;
-    border: 1px solid #454545;
-    margin-right: 8px;
+    justify-content: center;
+    padding-left: 14px;
+    padding-right: 14px;
+    border-radius: 999px;
+    border: 1px solid #2e2e2e;
+    margin-right: 12px;
+    background: transparent;
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    cursor: pointer;
+    height: 38px;
+    position: relative;
+}
 
-    background: #1B1B1B;
+.filter:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid #525252;
 }
-.filter:focus {
-    background: #474747;
+
+.filter:hover .name {
+    color: #fff;
 }
+
+.filter:focus-visible {
+    background: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    outline: none;
+}
+
+.filter:focus-visible .name {
+    color: #0f0f0f;
+}
+
+.filter:focus-visible .checkIcon {
+    filter: invert(1);
+}
+
 .filter.active {
-    border: 1px solid #454545;
-    background: #2E2E2E;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid #8C8C8C;
 }
-.filter.active:focus {
-    background: #666666;
-}
-.filter:focus .name {
-    color: #b4b4b4;
-}
-.filter .name {
-    color: #555555;
-    text-align: center;
-    leading-trim: both;
 
-    text-edge: cap;
-    font-feature-settings: 'clig' off, 'liga' off;
+.filter.active:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.filter.active:focus-visible {
+    background: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.filter.active:focus-visible .name {
+    color: #0f0f0f;
+}
+
+.filter.active:focus-visible .checkIcon {
+    filter: invert(1);
+}
+
+.filter .name {
+    color: #c0c0c0;
+    text-align: center;
     font-family: Inter;
     font-size: 14px;
     font-style: normal;
-    font-weight: 600;
-    line-height: 140%; /* 19.6px */
+    font-weight: 400;
+    line-height: normal;
 }
+
 .filter.active .name {
-    color: white !important;
+    color: #fff;
+}
+
+.filter .checkIcon {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    opacity: 0.1;
+    flex-shrink: 0;
+}
+
+.filter.active .checkIcon {
+    opacity: 1;
 }
 
 .subgroupBanner {
@@ -270,9 +333,9 @@
     padding-bottom: 24px;
     border-radius: 8px;
     border: 1px solid rgba(1, 155, 231, 0.00);
-    
+
     background: linear-gradient(0deg, rgba(27, 27, 27, 0.90) 0%, rgba(27, 27, 27, 0.90) 100%), linear-gradient(270deg, #01D6E6 -68.7%, #0182E7 97.07%);
-    
+
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -282,6 +345,7 @@
     max-width: 500px;
     flex-grow: 1;
 }
+
 .subgroupBanner .bannerTitle {
     color: #FFF;
     font-family: Inter;
@@ -291,6 +355,7 @@
     line-height: normal;
     padding-bottom: 12px;
 }
+
 .subgroupBanner .bannerDescription {
     color: rgba(255, 255, 255, 0.6);
     font-family: Inter;
@@ -308,10 +373,11 @@
 
 .noSubs {
     text-align: center;
-    height: 400px; 
+    height: 400px;
     margin-top: calc(50vh - 200px);
     width: 100%;
 }
+
 .noSubs .title {
     margin-top: 10px;
     color: #FFF;
@@ -323,6 +389,7 @@
     font-weight: 600;
     line-height: normal;
 }
+
 .noSubs .description {
     margin-top: 10px;
     color: #8C8C8C;
@@ -333,6 +400,7 @@
     font-weight: 500;
     line-height: normal;
 }
+
 .noSubs .buttons {
     margin-top: 28px;
 }
