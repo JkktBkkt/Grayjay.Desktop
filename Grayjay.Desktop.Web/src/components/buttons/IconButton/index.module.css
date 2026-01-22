@@ -65,6 +65,16 @@
   filter: none;
 }
 
+body[data-input-source="keyboard"] .none:focus,
+body[data-input-source="gamepad"] .none:focus {
+  background: #fff !important;
+}
+
+body[data-input-source="keyboard"] .none:focus .icon,
+body[data-input-source="gamepad"] .none:focus .icon {
+  filter: invert(1);
+}
+
 .icon {
   width: calc(100% - (var(--ib-inset) + var(--ib-inset)));
   height: calc(100% - (var(--ib-inset) + var(--ib-inset)));

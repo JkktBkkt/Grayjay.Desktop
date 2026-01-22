@@ -253,10 +253,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
       <div class={styles.buttonList}>
         <Show when={canToggleCollapse()}>
           <div class={styles.containerCollapse}>
-            <img
-              src={isCollapsed() ? ic_sidebarOpen : ic_sidebarClose}
-              class={styles.collapse}
-              alt=""
+            <div
+              class={styles.collapseWrapper}
               role="button"
               use:focusable={{ 
                 groupId: 'sidebar',
@@ -268,7 +266,13 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 onPress: handleCollapse,
               }}
               onClick={handleCollapse}
-            />
+            >
+              <img
+                src={isCollapsed() ? ic_sidebarOpen : ic_sidebarClose}
+                class={styles.collapse}
+                alt=""
+              />
+            </div>
           </div>
         </Show>
         <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>

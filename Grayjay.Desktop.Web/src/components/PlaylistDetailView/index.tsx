@@ -173,9 +173,10 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
               <IconButton
                 icon={iconSettings}
                 variant="none"
-                width="24px"
-                height="100%"
-                iconInset="0px"
+                shape="rounded"
+                width="44px"
+                height="44px"
+                iconInset="11px"
                 onClick={(ev) => {
                   onSettingsClicked(ev.currentTarget as HTMLElement, "pointer", undefined);
                 }}
