@@ -27,39 +27,39 @@ import EmptyContentView from '../../components/EmptyContentView';
 import ScrollContainer from '../../components/containers/ScrollContainer';
 import { createResourceDefault, swap } from '../../utility';
 import VirtualDragDropList, { DragSession } from '../../components/containers/VirtualDragDropList';
-import { focusable } from '../../focusable';import Button from '../../components/buttons/Button';
- void focusable;
+import { focusable } from '../../focusable'; import Button from '../../components/buttons/Button';
+void focusable;
 
 const SourcesPage: Component = () => {
   const nav = useNavigate();
-  
+
   const [enabledSources$, eSourcesRes] = createResourceDefault(async () => [], async () => await SourcesBackend.enabledSources());
   const [disabledSources$, dSourcesRes] = createResourceDefault(async () => [], async () => await SourcesBackend.disabledSources());
 
   const [selectedSignal$, setSelectedSignal] = createSignal("");
 
-  StateWebsocket.registerHandlerNew("PluginAvailable", (packet)=>{
+  StateWebsocket.registerHandlerNew("PluginAvailable", (packet) => {
     eSourcesRes.refetch();
     dSourcesRes.refetch();
   }, "sources");
-  StateWebsocket.registerHandlerNew("PluginEnabled", (packet)=>{
+  StateWebsocket.registerHandlerNew("PluginEnabled", (packet) => {
     eSourcesRes.refetch();
     dSourcesRes.refetch();
   }, "sources");
 
-  createEffect(()=>{
-      const currentResources = enabledSources$();
-      if(currentResources && currentResources.length > 0 && selectedSignal$() == "")
-        setSelectedSignal(currentResources[0].id);
+  createEffect(() => {
+    const currentResources = enabledSources$();
+    if (currentResources && currentResources.length > 0 && selectedSignal$() == "")
+      setSelectedSignal(currentResources[0].id);
   });
 
   async function enableSource(source: ISourceConfig) {
-    const enabled = await UIOverlay.catchDialogExceptions(async ()=>{
-    
-                    return await SourcesBackend.enableSource(source.id);
-    }, ()=>{
+    const enabled = await UIOverlay.catchDialogExceptions(async () => {
+
+      return await SourcesBackend.enableSource(source.id);
+    }, () => {
       eSourcesRes.refetch();
-    }, ()=>{
+    }, () => {
       enableSource(source);
     });
     eSourcesRes.refetch();
@@ -80,16 +80,16 @@ const SourcesPage: Component = () => {
       title: "Install from URL",
       description: "Install a source by pasting the URL in the box below.",
       buttons: [
-        { 
-          title: "Cancel", 
-          style: "none", 
-          onClick: (output: IDialogOutput)=>{}
+        {
+          title: "Cancel",
+          style: "none",
+          onClick: (output: IDialogOutput) => { }
         },
-        { 
-          title: "Continue", 
-          style: "primary", 
-          onClick: async (output: IDialogOutput)=>{
-            if(output.text) {
+        {
+          title: "Continue",
+          style: "primary",
+          onClick: async (output: IDialogOutput) => {
+            if (output.text) {
 
 
 
@@ -98,13 +98,13 @@ const SourcesPage: Component = () => {
         }],
       input: new DialogInputText("Config Url")
     });
-    if(urlPrompt?.button == 1 && urlPrompt.text) {
+    if (urlPrompt?.button == 1 && urlPrompt.text) {
       UIOverlay.installPluginPrompt(urlPrompt.text);
     }
   }
 
   function selectSource(source: ISourceConfig) {
-      setSelectedSignal(source.id);
+    setSelectedSignal(source.id);
   }
 
   let dragSession: DragSession | undefined;
@@ -131,67 +131,67 @@ const SourcesPage: Component = () => {
                     SourcesBackend.sourcesReorder(enabledSources$()?.map(v => v.id) ?? [])
                   }}
                   builder={(index, item, containerRef, dragControls) => {
-                      const source = createMemo(() => item() as ISourceConfig | undefined);
-                      return (
-                        <Show when={source()}>
-                          <div class={styles.source} classList={{[styles.enabled]: source()!.id == selectedSignal$()}} onClick={()=>selectSource(source()!)} onFocus={() => selectSource(source()!)} use:focusable={{
-                            groupId: 'sources',
-                            groupType: 'vertical',
-                            groupIndices: [index()],
-                            groupRememberLast: true,
-                            onPress: () => disableSource(source()!),
-                            onAction: () => {
-                              if (!dragSession) {
-                                dragSession = dragControls.startProgrammaticDrag();
-                              } else {
-                                dragSession.end();
-                                dragSession = undefined;
-                              }
-                            },
-                            onActionLabel: "Reorder",
-                            onDirection: (el, dir) => {
-                              if (!dragSession || !dragSession.isActive()) return false;
-                              if (dir === "up") {
-                                dragSession.moveBy(-1);
-                                return true;
-                              }
-                              else if (dir === "down") {
-                                dragSession.moveBy(1);
-                                return true;
-                              }
+                    const source = createMemo(() => item() as ISourceConfig | undefined);
+                    return (
+                      <Show when={source()}>
+                        <div class={styles.source} classList={{ [styles.enabled]: source()!.id == selectedSignal$() }} onClick={() => selectSource(source()!)} onFocus={() => selectSource(source()!)} use:focusable={{
+                          groupId: 'sources',
+                          groupType: 'vertical',
+                          groupIndices: [index()],
+                          groupRememberLast: true,
+                          onPress: () => disableSource(source()!),
+                          onAction: () => {
+                            if (!dragSession) {
+                              dragSession = dragControls.startProgrammaticDrag();
+                            } else {
+                              dragSession.end();
+                              dragSession = undefined;
                             }
+                          },
+                          onActionLabel: "Reorder",
+                          onDirection: (el, dir) => {
+                            if (!dragSession || !dragSession.isActive()) return false;
+                            if (dir === "up") {
+                              dragSession.moveBy(-1);
+                              return true;
+                            }
+                            else if (dir === "down") {
+                              dragSession.moveBy(1);
+                              return true;
+                            }
+                          }
+                        }}>
+                          <div class={styles.thumb} onMouseDown={(e) => {
+                            dragControls.startPointerDrag?.(e.pageY, containerRef!.getBoundingClientRect().top, e.target as HTMLElement);
+                            e.preventDefault();
+                            e.stopPropagation();
                           }}>
-                            <div class={styles.thumb}  onMouseDown={(e) => {
-                              dragControls.startPointerDrag?.(e.pageY, containerRef!.getBoundingClientRect().top, e.target as HTMLElement);
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}>
-                              <img src={iconThumb} />
-                            </div>
-                            <div class={styles.image}>
-                              <img src={StateGlobal.getSourceConfig(source()!.id)?.absoluteIconUrl} />
-                            </div>
-                            <div class={styles.name}>
-                              {source()!.name}
-                            </div>
-                            <div class={styles.actions}>
-                              <Toggle onToggle={() => disableSource(source()!)} value={true} adjustInternally={false} />
-                              <img class={styles.chev} src={iconChevRight} />
-                            </div>
+                            <img src={iconThumb} />
                           </div>
-                        </Show>
+                          <div class={styles.image}>
+                            <img src={StateGlobal.getSourceConfig(source()!.id)?.absoluteIconUrl} />
+                          </div>
+                          <div class={styles.name}>
+                            {source()!.name}
+                          </div>
+                          <div class={styles.actions}>
+                            <Toggle onToggle={() => disableSource(source()!)} value={true} adjustInternally={false} />
+                            <img class={styles.chev} src={iconChevRight} />
+                          </div>
+                        </div>
+                      </Show>
 
-                      );
+                    );
                   }}
                   outerContainerRef={scrollContainerRef} />
               </div>
               <div>
-              <Show when={(disabledSources$()?.length ?? 0) > 0}>
-                <h3 style="margin-left: 24px;">Disabled</h3>
-              </Show>
+                <Show when={(disabledSources$()?.length ?? 0) > 0}>
+                  <h3 style="margin-left: 24px;">Disabled</h3>
+                </Show>
                 <For each={disabledSources$()}>
                   {(source, i) =>
-                    <div class={styles.source} classList={{[styles.enabled]: source.id == selectedSignal$()}} onClick={()=>selectSource(source)} onFocus={() => selectSource(source)} use:focusable={{
+                    <div class={styles.source} classList={{ [styles.enabled]: source.id == selectedSignal$() }} onClick={() => selectSource(source)} onFocus={() => selectSource(source)} use:focusable={{
                       groupId: "sources",
                       groupType: "vertical",
                       groupIndices: [enabledCount() + i()],
@@ -219,7 +219,7 @@ const SourcesPage: Component = () => {
                   "padding-left": "24px",
                   "padding-right": "24px",
                   display: "flex",
-                  "flex-direction": "column",
+                  "flex-direction": "row",
                   gap: "10px",
                 }}
               >
@@ -227,11 +227,13 @@ const SourcesPage: Component = () => {
                   text="Install Source"
                   color="#0182E7"
                   hoverColor="#1A9EEF"
+                  textColor="#fff"
+                  hoverTextColor="#fff"
                   focusColor="#fff"
                   focusTextColor="#141414"
                   style={{
                     width: "100%",
-                    height: "56px",
+                    height: "48px",
                     padding: "18px",
                     display: "flex",
                     "justify-content": "center",
@@ -251,11 +253,13 @@ const SourcesPage: Component = () => {
                   text="Install Official Sources"
                   color="#0182E7"
                   hoverColor="#1A9EEF"
+                  textColor="#fff"
+                  hoverTextColor="#fff"
                   focusColor="#fff"
                   focusTextColor="#141414"
                   style={{
                     width: "100%",
-                    height: "56px",
+                    height: "48px",
                     padding: "18px",
                     display: "flex",
                     "justify-content": "center",
@@ -281,18 +285,18 @@ const SourcesPage: Component = () => {
       </Show>
       <Show when={enabledSources$() && disabledSources$() && (enabledSources$()!.length + disabledSources$()!.length == 0)}>
         <EmptyContentView icon={iconSources} title='You have no sources' description='Please install some sources to use Grayjay.' actions={[
-            {
-              icon: iconGrayjay,
-              title: "Install Official Sources",
-              action: ()=>{
-                UIOverlay.overlayOfficialPlugins();
-              }
-            },
-            {
-              icon: iconSources,
-              title: "Install Other Source",
-              action: ()=>installSource()
+          {
+            icon: iconGrayjay,
+            title: "Install Official Sources",
+            action: () => {
+              UIOverlay.overlayOfficialPlugins();
             }
+          },
+          {
+            icon: iconSources,
+            title: "Install Other Source",
+            action: () => installSource()
+          }
         ]} />
       </Show>
     </div>

@@ -49,7 +49,7 @@ export class DialogInputCheckboxList implements IDialogInput {
   addLabel?: string;
   onAddClicked?: () => void;
 
-  constructor(obj: { values: { text: string, value: any }[], addLabel?: string, onAddClicked?: () => void}) {
+  constructor(obj: { values: { text: string, value: any }[], addLabel?: string, onAddClicked?: () => void }) {
     this.values = obj.values;
     this.addLabel = obj.addLabel;
     this.onAddClicked = obj.onAddClicked;
@@ -157,7 +157,7 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
 
     const toggle = (val: any) => {
       setSelectedFor(val, !checkedInputs$().includes(val));
-      setCheckedInputs([ ... checkedInputs$() ]);
+      setCheckedInputs([...checkedInputs$()]);
     };
     return (
       <div style="display: flex; flex-direction: column; justify-content: center; align-items: flex-start;">
@@ -209,15 +209,15 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
   const themeFor = (style?: string) => {
     switch (style) {
       case "primary":
-        return { color: "#0182E7", hoverColor: "#1A9EEF", focusColor: "#fff", focusTextColor: "#141414" };
+        return { color: "#0182E7", hoverColor: "#1A9EEF", textColor: "#fff", hoverTextColor: "#fff", focusColor: "#fff", focusTextColor: "#141414" };
       case "accent":
         return { color: "#F97066" };
       case "none":
       default:
-        return { color: "#2E2E2E" };
+        return { color: "#242424", hoverColor: "#2E2E2E", textColor: "#fff", hoverTextColor: "#fff" };
     }
   };
-  
+
   return (
     <Show when={props.dialog}>
       <div
@@ -236,10 +236,8 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
           <img src={props.dialog?.icon} class={styles.icon} alt="" />
         </Show>
 
-        <img
-          src={icon_close}
+        <div
           class={styles.iconClose}
-          alt="Close"
           role="button"
           tabindex={0}
           onClick={clickClose}
@@ -247,7 +245,9 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
             onPress: clickClose,
             onBack: dialogBack,
           }}
-        />
+        >
+          <img src={icon_close} alt="Close" class={styles.iconCloseImg} />
+        </div>
 
         <div id={titleId} class={styles.title} style="padding-right: 25px;">
           {props.dialog!.title}
@@ -300,8 +300,8 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
                     placeholder={(props.dialog?.input as DialogInputText).placeholder}
                     value={output.text}
                     onTextChanged={(newVal) => { output.text = newVal }}
-                    focusable={true} 
-                    onBack={dialogBack} 
+                    focusable={true}
+                    onBack={dialogBack}
                   />
                 </Show>
 
@@ -340,6 +340,8 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
                     color={t.color}
                     hoverColor={t.hoverColor}
                     focusColor={t.focusColor}
+                    textColor={t.textColor}
+                    hoverTextColor={t.hoverTextColor}
                     focusTextColor={t.focusTextColor}
                     autofocus={isAutofocusButton}
                     style={{

@@ -27,11 +27,13 @@
 }
 
 .iconClose {
-    width: 24px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
+    padding: 10px;
+    box-sizing: border-box;
     position: absolute;
-    right: 32px;
-    top: 32px;
+    right: 22px;
+    top: 22px;
     cursor: pointer;
 }
 
@@ -64,11 +66,11 @@
 
 
 .buttons {
-    margin-top: 20px;
+    margin-top: 40px;
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 12px;
+    gap: 20px;
 }
 
 .button {
@@ -196,6 +198,23 @@
 
 .iconClose:focus {
     border-radius: 6px;
+    outline: none;
+}
+
+body[data-input-source="keyboard"] .iconClose:focus,
+body[data-input-source="gamepad"] .iconClose:focus {
+    background-color: #fff !important;
+}
+
+body[data-input-source="keyboard"] .iconClose:focus .iconCloseImg,
+body[data-input-source="gamepad"] .iconClose:focus .iconCloseImg {
+    filter: brightness(0) saturate(100%);
+}
+
+.iconCloseImg {
+    width: 24px;
+    height: 24px;
+    display: block;
 }
 
 .code>img:focus {
