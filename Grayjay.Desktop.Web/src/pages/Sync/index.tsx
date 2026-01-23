@@ -102,7 +102,7 @@ const SyncPage: Component = () => {
           <div class={styles.dialogHeader} style={{"margin-left": "0px"}}>
             <div class={styles.headerText}  style="display: flex; flex-direction: column; justify-content: center; align-items: center;">
               Please enable sync to use this feature
-              <ButtonFlex style={{ width: "170px", "margin-top": "20px" }} small={true} text="Enable" color="#019BE7" onClick={enableSync} focusableOpts={{
+              <ButtonFlex style={{ width: "170px", "margin-top": "20px" }} small={true} text="Enable" color="#0182E7" hoverColor="#1A9EEF" focusColor="#fff" focusTextColor="#141414" onClick={enableSync} focusableOpts={{
                 onPress: enableSync
               }} />
             </div>

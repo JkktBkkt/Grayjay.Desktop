@@ -150,8 +150,12 @@ const PlaylistDetailView: Component<PlaylistDetailViewProps> = (props) => {
           <CustomButton
             text="Play all"
             icon={iconPlay}
+            hoverColor="#1A9EEF"
+            focusColor="#fff"
+            focusTextColor="#FFF"
+            iconFilterFocus="brightness(0) invert(1)"
             style={{
-              background: "#019BE7",
+              background: "#0182E7",
               "flex-shrink": 0
             }}
             onClick={() => props.onPlayAll()}

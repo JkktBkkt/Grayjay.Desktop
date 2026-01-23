@@ -8,7 +8,12 @@ interface EmptyContentAction {
   icon?: string,
   title: string,
   action: ()=>void,
-  color?: string
+  color?: string,
+  hoverColor?: string,
+  focusColor?: string,
+  textColor?: string,
+  hoverTextColor?: string,
+  focusTextColor?: string
 }
 interface EmptyContentViewProps {
   style?: JSX.CSSProperties;
@@ -35,9 +40,20 @@ const EmptyContentView: Component<EmptyContentViewProps> = (props) => {
               </div>
               <div class={styles.buttons}>
                 <For each={props.actions}>{ (btn: EmptyContentAction) =>
-                  <Button text={btn.title} color={btn.color} icon={btn.icon} onClick={()=>{btn.action()}} style={{margin: "8px", width: "280px", height: "58px"}} focusableOpts={{
-                    onPress: () => btn.action()
-                  }} />
+                  <Button
+                    text={btn.title}
+                    color={btn.color}
+                    hoverColor={btn.hoverColor}
+                    focusColor={btn.focusColor}
+                    textColor={btn.textColor}
+                    hoverTextColor={btn.hoverTextColor}
+                    focusTextColor={btn.focusTextColor}
+                    icon={btn.icon}
+                    onClick={()=>{btn.action()}}
+                    style={{margin: "8px", width: "280px", height: "58px"}}
+                    focusableOpts={{
+                      onPress: () => btn.action()
+                    }} />
                 }</For>
               </div>
             </div>

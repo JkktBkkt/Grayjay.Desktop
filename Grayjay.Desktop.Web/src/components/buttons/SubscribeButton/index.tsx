@@ -57,7 +57,7 @@ const SubscribeButton: Component<SubscribeButtonProps> = (props) => {
                 } : undefined} />
             </Show>
             <Show when={!isSubscribing$() && (isSubscribed$() === false || (isSubscribed$() === undefined && props.isSubscribedInitialState === false))}>
-                <ButtonFlex style={{ width: "170px", ... props.style }} small={props.small} text="Subscribe" color="#019BE7" onClick={ () => {
+                <ButtonFlex style={{ width: "170px", ... props.style }} small={props.small} text="Subscribe" color="#0182E7" hoverColor="#1A9EEF" focusColor="#fff" focusTextColor="#141414" onClick={ () => {
                     const url = props.author;
                     if (url)
                         subscribe(url);
@@ -70,8 +70,8 @@ const SubscribeButton: Component<SubscribeButtonProps> = (props) => {
                 } : undefined} />
             </Show>
             <Show when={isSubscribing$()}>
-                <LoadingButton style={{ width: "170px", ... props.style }} small={props.small} text="" color="#019BE7" onClick={ () => {
-                    
+                <LoadingButton style={{ width: "170px", ... props.style }} small={props.small} text="" color="#0182E7" hoverColor="#1A9EEF" focusColor="#fff" focusTextColor="#141414" onClick={ () => {
+
                 }} />
             </Show>
         </>

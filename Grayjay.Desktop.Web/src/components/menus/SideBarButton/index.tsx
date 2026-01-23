@@ -1,19 +1,20 @@
 import { Show, type Component } from 'solid-js';
 
 import styles from './index.module.css';
-import type { FocusableOptions } from "../../../nav"; 
+import type { FocusableOptions } from "../../../nav";
 import { focusable } from "../../../focusable"; void focusable;
 
 interface SideBarButtonProps {
-    icon?: string;
-    name: string;
-    selected?: boolean;
-    collapsed?: boolean;
-    onClick?: (event: MouseEvent) => void;
-    onRightClick?: (event: MouseEvent) => void;
-    focusableOpts?: FocusableOptions;
-    onFocus?: () => void;
-    onBlur?: () => void;
+  icon?: string;
+  name: string;
+  selected?: boolean;
+  collapsed?: boolean;
+  variant?: 'default' | 'close';
+  onClick?: (event: MouseEvent) => void;
+  onRightClick?: (event: MouseEvent) => void;
+  focusableOpts?: FocusableOptions;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 const SideBarButton: Component<SideBarButtonProps> = (props) => {
@@ -29,7 +30,7 @@ const SideBarButton: Component<SideBarButtonProps> = (props) => {
   };
 
   return (
-    <div use:focusable={props.focusableOpts} onClick={handleClick} onContextMenu={handleRightClick} class={styles.sideBarButton} classList={{[styles.selected]: props.selected, [styles.collapsed]: props.collapsed}} onFocus={() => {
+    <div use:focusable={props.focusableOpts} onClick={handleClick} onContextMenu={handleRightClick} class={styles.sideBarButton} classList={{ [styles.selected]: props.selected, [styles.collapsed]: props.collapsed, [styles.close]: props.variant === 'close' }} onFocus={() => {
       console.info("sidebarbutton onFocus");
       props.onFocus?.();
     }} onBlur={props.onBlur}>

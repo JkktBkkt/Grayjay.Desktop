@@ -25,7 +25,7 @@ import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
 import iconPlus from '../../../assets/icons/icon24_add.svg';
 import iconNewWindow from '../../../assets/icons/icon_new_window.svg';
 import iconExitToApp from '../../../assets/icons/icon_exit_to_app.svg';
-import iconFitScreen from '../../../assets/icons/fit_screen_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
+import iconExpandVideo from '../../../assets/icons/icon_expand_video.svg';
 import ScrollContainer from '../../containers/ScrollContainer';
 import { SubscriptionsBackend } from '../../../backend/SubscriptionsBackend';
 import SideBarCreator from '../SideBarCreator';
@@ -55,7 +55,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const video = useVideo();
   const location = useLocation();
   const navigate = useNavigate();
-  const options: Partial<NavigateOptions> = { 
+  const options: Partial<NavigateOptions> = {
     replace: true
   };
 
@@ -97,8 +97,9 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
     action?: () => any;
     onRightClick?: () => void;
     autoPressOnFocus?: boolean;
+    variant?: 'default' | 'close';
   };
-  
+
   const homeBtn: ButtonItem = { icon: home, name: 'Home', path: '/web/home', getSelected: createMemo(() => location.pathname === '/web/home' || location.pathname === '/web/index.html'), autoPressOnFocus: false };
   const subscriptionsBtn: ButtonItem = { icon: subscriptions, name: 'Subscriptions', path: '/web/subscriptions', getSelected: createMemo(() => location.pathname === '/web/subscriptions'), autoPressOnFocus: false };
   const creatorsBtn: ButtonItem = { icon: creators, name: 'Creators', path: '/web/creators', getSelected: createMemo(() => location.pathname === '/web/creators'), autoPressOnFocus: false };
@@ -109,18 +110,18 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const historyBtn: ButtonItem = { icon: history, name: 'History', path: '/web/history', getSelected: createMemo(() => location.pathname === '/web/history'), autoPressOnFocus: false };
   const syncBtn: ButtonItem = { icon: iconSync, name: 'Sync', path: '/web/sync', getSelected: createMemo(() => location.pathname === '/web/sync'), autoPressOnFocus: false };
   const newWindowBtn: ButtonItem = { icon: iconNewWindow, name: 'New Window', action: () => WindowBackend.startWindow(), getSelected: createMemo(() => false) };
-  const closeWindowBtn: ButtonItem = { icon: iconExitToApp, name: 'Close', action: () => WindowBackend.closeWindow(), getSelected: createMemo(() => false) };
-  const maximizeVideoBtn: ButtonItem = { icon: iconFitScreen, name: 'Expand Video', action: () => video?.actions.setState(VideoState.Maximized), getSelected: createMemo(() => false) };
+  const closeWindowBtn: ButtonItem = { icon: iconExitToApp, name: 'Close', action: () => WindowBackend.closeWindow(), getSelected: createMemo(() => false), variant: 'close' };
+  const maximizeVideoBtn: ButtonItem = { icon: iconExpandVideo, name: 'Expand Video', action: () => video?.actions.setState(VideoState.Maximized), getSelected: createMemo(() => false) };
   const delayBtn: ButtonItem = { icon: iconPlus, name: 'Delay', action: () => { WindowBackend.echo('test'); WindowBackend.delay(10000); }, getSelected: createMemo(() => false) };
   const developerBtn: ButtonItem = { icon: iconLink, name: 'Developer', path: '/Developer/Index', getSelected: createMemo(() => location.pathname === '/Developer/Index'), onRightClick: () => LocalBackend.open(`http://${window.location.host}/Developer/Index`) };
 
   const topButtons$ = createMemo(() => {
     let list: ButtonItem[] = [homeBtn, subscriptionsBtn, creatorsBtn, playlistsBtn];
-  
+
     if (video?.watchLater()?.length) {
       list.push(watchLaterBtn);
     }
-  
+
     list = list.concat([sourcesBtn, downloadsBtn, historyBtn, syncBtn]);
     if (focus?.isControllerMode() === true && video?.state() === VideoState.Minimized) {
       list.push(maximizeVideoBtn);
@@ -131,15 +132,15 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
     } else {
       list.push(closeWindowBtn);
     }
-  
+
     if (devClicked$() > 5) {
       list.push(delayBtn);
     }
-  
+
     if (StateGlobal.isDeveloper$()) {
       list.push(developerBtn);
     }
-  
+
     return list;
   });
 
@@ -147,19 +148,19 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const [moreTopButtonCount$, setMoreTopButtonCount] = createSignal<number>(0);
   const [remainingSpace$, setRemainingSpace] = createSignal<number>(0);
   const [topButtonListHeight$, setTopButtonListHeight] = createSignal<number>(0);
-  
+
   const buyBtn: ButtonItem = { icon: iconBuy, name: 'Buy Grayjay', path: '/web/buy', getSelected: createMemo(() => location.pathname === '/web/buy') };
   const settingsBtn: ButtonItem = { icon: iconSettings, name: 'Settings', action: () => UIOverlay.overlaySettings(), getSelected: createMemo(() => location.pathname === '/web/settings') };
 
   const bottomButtons$ = createMemo(() => {
     const list: ButtonItem[] = [];
-  
+
     if (!StateGlobal.didPurchase$()) {
       list.push(buyBtn);
     }
-  
+
     list.push(settingsBtn);
-  
+
     return list;
   });
 
@@ -218,7 +219,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
         setVisibleTopButtonCount(topButtonCount);
         setMoreTopButtonCount(0);
 
-        console.log({topButtonsRootHeight, remainingSpace, innerHeight: window.innerHeight, bottomButtonCount, totalBottomButtonHeight, availableSideBarTopHeight, availableSidebarTopButtonsHeight, topButtonCount, topButtonsVisible});
+        console.log({ topButtonsRootHeight, remainingSpace, innerHeight: window.innerHeight, bottomButtonCount, totalBottomButtonHeight, availableSideBarTopHeight, availableSidebarTopButtonsHeight, topButtonCount, topButtonsVisible });
       }
     });
   };
@@ -235,7 +236,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   });
 
   const navigateTo = (to: string, options: Partial<NavigateOptions>) => {
-    props.onNavigate?.(to); 
+    props.onNavigate?.(to);
     navigate(to, options);
   };
 
@@ -249,14 +250,14 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   };
 
   return (
-    <div class={styles.sidebar} style={props.style} classList={{ [styles.collapsed]: isCollapsed(), ... props.classList }}>
+    <div class={styles.sidebar} style={props.style} classList={{ [styles.collapsed]: isCollapsed(), ...props.classList }}>
       <div class={styles.buttonList}>
         <Show when={canToggleCollapse()}>
           <div class={styles.containerCollapse}>
             <div
               class={styles.collapseWrapper}
               role="button"
-              use:focusable={{ 
+              use:focusable={{
                 groupId: 'sidebar',
                 groupIndices: [0],
                 groupType: 'vertical',
@@ -275,11 +276,11 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
             </div>
           </div>
         </Show>
-        <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>
+        <div class={styles.grayjay} oncontextmenu={() => setDevClicked(devClicked$() + 1)}>
           <img src={grayjay} />
           <Show when={!isCollapsed()}>
             <div style="font-size: 20px; left: 60px; position: absolute; top: 50%; transform: translateY(-50%);">
-            Grayjay
+              Grayjay
             </div>
           </Show>
         </div>
@@ -292,6 +293,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 icon={btn.icon}
                 name={btn.name}
                 selected={btn.getSelected()}
+                variant={btn.variant}
                 onClick={press}
                 onRightClick={btn.onRightClick}
                 focusableOpts={{
@@ -325,7 +327,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
               groupRememberLast: true,
               groupEscapeTo: { right: ['sources'] },
               onPress: () => {
-                props?.onMoreOpened?.(); 
+                props?.onMoreOpened?.();
                 setMoreOverlayVisible(true);
               }
             }}
@@ -336,20 +338,20 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
       </div>
       <Show when={!isCollapsed() && subscriptions$()?.length && remainingSpace$() > 200 && focus?.isControllerMode() !== true} fallback={<div style="flex-grow:1"></div>}>
         <div class={styles.buttonListFill}>
-          <div classList={{[styles.expandHeader]: true, [styles.expanded]: expand$()}} onClick={()=>setExpand(!expand$())}>
-              Subscriptions
-              <div class={styles.toggle}>
-                  <img src={iconChevronDown} />
-              </div>
+          <div classList={{ [styles.expandHeader]: true, [styles.expanded]: expand$() }} onClick={() => setExpand(!expand$())}>
+            Subscriptions
+            <div class={styles.toggle}>
+              <img src={iconChevronDown} />
+            </div>
           </div>
           <Show when={expand$()}>
             <div class={styles.expandItems}>
               <Switch>
                 <Match when={expandType$() == "subs"}>
                   <ScrollContainer ref={scrollContainerRef}>
-                    <FlexibleArrayList outerContainerRef={scrollContainerRef} 
+                    <FlexibleArrayList outerContainerRef={scrollContainerRef}
                       items={subscriptions$()}
-                      builder={(_, item$) => 
+                      builder={(_, item$) =>
                         <SideBarCreator onClick={() => {
                           const author = item$()?.channel;
                           if (!author) {
@@ -419,17 +421,18 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                       icon={btn.icon}
                       name={btn.name}
                       selected={btn.getSelected()}
+                      variant={btn.variant}
                       onClick={press}
                       onRightClick={btn.onRightClick}
                       focusableOpts={{
                         groupId: 'sidebar-overlay',
                         groupType: 'vertical',
-                        groupIndices: [i()],                        
+                        groupIndices: [i()],
                         onPress: press,
                         onBack: () => {
                           if (moreOverlayVisible$()) {
-                            props?.onMoreClosed?.(); 
-                            setMoreOverlayVisible(false); 
+                            props?.onMoreClosed?.();
+                            setMoreOverlayVisible(false);
                             return true;
                           }
                           return false;

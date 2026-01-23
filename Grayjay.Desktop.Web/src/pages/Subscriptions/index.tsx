@@ -450,7 +450,10 @@ const SubscriptionsPage: Component = () => {
               {
                 icon: iconSearch,
                 title: "Search Creators",
-                color: "#019BE7",
+                color: "#0182E7",
+                hoverColor: "#1A9EEF",
+                focusColor: "#fff",
+                focusTextColor: "#141414",
                 action: () => { navigate("/web/search?type=" + ContentType.CHANNEL) }
               }
             ]} />

@@ -225,7 +225,10 @@ const SourcesPage: Component = () => {
               >
                 <Button
                   text="Install Source"
-                  color="#019BE7"
+                  color="#0182E7"
+                  hoverColor="#1A9EEF"
+                  focusColor="#fff"
+                  focusTextColor="#141414"
                   style={{
                     width: "100%",
                     height: "56px",
@@ -246,7 +249,10 @@ const SourcesPage: Component = () => {
 
                 <Button
                   text="Install Official Sources"
-                  color="#019BE7"
+                  color="#0182E7"
+                  hoverColor="#1A9EEF"
+                  focusColor="#fff"
+                  focusTextColor="#141414"
                   style={{
                     width: "100%",
                     height: "56px",

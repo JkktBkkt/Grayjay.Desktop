@@ -289,7 +289,7 @@ const SourceDetails: Component<SourceDetailsProps> = (props: SourceDetailsProps)
                 groupType: 'vertical',
                 onPress: uninstall
               }}></Button>
-              <Button style={{width: "calc(100% - 54px)", "margin-bottom": "10px", "margin-left": "24px"}} text='Copy Settings to Clipboard' color='#019BE7' onClick={()=>copySettingsToClipboard()} focusableOpts={{
+              <Button style={{width: "calc(100% - 54px)", "margin-bottom": "10px", "margin-left": "24px"}} text='Copy Settings to Clipboard' color='#0182E7' hoverColor='#1A9EEF' focusColor='#fff' focusTextColor='#141414' onClick={()=>copySettingsToClipboard()} focusableOpts={{
                 groupId: 'plugin-settings',
                 groupEscapeTo: {
                   left: ['sources']

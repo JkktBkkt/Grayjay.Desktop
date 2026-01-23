@@ -8,6 +8,11 @@ interface ButtonProps {
     icon?: string;
     text: string;
     color?: string;
+    hoverColor?: string;
+    focusColor?: string;
+    textColor?: string;
+    hoverTextColor?: string;
+    focusTextColor?: string;
     onClick?: (event: MouseEvent) => void;
     small?: boolean;
     style?: JSX.CSSProperties;
@@ -22,7 +27,20 @@ const ButtonFlex: Component<ButtonProps> = (props) => {
     style["justify-content"] = "center";
 
     return (
-        <Button icon={props.icon} text={props.text} color={props.color} onClick={props.onClick} small={props.small} style={style} focusableOpts={props.focusableOpts}></Button>
+        <Button
+            icon={props.icon}
+            text={props.text}
+            color={props.color}
+            hoverColor={props.hoverColor}
+            focusColor={props.focusColor}
+            textColor={props.textColor}
+            hoverTextColor={props.hoverTextColor}
+            focusTextColor={props.focusTextColor}
+            onClick={props.onClick}
+            small={props.small}
+            style={style}
+            focusableOpts={props.focusableOpts}
+        ></Button>
     );
 };
 

@@ -9,6 +9,11 @@ import CircleLoader from '../../basics/loaders/CircleLoader';
 interface LoadingButtonProps {
     text: string;
     color?: string;
+    hoverColor?: string;
+    focusColor?: string;
+    textColor?: string;
+    hoverTextColor?: string;
+    focusTextColor?: string;
     onClick?: (event: MouseEvent) => void;
     small?: boolean;
     style?: JSX.CSSProperties;
