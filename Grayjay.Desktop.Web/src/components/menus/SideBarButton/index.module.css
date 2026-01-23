@@ -83,11 +83,12 @@
 
 /* Close variant - red styling */
 .sideBarButton.close .text {
-    color: #FF2727;
+    color: #EF4444;
 }
 
 .sideBarButton.close .icon {
-    filter: brightness(0) saturate(100%) invert(36%) sepia(93%) saturate(1352%) hue-rotate(336deg) brightness(101%) contrast(90%);
+    opacity: 1;
+    filter: brightness(0) saturate(100%) invert(41%) sepia(79%) saturate(1826%) hue-rotate(335deg) brightness(98%) contrast(93%);
 }
 
 .sideBarButton.close:focus {
