@@ -8,8 +8,10 @@ interface ButtonProps {
     icon?: string;
     text: string;
     color?: string;
+    hoverColor?: string;
     focusColor?: string;
     textColor?: string;
+    hoverTextColor?: string;
     focusTextColor?: string;
     onClick?: (event: MouseEvent) => void;
     small?: boolean;
@@ -27,18 +29,27 @@ const Button: Component<ButtonProps> = (props) => {
 
     const style = createMemo(() => {
         const bg = props.color ?? '#212122';
+        const bgHover = props.hoverColor;
         const bgFocus = props.focusColor ?? '#fff';
         const text = props.textColor ?? '#fff';
+        const textHover = props.hoverTextColor;
         const textFocus = props.focusTextColor ?? (props.focusColor ? text : '#141414');
         const iconFilterFocus = props.focusColor ? 'none' : 'brightness(0) saturate(100%)';
 
-        return {
-            ...props.style,
+        const cssVars: Record<string, string> = {
             '--btn-bg': bg,
             '--btn-bg-focus': bgFocus,
             '--btn-text': text,
             '--btn-text-focus': textFocus,
             '--btn-icon-filter-focus': iconFilterFocus,
+        };
+
+        if (bgHover) cssVars['--btn-bg-hover'] = bgHover;
+        if (textHover) cssVars['--btn-text-hover'] = textHover;
+
+        return {
+            ...props.style,
+            ...cssVars,
             width: props.style?.width ?? 'fit-content',
         } as JSX.CSSProperties & Record<string, string>;
     });

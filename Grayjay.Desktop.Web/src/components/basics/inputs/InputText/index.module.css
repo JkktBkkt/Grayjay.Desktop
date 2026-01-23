@@ -4,11 +4,11 @@
 }
 
 .rootElement:focus {
-    border-radius: 6px;
+    border-radius: 8px;
 }
 
 .containerInputText {
-    border-radius: 6px;
+    border-radius: 8px;
     border: 1px solid #2E2E2E;
     background: #1B1B1B;
     padding-top: 16px;

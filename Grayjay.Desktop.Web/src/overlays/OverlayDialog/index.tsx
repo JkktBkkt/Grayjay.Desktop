@@ -209,7 +209,7 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
   const themeFor = (style?: string) => {
     switch (style) {
       case "primary":
-        return { color: "#019BE7" };
+        return { color: "#0182E7", hoverColor: "#1A9EEF", focusColor: "#fff", focusTextColor: "#141414" };
       case "accent":
         return { color: "#F97066" };
       case "none":
@@ -338,6 +338,9 @@ const OverlayDialog: Component<OverlayDialogProps> = (props: OverlayDialogProps)
                   <Button
                     text={button.title}
                     color={t.color}
+                    hoverColor={t.hoverColor}
+                    focusColor={t.focusColor}
+                    focusTextColor={t.focusTextColor}
                     autofocus={isAutofocusButton}
                     style={{
                       flex: "1 0 0",

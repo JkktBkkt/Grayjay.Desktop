@@ -140,7 +140,7 @@ const CreatorsPage: Component = () => {
               value={filterText()}
               showClearButton={true}
               inputContainerStyle={{
-                "height": "48px",
+                "height": "70px",
                 "background": "#141414"
               }}
               onTextChanged={(v) => {

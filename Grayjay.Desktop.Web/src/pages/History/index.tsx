@@ -209,6 +209,8 @@ const HistoryPage: Component = () => {
                 text='Clear history'
                 border="1px solid #F62121"
                 textColor="#FFF"
+                hoverColor="#F62121"
+                hoverBorder="1px solid #212121"
                 focusColor="#F62121"
                 focusTextColor="#FFF"
                 iconFilterFocus="brightness(0) invert(1)"

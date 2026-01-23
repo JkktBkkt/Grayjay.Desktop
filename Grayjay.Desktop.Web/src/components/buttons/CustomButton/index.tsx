@@ -14,6 +14,8 @@ interface CustomButtonProps {
 
   background?: string;
   border?: string;
+  hoverColor?: string;
+  hoverBorder?: string;
   focusColor?: string;
   textColor?: string;
   focusTextColor?: string;
@@ -42,6 +44,8 @@ const CustomButton: Component<CustomButtonProps> = (props) => {
       raw.color ??
       '#fff';
 
+    const bgHover = props.hoverColor;
+    const borderHover = props.hoverBorder;
     const bgFocus = props.focusColor ?? '#fff';
     const textFocus = props.focusTextColor ?? (props.focusColor ? text : '#141414');
     const iconFilterFocus =
@@ -54,14 +58,21 @@ const CustomButton: Component<CustomButtonProps> = (props) => {
     delete rest.border;
     delete rest.color;
 
-    return {
-      ...rest,
+    const cssVars: Record<string, string> = {
       '--cb-bg': bg,
       '--cb-bg-focus': bgFocus,
       '--cb-border': border,
       '--cb-text': text,
       '--cb-text-focus': textFocus,
       '--cb-icon-filter-focus': iconFilterFocus,
+    };
+
+    if (bgHover) cssVars['--cb-bg-hover'] = bgHover;
+    if (borderHover) cssVars['--cb-border-hover'] = borderHover;
+
+    return {
+      ...rest,
+      ...cssVars,
     } as JSX.CSSProperties & Record<string, string>;
   });
 

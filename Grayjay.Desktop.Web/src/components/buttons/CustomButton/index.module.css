@@ -21,6 +21,7 @@
 .container:hover {
   cursor: pointer;
   background: var(--cb-bg-hover, #3D3D3D);
+  border: var(--cb-border-hover, var(--cb-border, none));
   outline: unset;
 }
 

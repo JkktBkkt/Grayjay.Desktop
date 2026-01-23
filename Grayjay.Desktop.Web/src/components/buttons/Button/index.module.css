@@ -18,22 +18,33 @@
 }
 
 .container:hover {
-  background: var(--btn-bg-focus, #fff);
-  color: var(--btn-text-focus, #141414);
+  background: var(--btn-bg-hover, var(--btn-bg-focus, #fff));
+  color: var(--btn-text-hover, var(--btn-text-focus, #141414));
   outline: unset;
 }
 
 .container:hover .icon {
-  filter: var(--btn-icon-filter-focus, brightness(0) saturate(100%));
+  filter: var(--btn-icon-filter-hover, var(--btn-icon-filter-focus, brightness(0) saturate(100%)));
 }
 
 .container:focus-visible {
-  background: var(--btn-bg-focus, #fff);
-  color: var(--btn-text-focus, #141414);
+  background: var(--btn-bg-hover, var(--btn-bg-focus, #fff));
+  color: var(--btn-text-hover, var(--btn-text-focus, #141414));
   outline: unset;
 }
 
 .container:focus-visible .icon {
+  filter: var(--btn-icon-filter-hover, var(--btn-icon-filter-focus, brightness(0) saturate(100%)));
+}
+
+body[data-input-source="keyboard"] .container:focus,
+body[data-input-source="gamepad"] .container:focus {
+  background: var(--btn-bg-focus, #fff) !important;
+  color: var(--btn-text-focus, #141414);
+}
+
+body[data-input-source="keyboard"] .container:focus .icon,
+body[data-input-source="gamepad"] .container:focus .icon {
   filter: var(--btn-icon-filter-focus, brightness(0) saturate(100%));
 }
 

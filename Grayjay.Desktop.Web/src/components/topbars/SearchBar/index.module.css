@@ -32,12 +32,12 @@
 }
 
 .suggestionItem {
-    display: flex; 
-    flex-direction: row; 
-    width: 100%; 
-    font-weight: 500; 
-    font-size: 16px; 
-    align-items: center; 
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    font-weight: 500;
+    font-size: 16px;
+    align-items: center;
     height: 47px;
     border-radius: 8px;
     padding-left: 12px;

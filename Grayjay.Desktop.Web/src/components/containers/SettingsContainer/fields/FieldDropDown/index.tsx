@@ -52,6 +52,7 @@ const FieldDropDown: Component<FieldDropDownProps> = (props) => {
                     value={props.value}
                     onSelectedChanged={selectedChanged}
                     anchorStyle={AnchorStyle.BottomRight}
+                    selectStyle={{"height": "48px"}}
                     onBack={props.onBack}
                     focusable={false}
                     apiRef={(api) => (dropdownApi = api)}
