@@ -90,13 +90,15 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   });
 
   type ButtonItem = {
-    icon: string;
+    icon?: string;
     name: string;
     getSelected: Accessor<boolean>;
     path?: string;
     action?: () => any;
     onRightClick?: () => void;
     autoPressOnFocus?: boolean;
+    style?: JSX.CSSProperties;
+    styleText?: JSX.CSSProperties;
     variant?: 'default' | 'close';
   };
 
@@ -308,6 +310,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 }}
                 onFocus={globalFocus}
                 onBlur={globalBlur}
+                style={btn.style}
+                styleText={btn.styleText}
               />
             );
           }}
@@ -389,6 +393,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                 }}
                 onFocus={globalFocus}
                 onBlur={globalBlur}
+                style={btn.style}
+                styleText={btn.styleText}
               />
             );
           }}
@@ -441,6 +447,8 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
                       data-more-first={i() === 0 ? "1" : undefined}
                       onFocus={globalFocus}
                       onBlur={globalBlur}
+                      style={btn.style}
+                      styleText={btn.styleText}
                     />
                   );
                 }}

@@ -9,8 +9,14 @@
     width: 260px;
     padding: 8px;
     border-radius: 8px;
+    width: 320px;
+    --menu-pad: 12px;
+    padding-left: var(--menu-pad);
+    padding-right: var(--menu-pad);
+    border-radius: 8px;
     overflow: auto;
     scrollbar-width: thin;
+    margin-top: 6px;
 
     border-radius: 10px;
     border: 1px solid #2E2E2E;
@@ -33,13 +39,31 @@
     margin: 10px;
 }
 
+.menuItem,
+.menuButton,
+.menuToggle,
+.menuHeader,
+.separator {
+    width: calc(100% + (var(--menu-pad) * 2));
+    margin-left: calc(-1 * var(--menu-pad));
+    margin-right: calc(-1 * var(--menu-pad));
+    box-sizing: border-box;
+}
+
+.separator {
+    height: 1px;
+    background: #2E2E2E;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
 .menuItem {
     position: relative;
     height: 20px;
     padding-top: 10px;
     padding-bottom: 10px;
-    padding-left: 15px;
-    padding-right: 15px;
+    padding-left: calc(15px + var(--menu-pad));
+    padding-right: calc(15px + var(--menu-pad));
 }
 
 .menuItem .key {
@@ -81,8 +105,8 @@
     width: 100%;
     scrollbar-width: thin;
     white-space: nowrap;
-    padding-left: 0px;
-    padding-right: 0px;
+    padding-left: var(--menu-pad);
+    padding-right: var(--menu-pad);
 }
 
 .menuItem .filterHorizontalOption {
@@ -155,8 +179,11 @@
 .menuButton {
     position: relative;
     height: 18px;
-    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
+    padding: calc(12px + var(--menu-pad));
 }
 
 .menuButton:hover {
@@ -201,14 +228,12 @@
 .menuToggle {
     position: relative;
     height: 64px;
-    padding-left: 8px;
-    padding-right: 8px;
-    padding-bottom: 0px;
-
     display: flex;
     flex-direction: row;
     align-items: center;
     cursor: pointer;
+    padding-left: calc(8px + var(--menu-pad));
+    padding-right: calc(8px + var(--menu-pad));
 }
 
 .menuToggle .icon {
@@ -260,9 +285,8 @@
     position: relative;
     padding-top: 16px;
     padding-bottom: 16px;
-    margin-left: 10px;
-    margin-right: 10px;
-
+    padding-left: calc(10px + var(--menu-pad));
+    padding-right: calc(10px + var(--menu-pad));
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -299,6 +323,10 @@
     text-wrap: wrap;
 }
 
-.menuButton .text {
-    width: calc(100% - 50px);
+.menuItem:focus-visible,
+.menuButton:focus-visible,
+.menuToggle:focus-visible,
+.filterHorizontalOption:focus-visible {
+    background-color: #2e2e2e;
+    outline: none;
 }

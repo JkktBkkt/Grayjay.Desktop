@@ -32,7 +32,7 @@ const CreatorsPage: Component = () => {
   const [subs$, subsResource] = createResourceDefault(async () => [], async () => {
     return await SubscriptionsBackend.subscriptions();
   });
-  StateWebsocket.registerHandlerNew("SubscriptionsChanged", (packet)=>{
+  StateWebsocket.registerHandlerNew("SubscriptionsChanged", (packet) => {
     subsResource.refetch();
   }, "playlistsPage");
   const [filterText, setFilterText] = createSignal("");
@@ -59,18 +59,18 @@ const CreatorsPage: Component = () => {
     }
     return result;
   });
-  
+
   const sortOptions = [
     "Name (A-Z)",
     "Name (Z-A)",
   ];
-  
+
   const [subscriptionMenu$, setSubscriptionMenu] = createSignal<{
     menu: Menu,
     subscription?: ISubscription,
     subscriptionSettings?: ISubscriptionSettings
-  }>({ 
-    menu: { title: "", items: []  } 
+  }>({
+    menu: { title: "", items: [] }
   });
   const [showSettings$, setShowSettings] = createSignal(false);
   const anchor = new Anchor(null, showSettings$, AnchorStyle.BottomRight);
@@ -123,16 +123,16 @@ const CreatorsPage: Component = () => {
       <Show when={subs$() && subs$()!.length > 0}>
         <ScrollContainer ref={scrollContainerRef}>
           <div class={styles.containerFilters}>
-            <SettingsDropdown label="Sources" valueString={valueString$()} style={{"max-width": "200px"}} anchorStyle={AnchorStyle.BottomLeft} menu={{
+            <SettingsDropdown label="Sources" valueString={valueString$()} style={{ "max-width": "200px" }} anchorStyle={AnchorStyle.BottomLeft} menu={{
               items: StateGlobal.sources$()?.map(i => new MenuItemCheckbox({
                 isSelected: true,
                 name: i.name,
                 icon: i.absoluteIconUrl,
                 onToggle: (v) => {
                   if (v)
-                    setDisabledSources(disabledSources().filter(x=>x != i.id));
+                    setDisabledSources(disabledSources().filter(x => x != i.id));
                   else
-                    setDisabledSources([... disabledSources(), i.id]);
+                    setDisabledSources([...disabledSources(), i.id]);
                 }
               })) ?? []
             }} focusable={true} />
@@ -140,14 +140,14 @@ const CreatorsPage: Component = () => {
               value={filterText()}
               showClearButton={true}
               inputContainerStyle={{
-                "height": "70px",
+                "height": "48px",
                 "background": "#141414"
               }}
               onTextChanged={(v) => {
                 setFilterText(v);
               }}
               focusable={true} />
-            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{"width": "230px"}} selectStyle={{"height": "70px"}} />
+            <Dropdown label="Sort by" onSelectedChanged={(v) => setSortBy(v)} value={sortBy()} options={sortOptions} anchorStyle={AnchorStyle.BottomLeft} style={{ "width": "230px" }} selectStyle={{ "height": "70px" }} />
           </div>
 
           <VirtualGrid outerContainerRef={scrollContainerRef}
@@ -161,15 +161,15 @@ const CreatorsPage: Component = () => {
               "margin-top": "24px",
             }}
             elementStyle={{
-             /* "margin-left": "7px",
-              "margin-top": "7px"*/
+              /* "margin-left": "7px",
+               "margin-top": "7px"*/
             }}
             builder={(index, item, row, col) =>
-              <CreatorView {... item()?.channel} 
+              <CreatorView {...item()?.channel}
                 metadata={((item()?.channel?.subscribers && item()?.channel?.subscribers > 0) ? (toHumanNumber(item()?.channel?.subscribers) + " subscribers") : "")}
                 onClick={() => {
                   const url = item()?.channel?.url;
-                  if(url)
+                  if (url)
                     navigate("/web/channel?url=" + encodeURIComponent(url), { state: { author: item()?.channel } })
                 }}
                 onSettingsClick={(el) => {
@@ -178,42 +178,42 @@ const CreatorsPage: Component = () => {
                 subscription={item()}
                 isSubscribedInitialState={true}
                 focusableOpts={item() ? {
-                    groupId: 'creators',
-                    groupType: 'grid',
-                    groupIndices: [row(), col()],
-                    groupEscapeDirs: ['left', 'up'],
-                    onPress: () => {
+                  groupId: 'creators',
+                  groupType: 'grid',
+                  groupIndices: [row(), col()],
+                  groupEscapeDirs: ['left', 'up'],
+                  onPress: () => {
                     const url = item()?.channel?.url;
-                    if(url)
+                    if (url)
                       navigate("/web/channel?url=" + encodeURIComponent(url), { state: { author: item()?.channel } })
-                    },
-                    onOptions: (e, inputSource) => showSubscriptionSettings(e, item()),
-                    onBack: () => hideSubscriptionSettings()
+                  },
+                  onOptions: (e, inputSource) => showSubscriptionSettings(e, item()),
+                  onBack: () => hideSubscriptionSettings()
                 } : undefined} />
             } />
         </ScrollContainer>
       </Show>
       <Show when={(!subs$() || subs$()!.length == 0) && !subs$.loading}>
-        <EmptyContentView 
-            icon={iconSubscriptions}
-            title='You have no subscriptions'
-            description='Subscribe to some creators or import them from elsewhere.'
-            actions={[
-              {
-                icon: iconSubscriptions,
-                title: "Import Subscriptions",
-                action: ()=>{UIOverlay.dismiss(); UIOverlay.overlayImportSelect()}
-              },
-              {
-                icon: iconSearch,
-                title: "Search Creators",
-                color: "#0182E7",
-                hoverColor: "#1A9EEF",
-                focusColor: "#fff",
-                focusTextColor: "#141414",
-                action: ()=>{navigate("/web/search?type=" + ContentType.CHANNEL)}
-              }
-            ]} />
+        <EmptyContentView
+          icon={iconSubscriptions}
+          title='You have no subscriptions'
+          description='Subscribe to some creators or import them from elsewhere.'
+          actions={[
+            {
+              icon: iconSubscriptions,
+              title: "Import Subscriptions",
+              action: () => { UIOverlay.dismiss(); UIOverlay.overlayImportSelect() }
+            },
+            {
+              icon: iconSearch,
+              title: "Search Creators",
+              color: "#0182E7",
+              hoverColor: "#1A9EEF",
+              focusColor: "#fff",
+              focusTextColor: "#141414",
+              action: () => { navigate("/web/search?type=" + ContentType.CHANNEL) }
+            }
+          ]} />
       </Show>
       <Show when={(!subs$() || subs$()!.length == 0) && subs$.loading}>
         <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
@@ -233,7 +233,7 @@ const CreatorsPage: Component = () => {
               builder={(index, item) => {
                 return (
                   <div style="width: calc(100% - 16px); height: calc(100% - 16px); margin-right: 16px; margin-bottom: 16px;">
-                    <SkeletonDiv style={{"border-radius": "8px"}} />
+                    <SkeletonDiv style={{ "border-radius": "8px" }} />
                   </div>
                 );
               }} />
