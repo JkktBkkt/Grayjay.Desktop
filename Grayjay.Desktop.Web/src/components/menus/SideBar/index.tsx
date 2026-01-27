@@ -166,7 +166,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
     return list;
   });
 
-  const useMoreButton = true;
+  const useMoreButton = false;
   const handleResize = () => {
     batch(() => {
       if (window.innerWidth < 1200) {
