@@ -55,8 +55,8 @@ const PostDetailView: Component = () => {
             icon={iconRefresh}
             variant="none"
             shape="circle"
-            width="30px"
-            height="30px"
+            width="24px"
+            height="24px"
             iconInset="0px"
             style={{ "margin-left": "24px" }}
             onClick={() => {

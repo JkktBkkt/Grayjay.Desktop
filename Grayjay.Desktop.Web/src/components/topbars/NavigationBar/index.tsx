@@ -62,6 +62,9 @@ const NavigationBar: Component<NavigationBarProps> = (props) => {
       <IconButton
         icon={cast}
         variant="none"
+        width="24px"
+        height="24px"
+        iconInset="0px"
         style={{ "margin-left": "24px" }}
         onClick={() => casting?.actions.open()}
         focusableOpts={{

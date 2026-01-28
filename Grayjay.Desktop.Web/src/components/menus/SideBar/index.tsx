@@ -23,6 +23,7 @@ import iconLink from '../../../assets/icons/icon_link.svg';
 import iconSources from '../../../assets/icons/ic_circles.svg';
 import iconChevronDown from '../../../assets/icons/icon16_chevron_down.svg';
 import iconPlus from '../../../assets/icons/icon24_add.svg';
+import iconNewWindow from '../../../assets/icons/icon_new_window.svg';
 import iconExitToApp from '../../../assets/icons/icon_exit_to_app.svg';
 import iconFitScreen from '../../../assets/icons/fit_screen_24dp_E3E3E3_FILL0_wght300_GRAD0_opsz24.svg';
 import ScrollContainer from '../../containers/ScrollContainer';
@@ -124,7 +125,7 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
   const downloadsBtn: ButtonItem = { icon: download, name: 'Downloads', path: '/web/downloads', getSelected: createMemo(() => location.pathname === '/web/downloads'), autoPressOnFocus: false };
   const historyBtn: ButtonItem = { icon: history, name: 'History', path: '/web/history', getSelected: createMemo(() => location.pathname === '/web/history'), autoPressOnFocus: false };
   const syncBtn: ButtonItem = { icon: iconSync, name: 'Sync', path: '/web/sync', getSelected: createMemo(() => location.pathname === '/web/sync'), autoPressOnFocus: false };
-  const newWindowBtn: ButtonItem = { icon: iconPlus, name: 'New Window', action: () => WindowBackend.startWindow(), getSelected: createMemo(() => false) };
+  const newWindowBtn: ButtonItem = { icon: iconNewWindow, name: 'New Window', action: () => WindowBackend.startWindow(), getSelected: createMemo(() => false) };
   const closeWindowBtn: ButtonItem = { icon: iconExitToApp, name: 'Close', action: () => WindowBackend.closeWindow(), getSelected: createMemo(() => false) };
   const maximizeVideoBtn: ButtonItem = { icon: iconFitScreen, name: 'Expand Video', action: () => video?.actions.setState(VideoState.Maximized), getSelected: createMemo(() => false) };
   const delayBtn: ButtonItem = { icon: iconPlus, name: 'Delay', action: () => { WindowBackend.echo('test'); WindowBackend.delay(10000); }, getSelected: createMemo(() => false) };
@@ -303,24 +304,14 @@ const SideBar: Component<SideBarProps> = (props: SideBarProps) => {
               />
             </div>
           </Show>
-          <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>
-            <img src={grayjay} />
-            <Show when={!isCollapsed()}>
-              <div style="font-size: 20px; top: 2px; left: 60px; position: absolute;">
+        <div class={styles.grayjay} oncontextmenu={()=>setDevClicked(devClicked$() + 1)}>
+          <img src={grayjay} />
+          <Show when={!isCollapsed()}>
+            <div class={styles.grayjayLabel}>
               Grayjay
-              </div>
-            </Show>
-            <Show when={!isCollapsed()}>
-              <div style="font-size: 12px; top: 25px; left: 60px; position: absolute;">
-                Alpha
-              </div>
-            </Show>
-            <Show when={isCollapsed()}>
-              <div style="font-size: 12px; top: 45px; left: 0px; position: absolute; width: 50px; text-align: center;">
-                Alpha
-              </div>
-            </Show>
-          </div>
+            </div>
+          </Show>
+        </div>
           <For each={topButtons$().slice(0, visibleTopButtonCount$())}>
             {(btn, i) => {
               const press = () => btn.action ? btn.action() : navigateTo(btn.path!, options);
