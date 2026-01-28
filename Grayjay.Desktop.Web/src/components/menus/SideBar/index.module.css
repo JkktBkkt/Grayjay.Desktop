@@ -90,9 +90,11 @@
     align-items: center;
     justify-content: end;
     margin-top: 16px;
-    margin-left: 4px;
-    margin-right: auto;
     margin-bottom: 4px;
+}
+
+.sidebar.collapsed .containerCollapse {
+    justify-content: center;
 }
 
 .expandHeader {
