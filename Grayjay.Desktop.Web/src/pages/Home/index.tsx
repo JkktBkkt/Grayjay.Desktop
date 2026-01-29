@@ -38,11 +38,13 @@ const HomePage: Component = () => {
           <IconButton
             icon={iconRefresh}
             variant="none"
-            shape="circle"
-            width="24px"
-            height="24px"
-            iconInset="0px"
-            style={{ "margin-left": "24px" }}
+            shape="rounded"
+            width="48px"
+            height="48px"
+            iconInset="12px"
+            focusColor="rgba(255, 255, 255, 0.055)"
+            iconFilterFocus="none"
+            style={{ "flex-shrink": 0 }}
             onClick={() => {
               StateGlobal.reloadHome();
             }}

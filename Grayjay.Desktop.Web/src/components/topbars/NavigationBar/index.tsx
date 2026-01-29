@@ -57,15 +57,19 @@ const NavigationBar: Component<NavigationBarProps> = (props) => {
       <div style={{"flex-grow": 1}}></div>
       <Show when={props.childrenAfter}>
         {props.childrenAfter}
+        <div style={{ width: "1px", height: "24px", background: "rgba(255, 255, 255, 0.1)", "margin-left": "8px", "margin-right": "8px", "flex-shrink": 0 }} />
       </Show>
 
       <IconButton
         icon={cast}
         variant="none"
-        width="24px"
-        height="24px"
-        iconInset="0px"
-        style={{ "margin-left": "24px" }}
+        shape="rounded"
+        width="48px"
+        height="48px"
+        iconInset="12px"
+        focusColor="rgba(255, 255, 255, 0.055)"
+        iconFilterFocus="none"
+        style={{ "flex-shrink": 0 }}
         onClick={() => casting?.actions.open()}
         focusableOpts={{
           groupId: 'nav-bar',

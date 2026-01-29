@@ -6,6 +6,7 @@
     display: flex;
     border-radius: 6px;
     flex-direction: row;
+    align-items: center;
     /*border-left: transparent 2px solid;*/
     transition: border-left 0.3s;
 }
@@ -39,7 +40,6 @@
     width: 22px;
     flex-shrink: 0;
     margin-left: 14px;
-    margin-top: 4px;
     opacity: 0.8;
     transition: margin-left 0.3s;
 }
