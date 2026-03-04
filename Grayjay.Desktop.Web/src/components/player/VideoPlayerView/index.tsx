@@ -770,7 +770,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     else
                         setVideoDimensions({ width: videoWidth, height: videoHeight });
             
-                    setDuration(Duration.fromMillis((videoElement?.duration ?? 0) * 1000));
+                    const dur = videoElement?.duration ?? 0;
+                    setDuration(Duration.fromMillis(isFinite(dur) ? dur * 1000 : 0));
                     onReady(shouldResume, startTime, false);
                 });
 
@@ -877,7 +878,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     onError(`Video Error: ${JSON.stringify({ source, lineno, colno, error})}`, true);
                 };
 
-                videoElement.onloadedmetadata = () => {                   
+                videoElement.onloadedmetadata = () => {
                     const videoWidth = videoElement?.videoWidth ?? 0;
                     const videoHeight = videoElement?.videoHeight ?? 0;
                     setIsAudioOnly(videoWidth === 0 && videoHeight === 0);
@@ -886,7 +887,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     else
                         setVideoDimensions({ width: videoWidth, height: videoHeight });
 
-                    setDuration(Duration.fromMillis((videoElement?.duration ?? 0) * 1000));
+                    const dur = videoElement?.duration ?? 0;
+                    setDuration(Duration.fromMillis(isFinite(dur) ? dur * 1000 : 0));
                     onReady(shouldResume, startTime);
                 };
 
@@ -979,7 +981,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     onError(`Player error: ${JSON.stringify({source, lineno, colno, error})}`, true);
                 };
 
-                videoElement.onloadedmetadata = () => {                   
+                videoElement.onloadedmetadata = () => {
                     const videoWidth = videoElement?.videoWidth ?? 0;
                     const videoHeight = videoElement?.videoHeight ?? 0;
                     setIsAudioOnly(videoWidth === 0 && videoHeight === 0);
@@ -988,7 +990,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     else
                         setVideoDimensions({ width: videoWidth, height: videoHeight });
 
-                    setDuration(Duration.fromMillis((videoElement?.duration ?? 0) * 1000));
+                    const dur = videoElement?.duration ?? 0;
+                    setDuration(Duration.fromMillis(isFinite(dur) ? dur * 1000 : 0));
                     onReady(shouldResume, startTime);
                 };
 
