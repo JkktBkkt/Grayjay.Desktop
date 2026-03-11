@@ -80,6 +80,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     let containerRef: HTMLDivElement | undefined;
     let dashPlayer: dashjs.MediaPlayerClass | undefined;
     let hlsPlayer: Hls | undefined;
+    let subtitleTrackElement: HTMLTrackElement | undefined;
     let timeout: NodeJS.Timeout | undefined;
     let volumeBeforeMute: number | undefined = undefined;
     let subtitleMap: Map<string, HTMLParagraphElement> = new Map<string, HTMLParagraphElement>();
@@ -327,7 +328,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             console.info("change source because changeSourceToSetSource call");
 
             try {
-                changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time);
+                changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time, descriptor.subtitleUrl);
             }
             catch(ex) {
                 console.error("Failed to load source", ex);
@@ -583,6 +584,34 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setPlaybackSpeed(props.playbackSpeed ?? 1.0);
     });
 
+    const removeSubtitleTrack = () => {
+        if (subtitleTrackElement) {
+            subtitleTrackElement.remove();
+            subtitleTrackElement = undefined;
+        }
+    };
+
+    const attachSubtitleTrack = (subtitleUrl?: string) => {
+        removeSubtitleTrack();
+
+        if (!videoElement || !subtitleUrl || isCasting()) {
+            return;
+        }
+
+        const track = document.createElement("track");
+        track.kind = "subtitles";
+        track.label = "Subtitles";
+        track.default = true;
+        track.src = subtitleUrl;
+        track.addEventListener("load", () => {
+            if (track.track)
+                track.track.mode = "showing";
+        });
+
+        videoElement.appendChild(track);
+        subtitleTrackElement = track;
+    };
+
     const onVolumeChanged = (volume: number) => {
         if (isCasting()) {
             return;
@@ -618,9 +647,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setResumePositionVisible(visible);
     });
 
-    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration) => {
+    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, subtitleUrl?: string) => {
         //TODO: Implement playWhenReady ?
-        console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime});
+        console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime, subtitleUrl});
         setIsAudioOnly(false);
         setIsPlaying(false);
         frameRate = undefined;
@@ -643,13 +672,14 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             switchPosition = untrack(position);
 
         currentUrl = sourceUrl;
-        console.log("changeSource", {currentUrl, sourceUrl, mediaType, shouldResume, startTime, switchPosition});
+        console.log("changeSource", {currentUrl, sourceUrl, mediaType, shouldResume, startTime, subtitleUrl, switchPosition});
 
         for (const subtitle of subtitleMap.values()) {
             subtitle.remove();
         }
 
-        subtitleMap.clear();          
+        subtitleMap.clear();
+        removeSubtitleTrack();
 
         const currentVolume = currentVolume$();
         if (dashPlayer) {
@@ -973,6 +1003,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 });
                 hlsPlayer.loadSource(sourceUrl);
                 hlsPlayer.attachMedia(videoElement);
+                attachSubtitleTrack(subtitleUrl);
             } else {
                 videoElement.onerror = (event: Event | string, source?: string, lineno?: number, colno?: number, error?: Error) => {
                     console.error("Player error", {source, lineno, colno, error});
@@ -980,6 +1011,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 };
 
                 videoElement.onloadedmetadata = () => {                   
+                    attachSubtitleTrack(subtitleUrl);
                     const videoWidth = videoElement?.videoWidth ?? 0;
                     const videoHeight = videoElement?.videoHeight ?? 0;
                     setIsAudioOnly(videoWidth === 0 && videoHeight === 0);
@@ -1136,6 +1168,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     });
 
     onCleanup(async () => {
+        removeSubtitleTrack();
         changeSource(undefined, undefined, undefined);
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
         stopHideControls();

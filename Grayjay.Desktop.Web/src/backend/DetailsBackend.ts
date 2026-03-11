@@ -96,6 +96,7 @@ export interface IPostLoadResult {
 export interface ISourceDirectDescriptor {
     url: string;
     type: string;
+    subtitleUrl?: string;
     videoIndex?: number;
     audioIndex?: number;
     subtitleIndex?: number;

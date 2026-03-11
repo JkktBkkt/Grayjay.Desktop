@@ -1194,6 +1194,16 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             (var sourceVideo, var sourceAudio, var sourceSubtitle) = GetSources(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
+
+            // Desktop playback can stay on the original local file URL and attach subtitles independently in the web player.
+            if (videoIsLocal && audioIndex < 0 && sourceVideo is LocalVideoSource localVideo && proxySettings?.ProxyAddress == null)
+            {
+                var localDescriptor = new SourceDescriptor($"/Details/StreamLocalVideoSource?index={videoIndex}&windowId={state.WindowID}", localVideo.Container, videoIndex, -1, subtitleIndex, true, audioIsLocal, subtitleIsLocal);
+                if (subtitleIndex >= 0)
+                    localDescriptor.SubtitleUrl = BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings);
+                return localDescriptor;
+            }
+
             if (subtitleIndex >= 0 && sourceVideo is HLSManifestSource)
                 return DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
 
@@ -1505,6 +1515,8 @@ namespace Grayjay.ClientServer.Controllers
         {
             public string Url { get; set; }
             public string Type { get; set; }
+            // Frontend direct playback reads this sidecar URL to attach native subtitle tracks outside DASH/HLS manifests.
+            public string? SubtitleUrl { get; set; }
 
             public int VideoIndex { get; set; }
             public bool VideoIsLocal { get; set; }
