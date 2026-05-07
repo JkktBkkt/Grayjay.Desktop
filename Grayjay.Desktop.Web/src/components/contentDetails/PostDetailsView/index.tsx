@@ -79,7 +79,7 @@ const PostDetailView: Component = () => {
                   <div class={styles.authorDescription} style={{
                     "margin-left": !!details$()?.post?.author?.thumbnail ? undefined : "40px"
                   }}>
-                      <div class={styles.authorName}>{details$()?.post?.author?.name}</div>
+                      <div class={styles.authorName} onClick={onClickAuthor}>{details$()?.post?.author?.name}</div>
                       <div style="flex-grow:1;"></div>
                       <Show when={(details$()?.post?.author?.subscribers ?? 0) > 0}>
                         <div class={styles.authorMetadata} onClick={onClickAuthor}>{toHumanNumber(details$()?.post?.author?.subscribers)} subscribers</div>
