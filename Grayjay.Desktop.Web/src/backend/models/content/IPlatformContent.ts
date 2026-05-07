@@ -9,4 +9,5 @@ export interface IPlatformContent {
     url: string;
     shareUrl: string;
     backendUrl?: string;
+    isDetailObject?: boolean;
 }

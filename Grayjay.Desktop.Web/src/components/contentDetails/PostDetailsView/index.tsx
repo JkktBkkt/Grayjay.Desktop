@@ -12,10 +12,10 @@ import IconButton from '../../buttons/IconButton';
 import iconRefresh from "../../../assets/icons/icon_reload_temp.svg"
 import iconHome from "../../../assets/icons/icon_nav_home.svg"
 import iconSources from "../../../assets/icons/ic_circles.svg"
-import { useNavigate, useSearchParams } from '@solidjs/router';
+import { useLocation, useNavigate, useSearchParams } from '@solidjs/router';
 import EmptyContentView from '../../EmptyContentView';
 import { DetailsBackend } from '../../../backend/DetailsBackend';
-import { TextType } from '../../../backend/models/content/IPlatformPostDetails';
+import { IPlatformPostDetails, TextType } from '../../../backend/models/content/IPlatformPostDetails';
 import UIOverlay from '../../../state/UIOverlay';
 import SubscribeButton from '../../buttons/SubscribeButton';
 import { createResourceDefault, getBestThumbnail, toHumanNowDiffString, toHumanNumber } from '../../../utility';
@@ -25,13 +25,17 @@ const PostDetailView: Component = () => {
   const [params, setParams] = useSearchParams();
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const existingPost = createMemo(() => (location.state as { post?: IPlatformPostDetails } | undefined)?.post);
 
-  const [details$, detailResources] = createResourceDefault(()=>params.url, async (url)=>{
-    if(!url)
+  const [details$, detailResources] = createResourceDefault(()=>({ url: params.url, post: existingPost() }), async (source)=>{
+    if(!source.post && !source.url)
         return undefined;
-      return UIOverlay.catchDialogExceptions(()=>{
-        return DetailsBackend.postLoad(url);
-      }, ()=>navigate(-1), ()=>detailResources.refetch());
+    if(source.post)
+        return { post: source.post };
+    return UIOverlay.catchDialogExceptions(()=>{
+      return DetailsBackend.postLoad(source.url!);
+    }, ()=>navigate(-1), ()=>detailResources.refetch());
   });
 
   

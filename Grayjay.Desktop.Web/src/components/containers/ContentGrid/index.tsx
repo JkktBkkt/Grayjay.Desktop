@@ -31,6 +31,7 @@ import StateGlobal from "../../../state/StateGlobal";
 import { toHumanNumber, uuidv4 } from "../../../utility";
 import PostThumbnailView from "../../content/PostThumbnailView";
 import { IPlatformPost } from "../../../backend/models/content/IPlatformPost";
+import { IPlatformPostDetails } from "../../../backend/models/content/IPlatformPostDetails";
 import NestedMediaThumbnailView from "../../content/NestedMediaThumbnailView";
 import { IPlatformNestedMedia } from "../../../backend/models/content/IPlatformNestedMedia";
 import Globals from "../../../globals";
@@ -54,6 +55,17 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
     const focus = useFocus();
     const navigate = useNavigate();
     const groupId = uuidv4();
+
+    function openPost(post: IPlatformPost) {
+        const url = post.backendUrl ?? post.url;
+        if (!url)
+            return;
+
+        navigate(
+            "/web/details/post?url=" + encodeURIComponent(url),
+            post.isDetailObject ? { state: { post: post as IPlatformPostDetails } } : undefined
+        );
+    }
 
     let isLoading = false;
     let loadNextPageWhenFinishedLoading = false;
@@ -315,9 +327,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                 <PostThumbnailView post={item() as IPlatformPost}
                                     onSettings={(e, content)=> onSettingsClicked(e, content, "pointer")}
                                     onClick={() =>{
-                                        const url = item().backendUrl ?? item().url;
-                                        if(url)
-                                            navigate("/web/details/post?url=" + encodeURIComponent(url));
+                                        openPost(item() as IPlatformPost);
                                     }}
                                     focusableOpts={item() ? {
                                         groupId: groupId,
@@ -325,9 +335,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
                                         groupIndices: [row(), col()],
                                         groupEscapeTo: { left: ['sidebar'] },
                                         onPress: () => {
-                                            const url = item().backendUrl ?? item().url;
-                                            if(url)
-                                                navigate("/web/details/post?url=" + encodeURIComponent(url));
+                                            openPost(item() as IPlatformPost);
                                         },
                                         onOptions: (e, inputSource) => onSettingsClicked(e, item(), inputSource),
                                         onBack: () => onBackContentGrid()
