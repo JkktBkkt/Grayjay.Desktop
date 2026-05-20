@@ -31,7 +31,6 @@ import StateGlobal from "../../../state/StateGlobal";
 import { toHumanNumber, uuidv4 } from "../../../utility";
 import PostThumbnailView from "../../content/PostThumbnailView";
 import { IPlatformPost } from "../../../backend/models/content/IPlatformPost";
-import { IPlatformPostDetails } from "../../../backend/models/content/IPlatformPostDetails";
 import NestedMediaThumbnailView from "../../content/NestedMediaThumbnailView";
 import { IPlatformNestedMedia } from "../../../backend/models/content/IPlatformNestedMedia";
 import Globals from "../../../globals";
@@ -63,7 +62,7 @@ const ContentGrid: Component<ContentGridProps> = (props) => {
 
         navigate(
             "/web/details/post?url=" + encodeURIComponent(url),
-            post.isDetailObject ? { state: { post: post as IPlatformPostDetails } } : undefined
+            { state: { post } }
         );
     }
 
