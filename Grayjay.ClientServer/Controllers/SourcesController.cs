@@ -507,7 +507,15 @@ namespace Grayjay.ClientServer.Controllers
             "https://plugins.grayjay.app/Dailymotion/DailymotionConfig.json",
             "https://plugins.grayjay.app/Bitchute/BitchuteConfig.json",
             "https://plugins.grayjay.app/ApplePodcasts/ApplePodcastsConfig.json",
-            "https://plugins.grayjay.app/PeerTube/PeerTubeConfig.json"
+            "https://plugins.grayjay.app/PeerTube/PeerTubeConfig.json",
+            "https://plugins.grayjay.app/TedTalks/TedTalksConfig.json",
+            "https://plugins.grayjay.app/CuriosityStream/CuriosityStreamConfig.json",
+            "https://plugins.grayjay.app/Mixcloud/MixcloudConfig.json",
+            "https://plugins.grayjay.app/RadioBrowser/RadioBrowserConfig.json",
+            "https://plugins.grayjay.app/RedbullTv/RedBullTvConfig.json",
+            "https://plugins.grayjay.app/FOSDEM/FOSDEMConfig.json",
+            "https://plugins.grayjay.app/NASA-Plus/NASA-PlusConfig.json",
+            "https://plugins.grayjay.app/InternetArchive/InternetArchiveConfig.json"
         };
         private static PluginConfig[] _official = new PluginConfig[0];
 
