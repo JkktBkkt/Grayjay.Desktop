@@ -1,0 +1,19 @@
+# .github/workflows/mirror.yml
+name: 'mirror'
+on:
+  push:
+    branches:
+        - __mirror
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    name: mirror
+    steps:
+      - name: mirror
+        id: mirror
+        uses: kaidokert/github-mirror-action@v4
+        with:
+          origin: 'https://gitlab.futo.org/videostreaming/Grayjay.Desktop.git'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
