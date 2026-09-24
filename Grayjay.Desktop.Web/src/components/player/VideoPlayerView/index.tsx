@@ -563,8 +563,27 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         }
     };
 
+    const cueText = (text: string): string => {
+        if (!text || !text.includes("<") && !text.includes("&"))
+            return text ?? "";
+        const stripped = text.replace(/<[^>]*>/g, "");
+        const decoded = stripped.includes("&") ? (new DOMParser().parseFromString(stripped, "text/html").documentElement.textContent ?? stripped) : stripped;
+        return decoded.split("\n").map(x => x.replace(/[\u200B\s]+/g, " ").trim()).filter(x => x.length > 0).join("\n");
+    };
+
+    const umpLiveWindow = (): { start: number, end: number } | undefined => {
+        if (!umpPlayer?.isLive || !videoElement)
+            return undefined;
+        const seekable = videoElement.seekable;
+        if (!seekable || seekable.length === 0)
+            return undefined;
+        const start = seekable.start(0);
+        const end = seekable.end(seekable.length - 1);
+        return isFinite(start) && isFinite(end) && end > start ? { start, end } : undefined;
+    };
+
     const seekLocal = (time: Duration) => {
-        const seconds = time.as('seconds');
+        const seconds = time.as('seconds') + (umpLiveWindow()?.start ?? 0);
         if (dashPlayer) {
             dashPlayer.seek(seconds);
         } else if (videoElement) {
@@ -787,7 +806,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
                 dashPlayer.on(dashjs.MediaPlayer.events.CUE_ENTER, (e: any) => {
                     const subtitle = document.createElement("div")
-                    subtitle.textContent = e.text;
+                    subtitle.textContent = cueText(e.text);
                     subtitleMap.set(e.cueID, subtitle);
                     videoCaptionsRef?.appendChild(subtitle);
                 });
@@ -999,7 +1018,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     else
                         setVideoDimensions({ width: videoWidth, height: videoHeight });
 
-                    setDuration(Duration.fromMillis((videoElement?.duration ?? 0) * 1000));
+                    const mediaDuration = videoElement?.duration ?? 0;
+                    setDuration(Duration.fromMillis(isFinite(mediaDuration) ? mediaDuration * 1000 : 0));
                     onReady(shouldResume, startTime);
                 };
 
@@ -1009,7 +1029,11 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     }
         
                     const currentTime = videoElement?.currentTime ?? 0;
-                    setPosition(Duration.fromMillis(currentTime * 1000));
+                    const liveWindow = umpLiveWindow();
+                    const windowStart = liveWindow?.start ?? 0;
+                    if (liveWindow)
+                        setDuration(Duration.fromMillis((liveWindow.end - liveWindow.start) * 1000));
+                    setPosition(Duration.fromMillis(Math.max(0, currentTime - windowStart) * 1000));
 
                     if (videoElement && videoElement.buffered) {
                         const buffered = videoElement.buffered;
@@ -1018,7 +1042,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                             const end = buffered.end(i);
                     
                             if (currentTime >= start && currentTime <= end) {
-                                setPositionBuffered(Duration.fromMillis(end * 1000));
+                                setPositionBuffered(Duration.fromMillis(Math.max(0, end - windowStart) * 1000));
                                 break;
                             }
                         }
@@ -1064,7 +1088,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                         onError: (message, fatal, kind) => onError(message, fatal, kind === "reload" || kind === "blocked"),
                         onCueEnter: (id, text) => {
                             const subtitle = document.createElement("div");
-                            subtitle.textContent = text;
+                            subtitle.textContent = cueText(text);
                             subtitleMap.set(id, subtitle);
                             videoCaptionsRef?.appendChild(subtitle);
                         },

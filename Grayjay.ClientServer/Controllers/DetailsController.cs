@@ -1167,8 +1167,11 @@ namespace Grayjay.ClientServer.Controllers
         public static SourceDescriptor UmpSourceDescriptor(WindowState state, UMPSource source, int videoIndex, int subtitleIndex, bool subtitleIsLocal, string? tag)
         {
             var details = state.DetailsState;
+            var previous = details.UmpPlaybackId != null ? UmpPlaybackRegistry.Get(details.UmpPlaybackId) : null;
+            var continued = previous != null && previous.Source.VideoId == source.VideoId && previous.Source.Url == source.Url && previous.Session.FatalError == null && !previous.Session.IsReleased
+                ? previous.Session.ExportTransferable() : null;
             details.ReleaseUmpPlayback();
-            var playback = UmpPlaybackRegistry.Create(state.WindowID, source, Sabr.Cast.UmpCasting.TakeHandBackState(source.VideoId ?? ""));
+            var playback = UmpPlaybackRegistry.Create(state.WindowID, source, continued == null ? Sabr.Cast.UmpCasting.TakeHandBackState(source.VideoId ?? "") : null, continued);
             playback.Tag = tag;
             if (subtitleIndex >= 0)
                 playback.SubtitleUrl = $"/details/Subtitle?subtitleIndex={subtitleIndex}&subtitleIsLocal={subtitleIsLocal}&windowId={state.WindowID}";
@@ -1457,6 +1460,12 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         public static async Task<(byte[] Bytes, string ContentType)> GetSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId = null)
+        {
+            var (bytes, contentType) = await GetRawSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, modifierId);
+            return (VttHelper.IsVtt(contentType, bytes) ? VttHelper.StripUnsupportedTags(bytes) : bytes, contentType);
+        }
+
+        private static async Task<(byte[] Bytes, string ContentType)> GetRawSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId)
         {
             if (subtitleIsLocal)
             {

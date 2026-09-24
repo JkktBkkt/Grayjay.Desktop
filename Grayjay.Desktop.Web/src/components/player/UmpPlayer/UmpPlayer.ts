@@ -52,6 +52,8 @@ const KEEP_BEHIND_S = 30;
 const IDLE_POLL_MS = 250;
 const MAX_TRANSIENT_ERRORS = 5;
 const LIVE_INFO_POLL_MS = 5000;
+const GAP_CHECK_MS = 250;
+const MAX_GAP_JUMP_S = 0.5;
 
 class UmpFatalError extends Error {
     constructor(message: string, public kind: UmpErrorKind) {
@@ -321,6 +323,7 @@ export class UmpPlayer {
     private selectedVideoKey?: string;
     private selectedAudioKey?: string;
     private liveTimer?: any;
+    private gapTimer?: any;
     private trackElement?: HTMLTrackElement;
     private cueCounter = 0;
     private activeCues = new Map<TextTrackCue, string>();
@@ -328,6 +331,23 @@ export class UmpPlayer {
     private configured = false;
     private readonly onSeekingHandler = () => this.onSeeking();
     private readonly onTimeUpdateHandler = () => this.loaders.forEach(x => x.poke());
+    private readonly onWaitingHandler = () => this.jumpGap();
+
+    private jumpGap() {
+        if (this.destroyed || this.video.seeking || this.video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA)
+            return;
+        const t = this.video.currentTime;
+        const buffered = this.video.buffered;
+        for (let i = 0; i < buffered.length; i++) {
+            const start = buffered.start(i);
+            if (t >= start && t < buffered.end(i))
+                return;
+            if (start > t && start - t <= MAX_GAP_JUMP_S) {
+                this.video.currentTime = start + 0.01;
+                return;
+            }
+        }
+    }
 
     constructor(readonly video: HTMLVideoElement, infoUrl: string, readonly callbacks: UmpPlayerCallbacks = {}) {
         const url = new URL(infoUrl, window.location.origin);
@@ -490,6 +510,8 @@ export class UmpPlayer {
 
             this.video.addEventListener("seeking", this.onSeekingHandler);
             this.video.addEventListener("timeupdate", this.onTimeUpdateHandler);
+            this.video.addEventListener("waiting", this.onWaitingHandler);
+            this.gapTimer = setInterval(() => this.jumpGap(), GAP_CHECK_MS);
             if (positionS > 0)
                 this.video.currentTime = positionS;
             for (const loader of this.loaders)
@@ -549,8 +571,10 @@ export class UmpPlayer {
     private updateLiveWindow(info: UmpInfo) {
         if (info.windowStartMs === undefined || info.windowEndMs === undefined || info.windowStartMs === null || info.windowEndMs === null)
             return;
-        const start = info.windowStartMs / 1000;
+        const start = Math.max(0, info.windowStartMs / 1000);
         const end = info.windowEndMs / 1000;
+        if (end <= start)
+            return;
         try {
             if (this.mediaSource?.readyState === "open" && typeof this.mediaSource.setLiveSeekableRange === "function")
                 this.mediaSource.setLiveSeekableRange(start, end);
@@ -685,8 +709,10 @@ export class UmpPlayer {
         if (this.destroyed) return;
         this.destroyed = true;
         if (this.liveTimer) clearInterval(this.liveTimer);
+        if (this.gapTimer) clearInterval(this.gapTimer);
         this.video.removeEventListener("seeking", this.onSeekingHandler);
         this.video.removeEventListener("timeupdate", this.onTimeUpdateHandler);
+        this.video.removeEventListener("waiting", this.onWaitingHandler);
         for (const loader of this.loaders)
             loader.stop();
         this.loaders = [];

@@ -31,14 +31,16 @@ namespace Grayjay.ClientServer.Sabr
         private readonly AsyncSignal _liveSignal = new AsyncSignal();
         private volatile bool _loaderShown = false;
 
-        public UmpPlayback(string windowId, UMPSource source, SabrSession.Transferable? restoreState = null)
+        public UmpPlayback(string windowId, UMPSource source, SabrSession.Transferable? restoreState = null, SabrSession.Transferable? continueState = null)
         {
             WindowId = windowId;
             Source = source;
             VideoFormats = source.VideoFormats.ToList();
             AudioFormats = source.AudioFormats.ToList();
             Session = SabrStreamSpec.FromSource(source).CreateSession();
-            if (restoreState != null)
+            if (continueState != null)
+                Session.Continue(continueState);
+            else if (restoreState != null)
                 Session.Restore(restoreState);
             Session.SetListener(this);
         }
@@ -170,9 +172,9 @@ namespace Grayjay.ClientServer.Sabr
     {
         private static readonly ConcurrentDictionary<string, UmpPlayback> _playbacks = new();
 
-        public static UmpPlayback Create(string windowId, UMPSource source, SabrSession.Transferable? restoreState = null)
+        public static UmpPlayback Create(string windowId, UMPSource source, SabrSession.Transferable? restoreState = null, SabrSession.Transferable? continueState = null)
         {
-            var playback = new UmpPlayback(windowId, source, restoreState);
+            var playback = new UmpPlayback(windowId, source, restoreState, continueState);
             _playbacks[playback.Id] = playback;
             return playback;
         }

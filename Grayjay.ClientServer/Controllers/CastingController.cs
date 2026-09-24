@@ -112,16 +112,16 @@ namespace Grayjay.ClientServer.Controllers
 
             //TODO: Uncomment
             //var proxyInnerSources = activeDevice is FCastCastingDevice ? false : true;
-            UmpCasting.Stop();
             (var castVideo, _, _) = DetailsController.GetSources(this.State(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
             if (castVideo is UMPSource umpSource)
             {
                 var ump = await UmpCasting.PrepareAsync(this.State(), umpSource, activeDevice, resumePosition, subtitleIndex, subtitleIsLocal, this.State().DetailsState.UmpCastHeight, title, thumbnailUrl);
                 Logger.i(nameof(CastingController), $"Started UMP casting '{ump.Url}'.");
-                await activeDevice.MediaLoadAsync(ump.StreamType, ump.ContentType, ump.Url, TimeSpan.FromSeconds(ump.StartPosition), TimeSpan.FromSeconds(ump.Duration), title, thumbnailUrl, speed, cancellationToken);
+                await UmpCasting.LoadAsync(activeDevice, ump, title, thumbnailUrl, speed, cancellationToken);
                 return Ok();
             }
 
+            UmpCasting.Stop();
             var shouldProxy =
                 (activeDevice is FCastCastingDevice || (activeDevice is CastingDeviceExperimentalWrapper expDevice && expDevice.inner.CastingProtocol() == FCast.SenderSDK.ProtocolType.FCast))
                 ? false : true;

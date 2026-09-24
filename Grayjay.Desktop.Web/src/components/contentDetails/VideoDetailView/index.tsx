@@ -259,6 +259,55 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     const audioSources$ = createMemo(() => {
         return videoLoaded$()?.video?.audioSources as any[] ?? [];
     });
+    const SUBTITLE_LANGUAGE_KEY = "subtitleLanguage";
+    const getPreferredSubtitleLanguage = (): string | undefined => {
+        try {
+            return localStorage.getItem(SUBTITLE_LANGUAGE_KEY) || undefined;
+        } catch {
+            return undefined;
+        }
+    };
+    const setPreferredSubtitleLanguage = (language?: string) => {
+        if (!language)
+            return;
+        try {
+            localStorage.setItem(SUBTITLE_LANGUAGE_KEY, language);
+        } catch { }
+    };
+    const selectBestSubtitleIndex = (sources: any[], preferredLanguage?: string): number => {
+        const normalize = (tag: string) => tag.trim().replace(/_/g, "-").toLowerCase();
+        const primary = (tag: string) => tag.split("-")[0];
+        const hasRegion = (tag: string) => tag.split("-").slice(1).some(x => /^([a-z]{2}|\d{3})$/.test(x));
+        const bestFor = (language: string) => {
+            const pref = normalize(language);
+            const prefPrimary = primary(pref);
+            let best = -1;
+            let bestKey: [number, number, string] | undefined;
+            sources.forEach((source, index) => {
+                if (!source?.language)
+                    return;
+                const tag = normalize(source.language);
+                const score = tag === pref ? 0 : primary(tag) === prefPrimary ? (hasRegion(tag) ? 2 : 1) : 3;
+                if (score >= 3)
+                    return;
+                const key: [number, number, string] = [score, (source.name ?? "").length, tag];
+                if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) {
+                    bestKey = key;
+                    best = index;
+                }
+            });
+            return best;
+        };
+        for (const language of [preferredLanguage, navigator.language, "en"]) {
+            if (!language)
+                continue;
+            const index = bestFor(language);
+            if (index >= 0)
+                return index;
+        }
+        return sources.length > 0 ? 0 : -1;
+    };
+
     const subtitleSources$ = createMemo(() => {
         const subs = videoLoaded$()?.subtitles;
         console.info("subtitle sources", subs);
@@ -1233,6 +1282,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                                     onSelected: (val: any) => {
                                         const videoObj = videoLoaded$();
                                         const originalSource = videoSource$();
+                                        setPreferredSubtitleLanguage(x?.language);
                                         setVideoSource({
                                             url: videoObj?.url,
                                             video: originalSource?.video,
@@ -1606,7 +1656,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
 
                                 let subtitleIndexToSet = -1;
                                 if (originalSource.subtitle === -1) {
-                                    subtitleIndexToSet = 0; //TODO: Select best?
+                                    subtitleIndexToSet = selectBestSubtitleIndex(subtitleSources, getPreferredSubtitleLanguage());
+                                    setPreferredSubtitleLanguage(subtitleSources[subtitleIndexToSet]?.language);
                                 }
                                                                       
                                 setVideoSource({

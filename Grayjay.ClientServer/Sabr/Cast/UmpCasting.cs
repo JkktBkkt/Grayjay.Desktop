@@ -1,4 +1,7 @@
 using System.Security;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Grayjay.ClientServer.Casting;
 using Grayjay.ClientServer.Controllers;
@@ -16,7 +19,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
         public class ActiveCast
         {
             public required string Id { get; init; }
-            public required SabrCastProxy Proxy { get; init; }
+            public SabrCastProxy? Proxy { get; init; }
             public required CastingDevice Device { get; init; }
             public required UMPSource Source { get; init; }
             public required WindowState State { get; init; }
@@ -29,6 +32,9 @@ namespace Grayjay.ClientServer.Sabr.Cast
             public byte[]? SubtitleBytes { get; set; }
             public string? Manifest { get; set; }
             public string BaseUrl { get; set; } = "";
+            public UMPFormat? NativeVideoFormat { get; init; }
+            public bool IsLive => Proxy?.IsLive ?? Source.IsLive;
+            public UMPFormat? VideoFormat => Proxy?.VideoFormat ?? NativeVideoFormat;
         }
 
         public class Result
@@ -38,6 +44,8 @@ namespace Grayjay.ClientServer.Sabr.Cast
             public required string StreamType { get; init; }
             public double StartPosition { get; init; }
             public double Duration { get; init; }
+            public byte[]? NativeSubtitleBytes { get; init; }
+            public string? NativeSubtitleContentType { get; init; }
         }
 
         private static readonly object _lock = new object();
@@ -60,7 +68,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 _active = null;
                 _castId++;
             }
-            if (active == null) return;
+            if (active?.Proxy == null) return;
             var state = active.Proxy.ExportTransferable();
             lock (_lock)
             {
@@ -177,6 +185,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
 
         public static string ManifestFor(ActiveCast cast)
         {
+            if (cast.Proxy == null) return "";
             if (!cast.Proxy.IsLive && cast.Manifest != null)
                 return cast.Manifest;
             var b = cast.BaseUrl;
@@ -215,7 +224,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 .DistinctBy(x => x.Key)
                 .Select(x => new QualityOption() { Height = x.Height, Width = x.Width, Label = x.QualityLabel, CodecName = x.CodecName })
                 .ToList();
-            var current = active.Proxy.VideoFormat;
+            var current = active.VideoFormat;
             return new QualityOptions()
             {
                 SelectedHeight = active.PreferredHeight,
@@ -233,15 +242,123 @@ namespace Grayjay.ClientServer.Sabr.Cast
             if (active.PreferredHeight == preferredHeight) return true;
 
             var device = active.Device;
-            var position = active.Proxy.IsLive ? 0 : Math.Max(device.PlaybackState.ExpectedCurrentTime.TotalSeconds, 0);
+            var position = active.IsLive ? 0 : Math.Max(device.PlaybackState.ExpectedCurrentTime.TotalSeconds, 0);
             var speed = device.PlaybackState.Speed > 0 ? device.PlaybackState.Speed : (double?)null;
             var result = await PrepareAsync(active.State, active.Source, device, position, active.SubtitleIndex, active.SubtitleIsLocal, preferredHeight, active.Title, active.ThumbnailUrl);
-            await device.MediaLoadAsync(result.StreamType, result.ContentType, result.Url, TimeSpan.FromSeconds(result.StartPosition), TimeSpan.FromSeconds(result.Duration), active.Title, active.ThumbnailUrl ?? "", speed);
+            await LoadAsync(device, result, active.Title, active.ThumbnailUrl ?? "", speed);
             return true;
+        }
+
+        public static async Task LoadAsync(CastingDevice device, Result result, string? title, string thumbnailUrl, double? speed, CancellationToken cancellationToken = default)
+        {
+            await device.MediaLoadAsync(result.StreamType, result.ContentType, result.Url, TimeSpan.FromSeconds(result.StartPosition), TimeSpan.FromSeconds(result.Duration), title, thumbnailUrl, speed, cancellationToken);
+            if (result.NativeSubtitleBytes != null)
+            {
+                if (!await device.AddSubtitleAsync(result.NativeSubtitleBytes, result.NativeSubtitleContentType ?? "text/vtt", null))
+                    Logger.w(TAG, "Receiver did not accept the subtitle track for the SABR cast");
+            }
+        }
+
+        private static readonly JsonSerializerOptions _sabrSpecJsonOptions = new JsonSerializerOptions() { DefaultIgnoreCondition = JsonIgnoreCondition.Never };
+
+        private static Dictionary<string, object?> ToSabrUrlFormat(UMPFormat format) => new Dictionary<string, object?>()
+        {
+            ["itag"] = format.Itag,
+            ["last_modified"] = (long)format.LastModified,
+            ["xtags"] = format.Xtags ?? "",
+            ["mime_type"] = format.MimeType ?? "",
+            ["codecs"] = format.Codecs ?? "",
+            ["bitrate"] = format.Bitrate,
+            ["width"] = format.Width,
+            ["height"] = format.Height,
+            ["fps"] = format.Fps,
+            ["audio_channels"] = format.AudioChannels,
+            ["audio_sample_rate"] = format.AudioSampleRate,
+            ["language"] = format.Language,
+            ["is_original_audio"] = format.IsOriginalAudio,
+            ["is_drc"] = format.IsDrc
+        };
+
+        public static string BuildSabrUmpUrl(UMPSource source, UMPFormat? videoFormat, UMPFormat? audioFormat)
+        {
+            var spec = new Dictionary<string, object?>()
+            {
+                ["server_abr_streaming_url"] = source.Url,
+                ["ustreamer_config"] = source.UstreamerConfig,
+                ["video_id"] = source.VideoId ?? "",
+                ["is_live"] = source.IsLive,
+                ["duration_us"] = source.Duration > 0 ? source.Duration * 1_000_000L : -1L,
+                ["video_formats"] = videoFormat != null ? new[] { ToSabrUrlFormat(videoFormat) } : Array.Empty<Dictionary<string, object?>>(),
+                ["audio_formats"] = audioFormat != null ? new[] { ToSabrUrlFormat(audioFormat) } : Array.Empty<Dictionary<string, object?>>(),
+                ["po_token"] = source.PoToken,
+                ["client_name"] = source.ClientName,
+                ["client_version"] = source.ClientVersion,
+                ["os_name"] = source.OsName,
+                ["os_version"] = source.OsVersion
+            };
+            var json = JsonSerializer.Serialize(spec, _sabrSpecJsonOptions);
+            var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(json)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            var authority = string.IsNullOrWhiteSpace(source.VideoId) ? "video" : source.VideoId;
+            return $"sabrump://{authority}?spec={b64}";
+        }
+
+        private static async Task<Result> PrepareNativeAsync(WindowState state, UMPSource source, CastingDevice device, int castId, UMPFormat? video, UMPFormat? audio, double resumePosition, int subtitleIndex, bool subtitleIsLocal, int preferredHeight, string? title, string? thumbnailUrl)
+        {
+            byte[]? subtitleBytes = null;
+            string? subtitleContentType = null;
+            if (subtitleIndex >= 0 && !source.IsLive && device.SupportsExternalSubtitles)
+            {
+                try
+                {
+                    (subtitleBytes, subtitleContentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal);
+                    subtitleContentType = subtitleContentType?.Split(';')[0].Trim();
+                }
+                catch (Exception ex)
+                {
+                    Logger.w(TAG, "Failed to load subtitles for the SABR cast", ex);
+                }
+            }
+
+            var url = BuildSabrUmpUrl(source, video, audio);
+            var cast = new ActiveCast()
+            {
+                Id = Guid.NewGuid().ToString(),
+                Device = device,
+                Source = source,
+                State = state,
+                PreferredHeight = preferredHeight,
+                SubtitleIndex = subtitleIndex,
+                SubtitleIsLocal = subtitleIsLocal,
+                Title = title,
+                ThumbnailUrl = thumbnailUrl,
+                NativeVideoFormat = video
+            };
+            lock (_lock)
+            {
+                if (castId != _castId)
+                    throw new CastSupersededException("Superseded by a newer cast");
+                _active = cast;
+            }
+
+            Logger.i(TAG, $"Casting as native SABR (application/x-sabr-ump) live={source.IsLive} video={video?.Itag} audio={audio?.Itag}");
+            return new Result()
+            {
+                Url = url,
+                ContentType = "application/x-sabr-ump",
+                StreamType = source.IsLive ? "LIVE" : "BUFFERED",
+                StartPosition = source.IsLive ? 0 : resumePosition,
+                Duration = source.Duration,
+                NativeSubtitleBytes = subtitleBytes,
+                NativeSubtitleContentType = subtitleContentType
+            };
         }
 
         public static async Task<Result> PrepareAsync(WindowState state, UMPSource source, CastingDevice device, double resumePosition, int subtitleIndex, bool subtitleIsLocal, int preferredHeight = -1, string? title = null, string? thumbnailUrl = null)
         {
+            ActiveCast? previous;
+            lock (_lock) previous = _active;
+            var continued = previous?.Proxy != null && previous.Source.VideoId == source.VideoId && previous.Source.Url == source.Url
+                ? previous.Proxy.ExportTransferable() : null;
             Stop();
             int castId;
             lock (_lock) castId = _castId;
@@ -253,13 +370,23 @@ namespace Grayjay.ClientServer.Sabr.Cast
             if (source.AudioFormats.Length > 0 && audio == null)
                 throw new InvalidOperationException("This video has no audio format the receiver can decode");
 
-            var localId = state.DetailsState.UmpPlaybackId;
-            var local = localId != null ? UmpPlaybackRegistry.Get(localId) : null;
-            var restore = (local != null && local.Source.VideoId == source.VideoId && local.Session.FatalError == null) ? local.Session.ExportTransferable() : null;
-            restore ??= TakeHandBackState(source.VideoId ?? "");
+            if (device.IsSabrSupported)
+                return await PrepareNativeAsync(state, source, device, castId, video, audio, resumePosition, subtitleIndex, subtitleIsLocal, preferredHeight, title, thumbnailUrl);
 
             var session = SabrStreamSpec.FromSource(source).CreateSession();
-            if (restore != null) session.Restore(restore);
+            if (continued != null)
+            {
+                TakeHandBackState(source.VideoId ?? "");
+                session.Continue(continued);
+            }
+            else
+            {
+                var localId = state.DetailsState.UmpPlaybackId;
+                var local = localId != null ? UmpPlaybackRegistry.Get(localId) : null;
+                var restore = (local != null && local.Source.VideoId == source.VideoId && local.Session.FatalError == null) ? local.Session.ExportTransferable() : null;
+                restore ??= TakeHandBackState(source.VideoId ?? "");
+                if (restore != null) session.Restore(restore);
+            }
             var proxy = new SabrCastProxy(session, video, audio);
 
             proxy.PlayheadUs = () =>

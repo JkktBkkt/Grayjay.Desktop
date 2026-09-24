@@ -265,6 +265,26 @@ namespace Grayjay.ClientServer.Sabr
                 $"active=[{string.Join(",", state.ActiveSabrContexts.OrderBy(x => x))}] (the session's own identity is NOT inherited)");
         }
 
+        public void Continue(Transferable state)
+        {
+            Restore(state);
+            _playbackCookie = state.PlaybackCookie;
+            Volatile.Write(ref _requestNumber, state.RequestNumber);
+            if (!string.IsNullOrEmpty(state.StreamingUrl))
+                _streamingUrl = state.StreamingUrl;
+            Interlocked.Exchange(ref _serverBackoffUntilMs, state.ServerBackoffUntilMs);
+            Interlocked.Exchange(ref _backoffUntilMs, state.BackoffUntilMs);
+            foreach (var pair in state.FormatInitialization)
+                _formatInitialization[pair.Key] = pair.Value;
+            if (state.MediaBaseSet)
+            {
+                Interlocked.Exchange(ref _mediaBaseUs, state.MediaBaseUs);
+                _mediaBaseSet = true;
+            }
+            var remainingMs = state.BackoffUntilMs - NowMs();
+            SabrLog($"Continuing session state: rn={state.RequestNumber} cookie={state.PlaybackCookie?.Length ?? 0}b backoffRemaining={(remainingMs > 0 ? remainingMs : 0)}ms");
+        }
+
         private static string HostOf(string url)
         {
             try { return new Uri(url).Host; } catch { return "?"; }

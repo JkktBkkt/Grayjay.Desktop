@@ -95,7 +95,7 @@ namespace Grayjay.ClientServer
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
                 var cast = UmpCasting.Get(id);
-                if (cast == null)
+                if (cast?.Proxy == null)
                     return Results.NotFound();
                 var roleId = role == "audio" ? SabrSession.ROLE_AUDIO : SabrSession.ROLE_VIDEO;
                 var format = roleId == SabrSession.ROLE_AUDIO ? cast.Proxy.AudioFormat : cast.Proxy.VideoFormat;
@@ -109,7 +109,7 @@ namespace Grayjay.ClientServer
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
                 var cast = UmpCasting.Get(id);
-                if (cast == null)
+                if (cast?.Proxy == null)
                     return Results.NotFound();
                 var roleId = role == "audio" ? SabrSession.ROLE_AUDIO : SabrSession.ROLE_VIDEO;
                 var format = roleId == SabrSession.ROLE_AUDIO ? cast.Proxy.AudioFormat : cast.Proxy.VideoFormat;
