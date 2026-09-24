@@ -1,5 +1,7 @@
 ﻿using Grayjay.ClientServer.Casting;
 using Grayjay.ClientServer.Proxy;
+using Grayjay.ClientServer.Sabr.Cast;
+using Grayjay.Engine.Models.Video.Sources;
 using Grayjay.ClientServer.States;
 using Grayjay.Desktop.POC;
 using Microsoft.AspNetCore.Mvc;
@@ -64,6 +66,7 @@ namespace Grayjay.ClientServer.Controllers
         [HttpGet]
         public IActionResult Disconnect()
         {
+            UmpCasting.Stop();
             StateCasting.Instance.Disconnect();
             return Ok();
         }
@@ -80,6 +83,7 @@ namespace Grayjay.ClientServer.Controllers
         [HttpGet]
         public async Task<ActionResult> MediaStop(CancellationToken cancellationToken)
         {
+            UmpCasting.Stop();
             Task? task = StateCasting.Instance.ActiveDevice?.MediaStopAsync(cancellationToken);
             if (task != null)
                 await task;
@@ -113,6 +117,16 @@ namespace Grayjay.ClientServer.Controllers
 
             //TODO: Uncomment
             //var proxyInnerSources = activeDevice is FCastCastingDevice ? false : true;
+            UmpCasting.Stop();
+            (var castVideo, _, _) = DetailsController.GetSources(this.State(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
+            if (castVideo is UMPSource umpSource)
+            {
+                var ump = await UmpCasting.PrepareAsync(this.State(), umpSource, activeDevice, resumePosition, subtitleIndex, subtitleIsLocal, this.State().DetailsState.UmpCastHeight, title, thumbnailUrl);
+                Logger.i(nameof(CastingController), $"Started UMP casting '{ump.Url}'.");
+                await activeDevice.MediaLoadAsync(ump.StreamType, ump.ContentType, ump.Url, TimeSpan.FromSeconds(ump.StartPosition), TimeSpan.FromSeconds(ump.Duration), title, thumbnailUrl, speed, cancellationToken);
+                return Ok();
+            }
+
             var shouldProxy =
                 (activeDevice is FCastCastingDevice || (activeDevice is CastingDeviceExperimentalWrapper expDevice && expDevice.inner.CastingProtocol() == FCast.SenderSDK.ProtocolType.FCast))
                 ? false : true;
@@ -125,6 +139,20 @@ namespace Grayjay.ClientServer.Controllers
             Task? task = StateCasting.Instance.ActiveDevice?.MediaLoadAsync(streamType, sourceDescriptor.Type, sourceDescriptor.Url, TimeSpan.FromSeconds(resumePosition), TimeSpan.FromSeconds(duration), title, thumbnailUrl, speed, cancellationToken);
             if (task != null)
                 await task;
+            return Ok();
+        }
+
+        [HttpGet]
+        public ActionResult<UmpCasting.QualityOptions?> UmpCastQualities()
+        {
+            return Ok(UmpCasting.GetQualityOptions());
+        }
+
+        [HttpGet]
+        public async Task<ActionResult> SetUmpCastQuality(int height)
+        {
+            this.State().DetailsState.UmpCastHeight = height;
+            await UmpCasting.ChangeQualityAsync(height);
             return Ok();
         }
 
