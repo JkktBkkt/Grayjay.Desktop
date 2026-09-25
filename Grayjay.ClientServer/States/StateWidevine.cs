@@ -10,6 +10,7 @@ public static class StateWidevine
     private static readonly object _lock = new object();
     private static readonly SemaphoreSlim _refreshLock = new SemaphoreSlim(1, 1);
     private static WidevineStatus? _status;
+    private static bool _cdmLoadedAtStartup;
     private static Func<Task<WidevineStatus>>? _statusRefresher;
 
     public static WidevineStatus? Status
@@ -29,9 +30,27 @@ public static class StateWidevine
         {
             lock (_lock)
             {
-                return _status is { Installed: true, RequiresRestart: false };
+                return IsAvailable(_status);
             }
         }
+    }
+
+    /// <summary>
+    /// Marks the CDM as registered at browser startup (Linux hint file), which makes it usable
+    /// regardless of the component updater state.
+    /// </summary>
+    public static void SetCdmLoadedAtStartup(bool loaded)
+    {
+        lock (_lock)
+        {
+            _cdmLoadedAtStartup = loaded;
+            PackageBridge.WidevineSupported = IsAvailable(_status);
+        }
+    }
+
+    private static bool IsAvailable(WidevineStatus? status)
+    {
+        return _cdmLoadedAtStartup || status is { Installed: true, RequiresRestart: false };
     }
 
     public static void SetStatusRefresher(Func<Task<WidevineStatus>>? refresher)
@@ -67,7 +86,7 @@ public static class StateWidevine
         lock (_lock)
         {
             _status = status;
-            PackageBridge.WidevineSupported = status is { Installed: true, RequiresRestart: false };
+            PackageBridge.WidevineSupported = IsAvailable(status);
         }
     }
 }

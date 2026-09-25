@@ -126,6 +126,65 @@ namespace Grayjay.Desktop
             return null;
         }
 
+        // Mirrors JustCef's IsCdmPresent: Chromium on Linux registers this CDM at startup, before the component updater runs.
+        private static bool IsWidevineCdmPresentAtStartup(string rootCachePath, string? systemCdmPath)
+        {
+            if (!OperatingSystem.IsLinux())
+                return false;
+
+            if (systemCdmPath != null && IsWidevineCdmDirectory(systemCdmPath))
+                return true;
+
+            string baseDirectory = Path.Combine(rootCachePath, "WidevineCdm");
+            string? hintedDirectory = ReadWidevineCdmHint(Path.Combine(baseDirectory, "latest-component-updated-widevine-cdm"));
+            if (hintedDirectory != null && IsWidevineCdmDirectory(hintedDirectory))
+                return true;
+
+            if (!Directory.Exists(baseDirectory))
+                return false;
+
+            try
+            {
+                return Directory.EnumerateDirectories(baseDirectory).Any(IsWidevineCdmDirectory);
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(Program), "Failed to scan the Widevine CDM cache directory.", ex);
+                return false;
+            }
+        }
+
+        private static bool IsWidevineCdmDirectory(string cdmDirectory)
+        {
+            string platformDirectory = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "linux_arm64" : "linux_x64";
+            return File.Exists(Path.Combine(cdmDirectory, "manifest.json"))
+                && File.Exists(Path.Combine(cdmDirectory, "_platform_specific", platformDirectory, "libwidevinecdm.so"));
+        }
+
+        private static string? ReadWidevineCdmHint(string hintFile)
+        {
+            try
+            {
+                if (!File.Exists(hintFile))
+                    return null;
+
+                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(hintFile));
+                if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && document.RootElement.TryGetProperty("Path", out var pathElement)
+                    && pathElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    return pathElement.GetString();
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(Program), "Failed to read the Widevine CDM hint file.", ex);
+                return null;
+            }
+        }
+
         private static async Task<JustCefProcess> StartCefProcessAsync(string startArgs, Action<JustCefProcess>? configure = null, TimeSpan? readyTimeout = null)
         {
             const int maxAttempts = 3;
@@ -215,14 +274,14 @@ namespace Grayjay.Desktop
                     StateWidevine.Update(status);
                     everRegistered |= status.Registered;
 
-                    if (!status.Installed)
-                        continue;
-
-                    if (!status.RequiresRestart)
+                    if (StateWidevine.IsPlaybackAvailable)
                     {
-                        Logger.i(nameof(Program), $"Widevine CDM {status.Version} is active.");
+                        Logger.i(nameof(Program), status.Installed ? $"Widevine CDM {status.Version} is active." : "The Widevine CDM loaded at startup is active.");
                         return;
                     }
+
+                    if (!status.Installed)
+                        continue;
 
                     Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
 
@@ -530,6 +589,7 @@ namespace Grayjay.Desktop
             string cefStartArgs = "";
             string rootCachePath = Path.Combine(Directories.Base, "cef_cache");
             bool useSandbox = true;
+            bool widevineCdmPresentAtStartup = false;
             if (!isServer)
             {
                 var extraArgs = ReconstructArgs(args);
@@ -548,6 +608,7 @@ namespace Grayjay.Desktop
                 if (OperatingSystem.IsLinux())
                     useSandbox = LinuxSandbox.ShouldUse(args);
                 string sandboxArg = useSandbox ? "" : "--no-sandbox ";
+                widevineCdmPresentAtStartup = IsWidevineCdmPresentAtStartup(rootCachePath, systemCdmPath);
 
                 if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
                     cefStartArgs = "--use-alloy-style " + rootCacheDirCmd + extraArgs;
@@ -567,6 +628,7 @@ namespace Grayjay.Desktop
                 Logger.i(nameof(Program), $"Main: Starting JustCefProcess finished ({startCefWatch.ElapsedMilliseconds}ms)");
 
                 StateWidevine.SetStatusRefresher(() => cef.GetWidevineStatusAsync());
+                StateWidevine.SetCdmLoadedAtStartup(widevineCdmPresentAtStartup);
 
                 try
                 {
