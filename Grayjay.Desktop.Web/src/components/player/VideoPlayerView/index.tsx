@@ -658,14 +658,68 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setResumePositionVisible(visible);
     });
 
+    // DRM manifests carry no subtitles, so the player side-loads them as a track element.
+    const getSideLoadedSubtitleUrl = (drm?: ISourceDrm, subtitleIndex?: number, subtitleIsLocal?: boolean) => {
+        if (!drm || subtitleIndex === undefined || subtitleIndex < 0) {
+            return undefined;
+        }
+        return absoluteUrl(`/proxy/Subtitle?subtitleIndex=${subtitleIndex}&subtitleIsLocal=${subtitleIsLocal === true}&windowId=${Globals.WindowID}`);
+    };
+
+    const SIDE_LOADED_CUE_PREFIX = "sideLoaded:";
+
+    const clearSideLoadedCues = () => {
+        for (const [cueId, subtitle] of subtitleMap) {
+            if (cueId.startsWith(SIDE_LOADED_CUE_PREFIX)) {
+                subtitle.remove();
+                subtitleMap.delete(cueId);
+            }
+        }
+    };
+
+    const setSideLoadedSubtitle = (subtitleUrl?: string) => {
+        if (sideLoadedSubtitleTrack?.getAttribute("src") === subtitleUrl) {
+            return;
+        }
+
+        if (sideLoadedSubtitleTrack) {
+            sideLoadedSubtitleTrack.track.oncuechange = null;
+            sideLoadedSubtitleTrack.remove();
+            sideLoadedSubtitleTrack = undefined;
+        }
+        clearSideLoadedCues();
+
+        if (!subtitleUrl || !videoElement) {
+            return;
+        }
+
+        const trackElement = document.createElement("track");
+        trackElement.kind = "subtitles";
+        trackElement.label = "Subtitles";
+        trackElement.default = true;
+        trackElement.src = subtitleUrl;
+        videoElement.appendChild(trackElement);
+        // Cues go to the captions container like dash cues, so the audio-only thumbnail does not hide them.
+        trackElement.track.mode = "hidden";
+        trackElement.track.oncuechange = () => {
+            clearSideLoadedCues();
+            Array.from(trackElement.track.activeCues ?? []).forEach((cue, cueIndex) => {
+                const subtitle = document.createElement("div");
+                subtitle.textContent = cueText((cue as VTTCue).text);
+                subtitleMap.set(SIDE_LOADED_CUE_PREFIX + cueIndex, subtitle);
+                videoCaptionsRef?.appendChild(subtitle);
+            });
+        };
+        sideLoadedSubtitleTrack = trackElement;
+    };
+
     const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, drm?: ISourceDrm, subtitleIndex?: number, subtitleIsLocal?: boolean) => {
         //TODO: Implement playWhenReady ?
         console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime, drm, subtitleIndex, subtitleIsLocal});
-        setIsAudioOnly(false);
-        setIsPlaying(false);
-        frameRate = undefined;
-        
+
         if (currentUrl === sourceUrl) {
+            // A subtitle toggle on a DRM source keeps the manifest URL, so only the track changes.
+            setSideLoadedSubtitle(getSideLoadedSubtitleUrl(drm, subtitleIndex, subtitleIsLocal));
             if (startTime) {
                 const startTime_ms = startTime.as('milliseconds');
                 const currentTime_ms = position().as('milliseconds');
@@ -679,6 +733,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             return;
         }
 
+        setIsAudioOnly(false);
+        setIsPlaying(false);
+        frameRate = undefined;
+
         if (!untrack(isCasting))
             switchPosition = untrack(position);
 
@@ -690,11 +748,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         }
 
         subtitleMap.clear();
-
-        if (sideLoadedSubtitleTrack) {
-            sideLoadedSubtitleTrack.remove();
-            sideLoadedSubtitleTrack = undefined;
-        }
+        setSideLoadedSubtitle(undefined);
 
         const currentVolume = currentVolume$();
         if (dashPlayer) {
@@ -952,16 +1006,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
                 dashPlayer.initialize(videoElement, sourceUrl, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
 
-                if (drm && subtitleIndex !== undefined && subtitleIndex >= 0) {
-                    const trackElement = document.createElement("track");
-                    trackElement.kind = "subtitles";
-                    trackElement.label = "Subtitles";
-                    trackElement.default = true;
-                    trackElement.src = absoluteUrl(`/proxy/Subtitle?subtitleIndex=${subtitleIndex}&subtitleIsLocal=${subtitleIsLocal === true}&windowId=${Globals.WindowID}`);
-                    videoElement.appendChild(trackElement);
-                    trackElement.track.mode = "showing";
-                    sideLoadedSubtitleTrack = trackElement;
-                }
+                setSideLoadedSubtitle(getSideLoadedSubtitleUrl(drm, subtitleIndex, subtitleIsLocal));
             } else if ((mediaType === 'application/vnd.apple.mpegurl' || mediaType === 'application/x-mpegURL') && Hls.isSupported()) {
                 videoElement.onerror = (event: Event | string, source?: string, lineno?: number, colno?: number, error?: Error) => {
                     console.error("Player error", {source, lineno, colno, error});
