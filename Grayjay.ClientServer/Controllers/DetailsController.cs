@@ -60,6 +60,30 @@ namespace Grayjay.ClientServer.Controllers
             public RequestExecutor _videoRequestExecutor = null;
             public RequestExecutor _audioRequestExecutor = null;
 
+            private long _videoLoadId = 0;
+            private readonly object _videoLoadLock = new object();
+
+            /// <summary>
+            /// Starts a video load and returns its id. Only the newest load may change the loaded video, like Android's TaskHandler.
+            /// </summary>
+            public long BeginVideoLoad() => Interlocked.Increment(ref _videoLoadId);
+
+            /// <summary>
+            /// Runs apply when no newer load has started since loadId, and returns whether it ran.
+            /// </summary>
+            public bool TryApplyVideoLoad(long loadId, Action apply)
+            {
+                lock (_videoLoadLock)
+                {
+                    if (Interlocked.Read(ref _videoLoadId) != loadId)
+                    {
+                        return false;
+                    }
+                    apply();
+                    return true;
+                }
+            }
+
             public long _lastWatchPosition = 0;
             public DateTime _lastWatchPositionChange = DateTime.MinValue;
             public LiveChatManager? LiveChatManager { get; set; }
@@ -321,6 +345,8 @@ namespace Grayjay.ClientServer.Controllers
         [HttpGet]
         public VideoLoadResult VideoLoad(string url)
         {
+            var state = this.State().DetailsState;
+            long loadId = state.BeginVideoLoad();
             Logger.i(nameof(DetailsController), "Loading: " + url);
             VideoLocal local = StateDownloads.GetDownloadedVideo(url);
             IPlatformContentDetails contentDetails = null;
@@ -355,15 +381,15 @@ namespace Grayjay.ClientServer.Controllers
 
             if (contentDetails is PlatformVideoDetails video)
             {
-                ChangeVideo(video, local);
+                ApplyVideoLoad(state, loadId, url, video, local);
             }
             else if (local != null)
             {
-                ChangeVideo(null, local);
+                ApplyVideoLoad(state, loadId, url, null, local);
             }
             else if (contentDetails == null)
             {
-                ChangeVideo(null, null);
+                ApplyVideoLoad(state, loadId, url, null, null);
                 Logger.e(nameof(DetailsController), "Failed to load video", contentDetailsException);
                 if (contentDetailsException is TargetInvocationException targetInvocationException && targetInvocationException.InnerException != null)
                     contentDetailsException = targetInvocationException.InnerException;
@@ -371,7 +397,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             else
             {
-                ChangeVideo(null, null);
+                ApplyVideoLoad(state, loadId, url, null, null);
                 throw new DialogException(new ExceptionModel()
                 {
                     Type = ExceptionModel.EXCEPTION_GENERAL,
@@ -381,12 +407,20 @@ namespace Grayjay.ClientServer.Controllers
                 });
             }
 
-            var state = this.State().DetailsState;
+            // The result of this load, not the shared state, which a concurrent newer load may already own.
             return new VideoLoadResult()
             {
-                Video = state.VideoLoaded,
-                Local = state.VideoLocal
+                Video = (contentDetails as PlatformVideoDetails) ?? local,
+                Local = local
             };
+        }
+
+        private void ApplyVideoLoad(DetailsState state, long loadId, string url, PlatformVideoDetails video, VideoLocal videoLocal)
+        {
+            if (!state.TryApplyVideoLoad(loadId, () => ChangeVideo(video, videoLocal)))
+            {
+                Logger.i(nameof(DetailsController), "Skipped the state change of a superseded load: " + url);
+            }
         }
 
         [HttpGet]
