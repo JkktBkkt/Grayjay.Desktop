@@ -1098,7 +1098,7 @@ namespace Grayjay.ClientServer.Controllers
 
             try
             {
-                var mpd = GenerateSourceDashWidevineUrl(state, videoIndex, audioIndex, proxySettings);
+                var mpd = await GenerateSourceDashWidevineUrl(state, videoIndex, audioIndex, proxySettings);
                 state.DetailsState.SetCachedDash(videoIndex, audioIndex, -1, proxySettings, Task.FromResult(mpd));
                 return Content(mpd, "application/dash+xml");
             }
@@ -1121,7 +1121,7 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        public static string GenerateSourceDashWidevineUrl(WindowState state, int videoIndex, int audioIndex, ProxySettings? proxySettings)
+        public static async Task<string> GenerateSourceDashWidevineUrl(WindowState state, int videoIndex, int audioIndex, ProxySettings? proxySettings)
         {
             (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, false, false, false);
 
@@ -1188,10 +1188,12 @@ namespace Grayjay.ClientServer.Controllers
             var duration = tracks.Max(track => track.Duration);
             var dashBuilder = new DashBuilder(duration, DashBuilder.PROFILE_ON_DEMAND);
             var representationId = 1;
+            var probes = await Task.WhenAll(tracks.Select(track => Task.Run(() => FetchMp4Metadata(track.Url, track.Modifier))));
 
-            foreach (var track in tracks)
+            for (int trackIndex = 0; trackIndex < tracks.Count; trackIndex++)
             {
-                var metaData = FetchMp4Metadata(track.Url, track.Modifier);
+                var track = tracks[trackIndex];
+                var metaData = probes[trackIndex].MetaData;
                 var modifierId = track.Modifier != null ? ProxyController.GetOrCreateModifierId(state, track.Modifier, track.Url) : null;
                 var token = ProxyController.GetOrCreateDashRelativeProxy(state, track.Url, track.Modifier, modifierId);
                 state.DetailsState.RegisterDashRelativeProxyToken(token);
@@ -1215,26 +1217,16 @@ namespace Grayjay.ClientServer.Controllers
             return dashBuilder.Build();
         }
 
-        private static StreamMetaData FetchMp4Metadata(string url, IRequestModifier? modifier)
+        private static (StreamMetaData MetaData, IReadOnlyList<byte[]> WidevinePsshData) FetchMp4Metadata(string url, IRequestModifier? modifier)
         {
             const int maxFullBodyBytes = 32 * 1024 * 1024;
-            byte[]? fullBody = null;
+            const int maxPsshScanBytes = 4 * 1024 * 1024;
             var client = new ManagedHttpClient();
 
-            byte[]? FetchBytes(long offset, int count)
+            (byte[]? Bytes, int Code) FetchRange(long offset, int length)
             {
-                if (fullBody != null)
-                {
-                    if (offset >= fullBody.Length)
-                        return null;
-                    int available = (int)Math.Min(count, fullBody.Length - offset);
-                    var slice = new byte[available];
-                    Array.Copy(fullBody, offset, slice, 0, available);
-                    return slice;
-                }
-
                 var rangeHeaders = new Grayjay.Engine.Models.HttpHeaders();
-                rangeHeaders.Set("Range", $"bytes={offset}-{offset + count - 1}");
+                rangeHeaders.Set("Range", $"bytes={offset}-{offset + length - 1}");
                 var res = ModifierHttp.GetBytesBounded(client, url, modifier, rangeHeaders, maxFullBodyBytes);
                 if (res.LimitExceeded)
                 {
@@ -1245,18 +1237,11 @@ namespace Grayjay.ClientServer.Controllers
                         CanRetry = false
                     });
                 }
-                if (!res.IsOk || res.Bytes == null)
-                    return null;
-                if (res.Bytes.Length <= count)
-                    return res.Bytes;
-
-                if (res.Code == 206)
-                    return null;
-                fullBody = res.Bytes;
-                return FetchBytes(offset, count);
+                return (res.IsOk ? res.Bytes : null, res.Code);
             }
 
-            var metaData = Mp4MetadataHelper.FindOnDemandRanges(FetchBytes);
+            var reader = new Mp4RangeReader(FetchRange);
+            var metaData = Mp4MetadataHelper.FindOnDemandRanges(reader.Read);
             if (metaData == null || metaData.FileInitStart == null || metaData.FileInitEnd == null || metaData.FileIndexStart == null || metaData.FileIndexEnd == null)
             {
                 throw new DialogException(new ExceptionModel()
@@ -1266,7 +1251,11 @@ namespace Grayjay.ClientServer.Controllers
                     CanRetry = false
                 });
             }
-            return metaData;
+
+            int initLength = metaData.FileInitEnd.Value + 1;
+            var initSegment = initLength <= maxPsshScanBytes ? reader.Read(0, initLength) : null;
+            var widevinePsshData = initSegment != null ? Mp4MetadataHelper.FindWidevinePsshData(initSegment) : new List<byte[]>();
+            return (metaData, widevinePsshData);
         }
 
         [HttpPost]

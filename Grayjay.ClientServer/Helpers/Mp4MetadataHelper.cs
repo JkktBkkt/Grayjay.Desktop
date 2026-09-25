@@ -83,4 +83,165 @@ public static class Mp4MetadataHelper
             FileIndexEnd = fileIndexEnd
         };
     }
+
+    private static readonly byte[] WidevineSystemId = Convert.FromHexString("edef8ba979d64acea3c827dcd51d21ed");
+
+    /// <summary>
+    /// Returns the Data payload of every Widevine pssh box directly under the top-level moov box.
+    /// </summary>
+    public static List<byte[]> FindWidevinePsshData(byte[] initSegment)
+    {
+        var result = new List<byte[]>();
+        int moovContentStart = -1;
+        int moovEnd = -1;
+        int offset = 0;
+        while (TryReadBox(initSegment, offset, initSegment.Length, out var type, out var contentStart, out var boxEnd))
+        {
+            if (type == "moov")
+            {
+                moovContentStart = contentStart;
+                moovEnd = boxEnd;
+                break;
+            }
+            offset = boxEnd;
+        }
+        if (moovContentStart < 0)
+            return result;
+
+        offset = moovContentStart;
+        while (TryReadBox(initSegment, offset, moovEnd, out var type, out var contentStart, out var boxEnd))
+        {
+            if (type == "pssh")
+            {
+                var data = ReadWidevinePsshData(initSegment.AsSpan(contentStart, boxEnd - contentStart));
+                if (data != null)
+                    result.Add(data);
+            }
+            offset = boxEnd;
+        }
+        return result;
+    }
+
+    private static byte[]? ReadWidevinePsshData(ReadOnlySpan<byte> content)
+    {
+        // Full box: version(1) flags(3) SystemID(16) [v1: KID_count(4) KIDs(16 each)] DataSize(4) Data.
+        if (content.Length < 24)
+            return null;
+        int version = content[0];
+        if (!content.Slice(4, 16).SequenceEqual(WidevineSystemId))
+            return null;
+
+        int position = 20;
+        if (version > 0)
+        {
+            uint keyIdCount = BinaryPrimitives.ReadUInt32BigEndian(content.Slice(position, 4));
+            position += 4;
+            if (keyIdCount > (uint)(content.Length - position) / 16)
+                return null;
+            position += (int)keyIdCount * 16;
+        }
+        if (content.Length - position < 4)
+            return null;
+
+        uint dataSize = BinaryPrimitives.ReadUInt32BigEndian(content.Slice(position, 4));
+        position += 4;
+        if (dataSize > (uint)(content.Length - position))
+            return null;
+        return content.Slice(position, (int)dataSize).ToArray();
+    }
+
+    private static bool TryReadBox(byte[] data, int offset, int limit, out string type, out int contentStart, out int boxEnd)
+    {
+        type = "";
+        contentStart = 0;
+        boxEnd = 0;
+        if (offset < 0 || limit > data.Length || limit - offset < 8)
+            return false;
+
+        long size = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(offset, 4));
+        type = Encoding.ASCII.GetString(data, offset + 4, 4);
+        int headerSize = 8;
+        if (size == 1)
+        {
+            if (limit - offset < 16)
+                return false;
+            ulong largeSize = BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(offset + 8, 8));
+            if (largeSize > long.MaxValue)
+                return false;
+            size = (long)largeSize;
+            headerSize = 16;
+        }
+        else if (size == 0)
+        {
+            size = limit - offset;
+        }
+
+        if (size < headerSize || size > limit - offset)
+            return false;
+
+        contentStart = offset + headerSize;
+        boxEnd = offset + (int)size;
+        return true;
+    }
+}
+
+/// <summary>
+/// Serves small reads from a read-ahead window fetched with one Range request. A non-206 response means
+/// the server ignored Range, so its body is kept as the whole file.
+/// </summary>
+/// <param name="fetchRange">Requests length bytes at offset; returns the body (null on failure) and the status code.</param>
+public sealed class Mp4RangeReader(Func<long, int, (byte[]? Bytes, int Code)> fetchRange, int readAheadBytes = Mp4RangeReader.DefaultReadAheadBytes)
+{
+    public const int DefaultReadAheadBytes = 64 * 1024;
+
+    private byte[]? _fullBody;
+    private byte[]? _window;
+    private long _windowOffset;
+    private bool _windowReachesEnd;
+
+    public byte[]? Read(long offset, int count)
+    {
+        if (offset < 0 || count <= 0)
+            return null;
+        if (_fullBody != null)
+            return Slice(_fullBody, 0, offset, count);
+
+        if (_window != null && offset >= _windowOffset)
+        {
+            long windowEnd = _windowOffset + _window.Length;
+            if (offset + count <= windowEnd)
+                return Slice(_window, _windowOffset, offset, count);
+            if (_windowReachesEnd)
+                return Slice(_window, _windowOffset, offset, count);
+        }
+
+        int requestLength = Math.Max(count, readAheadBytes);
+        var response = fetchRange(offset, requestLength);
+        if (response.Bytes == null)
+            return null;
+
+        if (response.Code == 206)
+        {
+            if (response.Bytes.Length > requestLength)
+                return null;
+            _window = response.Bytes;
+            _windowOffset = offset;
+            _windowReachesEnd = response.Bytes.Length < requestLength;
+            return Slice(_window, _windowOffset, offset, count);
+        }
+
+        _fullBody = response.Bytes;
+        return Slice(_fullBody, 0, offset, count);
+    }
+
+    private static byte[]? Slice(byte[] source, long sourceOffset, long offset, int count)
+    {
+        long start = offset - sourceOffset;
+        if (start < 0 || start >= source.Length)
+            return null;
+        int available = (int)Math.Min(count, source.Length - start);
+        var slice = new byte[available];
+        Array.Copy(source, start, slice, 0, available);
+        return slice;
+    }
 }
