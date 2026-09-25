@@ -8,7 +8,7 @@ import { CastConnectionState, useCasting } from '../../../contexts/Casting';
 import { CastingBackend } from '../../../backend/CastingBackend';
 import { Event0 } from "../../../utility/Event";
 import * as dashjs from 'dashjs';
-import Hls from 'hls.js';
+import Hls, { type ErrorData } from 'hls.js';
 import { UmpFormatInfo, UmpPlayer } from '../UmpPlayer/UmpPlayer';
 import { ChapterType, IChapter } from '../../../backend/models/contentDetails/IChapter';
 import { IPlatformVideoDetails } from '../../../backend/models/contentDetails/IPlatformVideoDetails';
@@ -1070,9 +1070,16 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                         props.onPlayerQualityChanged(data.level);
                 });
 
+                const classifyHlsError = (data: ErrorData): PlaybackErrorKind => {
+                    if (data.details === Hls.ErrorDetails.KEY_SYSTEM_LICENSE_REQUEST_FAILED) {
+                        return "drm-license";
+                    }
+                    return data.type === Hls.ErrorTypes.KEY_SYSTEM_ERROR ? "drm" : "generic";
+                };
+
                 hlsPlayer.on(Hls.Events.ERROR, function(eventName, data) {
                     console.error("HLS player error", data);
-                    onError(`HLS Error: ${JSON.stringify({ details: data.details, error: data.error })}`, data.fatal);
+                    onError(`HLS Error: ${JSON.stringify({ details: data.details, error: data.error })}`, data.fatal, classifyHlsError(data));
                 });
                 hlsPlayer.loadSource(sourceUrl);
                 hlsPlayer.attachMedia(videoElement);
