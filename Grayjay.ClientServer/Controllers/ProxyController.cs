@@ -64,12 +64,21 @@ namespace Grayjay.ClientServer.Controllers
         [HttpGet("/proxy/DashRelative/{token}/{**path}")]
         public async Task<IActionResult> DashRelative(string token, string? path)
         {
+            await ServeDashRelativeAsync(HttpContext, token, path);
+            return new EmptyResult();
+        }
+
+        public static async Task ServeDashRelativeAsync(HttpContext context, string token, string? path)
+        {
             if (!DashRelativeProxies.TryGetValue(token, out var entry))
-                return NotFound();
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
 
             var relative = path ?? "";
-            if (Request.QueryString.HasValue)
-                relative += Request.QueryString.Value;
+            if (context.Request.QueryString.HasValue)
+                relative += context.Request.QueryString.Value;
 
             string targetUrl;
             if (string.IsNullOrEmpty(relative))
@@ -80,20 +89,27 @@ namespace Grayjay.ClientServer.Controllers
             {
                 if (relative.StartsWith("//") || (Uri.TryCreate(relative, UriKind.Absolute, out var absoluteProbe) && (absoluteProbe.Scheme == Uri.UriSchemeHttp || absoluteProbe.Scheme == Uri.UriSchemeHttps)))
                 {
-                    return BadRequest();
+                    context.Response.StatusCode = 400;
+                    return;
                 }
 
                 var baseUri = new Uri(entry.BaseUrl);
                 if (!Uri.TryCreate(baseUri, relative, out var resolved))
-                    return BadRequest();
+                {
+                    context.Response.StatusCode = 400;
+                    return;
+                }
                 if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
-                    return BadRequest();
+                {
+                    context.Response.StatusCode = 400;
+                    return;
+                }
 
                 targetUrl = resolved.ToString();
             }
 
             var headers = new Engine.Models.HttpHeaders();
-            if (Request.Headers.TryGetValue("Range", out var rangeValues))
+            if (context.Request.Headers.TryGetValue("Range", out var rangeValues))
                 headers.Set("Range", rangeValues.ToString());
 
             var modified = entry.Modifier?.ModifyRequest(targetUrl, headers);
@@ -101,7 +117,7 @@ namespace Grayjay.ClientServer.Controllers
             var finalHeaders = modified?.Headers ?? headers;
             var impersonate = modified?.Options?.ImpersonateTarget;
 
-            Response.Headers["Access-Control-Allow-Origin"] = "*";
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
             var headersToRelay = new[] { "content-type", "content-range", "accept-ranges" };
 
             void RelayHeaders(IEnumerable<KeyValuePair<string, string>> upstreamHeaders, bool relayContentLength)
@@ -110,7 +126,7 @@ namespace Grayjay.ClientServer.Controllers
                 {
                     var name = header.Key.ToLowerInvariant();
                     if (headersToRelay.Contains(name) || (relayContentLength && name == "content-length"))
-                        Response.Headers[header.Key] = header.Value;
+                        context.Response.Headers[header.Key] = header.Value;
                 }
             }
 
@@ -125,15 +141,15 @@ namespace Grayjay.ClientServer.Controllers
                 });
 
                 var body = res.BodyBytes ?? Array.Empty<byte>();
-                Response.StatusCode = res.Status;
+                context.Response.StatusCode = res.Status;
                 RelayHeaders(res.Headers, relayContentLength: false);
-                Response.ContentLength = body.Length;
-                await Response.Body.WriteAsync(body, HttpContext.RequestAborted);
-                return new EmptyResult();
+                context.Response.ContentLength = body.Length;
+                await context.Response.Body.WriteAsync(body, context.RequestAborted);
+                return;
             }
 
             var resp = entry.Client.GET(finalUrl, finalHeaders);
-            Response.StatusCode = resp.Code;
+            context.Response.StatusCode = resp.Code;
             if (resp.Headers != null)
             {
                 RelayHeaders(resp.Headers, relayContentLength: true);
@@ -141,9 +157,8 @@ namespace Grayjay.ClientServer.Controllers
             if (resp.Body != null)
             {
                 using var bodyStream = resp.Body.AsStream();
-                await bodyStream.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+                await bodyStream.CopyToAsync(context.Response.Body, context.RequestAborted);
             }
-            return new EmptyResult();
         }
 
         [HttpGet]
