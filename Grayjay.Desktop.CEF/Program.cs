@@ -260,18 +260,24 @@ namespace Grayjay.Desktop
             }
         }
 
-        private static async Task MonitorWidevineAsync(JustCefProcess cef)
+        private static async Task MonitorWidevineAsync(JustCefProcess cef, WidevineStatus? initialStatus)
         {
             try
             {
                 bool everRegistered = false;
+                var status = initialStatus;
 
-                for (int i = 0; i < 12; i++)
+                for (int poll = 0; poll <= 12; poll++)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    if (poll > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5));
+                        status = await cef.GetWidevineStatusAsync();
+                        StateWidevine.Update(status);
+                    }
 
-                    var status = await cef.GetWidevineStatusAsync();
-                    StateWidevine.Update(status);
+                    if (status == null)
+                        continue;
                     everRegistered |= status.Registered;
 
                     if (StateWidevine.IsPlaybackAvailable)
@@ -630,16 +636,18 @@ namespace Grayjay.Desktop
                 StateWidevine.SetStatusRefresher(() => cef.GetWidevineStatusAsync());
                 StateWidevine.SetCdmLoadedAtStartup(widevineCdmPresentAtStartup);
 
+                WidevineStatus? initialWidevineStatus = null;
                 try
                 {
-                    StateWidevine.Update(await cef.GetWidevineStatusAsync());
+                    initialWidevineStatus = await cef.GetWidevineStatusAsync();
+                    StateWidevine.Update(initialWidevineStatus);
                 }
                 catch (Exception ex)
                 {
                     Logger.w(nameof(Program), "Failed to query the initial Widevine status.", ex);
                 }
 
-                _ = MonitorWidevineAsync(cef);
+                _ = MonitorWidevineAsync(cef, initialWidevineStatus);
                 if (OperatingSystem.IsLinux() && !isHeadless)
                     _ = LinuxSandbox.OfferAppArmorProfileAsync();
             }
