@@ -28,6 +28,7 @@ namespace Grayjay.ClientServer.Controllers
             public int AudioChannels { get; set; }
             public int AudioSampleRate { get; set; }
             public string? Language { get; set; }
+            public string? LanguageName { get; set; }
             public bool Original { get; set; }
             public bool IsDrc { get; set; }
             public string Label { get; set; }
@@ -47,6 +48,7 @@ namespace Grayjay.ClientServer.Controllers
                 AudioChannels = format.AudioChannels,
                 AudioSampleRate = format.AudioSampleRate,
                 Language = format.Language,
+                LanguageName = string.IsNullOrWhiteSpace(format.Language) ? null : UMPFormat.LanguageDisplayName(format.Language),
                 Original = format.IsOriginalAudio,
                 IsDrc = format.IsDrc,
                 Label = format.IsVideo ? format.VideoLabel : format.AudioLabel

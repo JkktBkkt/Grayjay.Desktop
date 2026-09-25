@@ -1204,7 +1204,12 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             type: "option",
                             onSelected: () => setUmpAudioKey(undefined),
                             isSelected: !umpAudioKey$()
-                        } as IMenuItemOption].concat(umpAudioFormats$().map(x => ({
+                        } as IMenuItemOption].concat([...umpAudioFormats$()].sort((a, b) =>
+                            Number(b.original) - Number(a.original)
+                            || (a.languageName ?? a.language ?? "").localeCompare(b.languageName ?? b.language ?? "")
+                            || Number(a.isDrc) - Number(b.isDrc)
+                            || b.bitrate - a.bitrate
+                        ).map(x => ({
                             name: `${x.label} ${x.codecName}`.trim(),
                             value: x.key,
                             type: "option",

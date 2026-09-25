@@ -14,6 +14,7 @@ export interface UmpFormatInfo {
     audioChannels: number;
     audioSampleRate: number;
     language?: string;
+    languageName?: string;
     original: boolean;
     isDrc: boolean;
     label: string;
