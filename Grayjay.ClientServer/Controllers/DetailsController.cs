@@ -122,6 +122,26 @@ namespace Grayjay.ClientServer.Controllers
                     _widevinePsshData.Clear();
             }
 
+            private readonly Dictionary<DashManifestSource, string> _dashManifestLocations = new Dictionary<DashManifestSource, string>(ReferenceEqualityComparer.Instance);
+
+            public string? GetDashManifestLocation(DashManifestSource source)
+            {
+                lock (_dashManifestLocations)
+                    return _dashManifestLocations.TryGetValue(source, out var location) ? location : null;
+            }
+
+            public void SetDashManifestLocation(DashManifestSource source, string location)
+            {
+                lock (_dashManifestLocations)
+                    _dashManifestLocations[source] = location;
+            }
+
+            public void ClearDashManifestLocations()
+            {
+                lock (_dashManifestLocations)
+                    _dashManifestLocations.Clear();
+            }
+
             private readonly List<string> _dashRelativeProxyTokens = new List<string>();
 
             public void RegisterDashRelativeProxyToken(string token)
@@ -228,6 +248,7 @@ namespace Grayjay.ClientServer.Controllers
                 ReleaseUmpPlayback();
                 ClearLicenseRequestExecutors();
                 ClearWidevinePsshData();
+                ClearDashManifestLocations();
                 ClearDashRelativeProxies();
             }
         }
@@ -243,6 +264,7 @@ namespace Grayjay.ClientServer.Controllers
             state.UmpCastHeight = -1;
             state.ClearLicenseRequestExecutors();
             state.ClearWidevinePsshData();
+            state.ClearDashManifestLocations();
             state.ClearDashRelativeProxies();
             state.VideoLoaded = video;
             state.VideoLocal = videoLocal;
@@ -1013,7 +1035,8 @@ namespace Grayjay.ClientServer.Controllers
 
             var modifier = dashSource.GetRequestModifier();
             var headers = new Grayjay.Engine.Models.HttpHeaders();
-            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), dashSource.Url, modifier, headers);
+            var manifestUrl = state.DetailsState.GetDashManifestLocation(dashSource) ?? dashSource.Url;
+            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), manifestUrl, modifier, headers);
             if (!res.IsOk)
                 throw new InvalidDataException($"Failed to fetch manifest [{res.Code}]");
 
@@ -1025,102 +1048,121 @@ namespace Grayjay.ClientServer.Controllers
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
             bool isDynamic = string.Equals((string?)root.Attribute("type"), "dynamic", StringComparison.OrdinalIgnoreCase);
 
-            string ProxyRootFor(string absoluteBase)
+            string ProxyRootFor(string hostRoot)
             {
-                var token = ProxyController.GetOrCreateDashRelativeProxy(state, absoluteBase, modifier, modifierId);
+                var token = ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId);
                 state.DetailsState.RegisterDashRelativeProxyToken(token);
                 return $"{baseUri}/proxy/DashRelative/{token}/";
             }
 
-            static bool IsAbsoluteHttpUrl(string value) =>
-                Uri.TryCreate(value, UriKind.Absolute, out var absolute)
-                && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps);
-
-            var manifestUri = new Uri(finalUrl);
-            XNamespace ns = root.Name.Namespace;
-
-            var topLevelBaseUrls = root.Elements(ns + "BaseURL").ToList();
-            if (topLevelBaseUrls.Count == 0)
-            {
-                var addedBaseUrl = new XElement(ns + "BaseURL", ProxyRootFor(finalUrl));
-                root.AddFirst(addedBaseUrl);
-                topLevelBaseUrls.Add(addedBaseUrl);
-            }
-            else
-            {
-                foreach (var baseUrlElement in topLevelBaseUrls)
-                {
-                    var value = baseUrlElement.Value.Trim();
-                    baseUrlElement.Value = ProxyRootFor(IsAbsoluteHttpUrl(value) ? value : new Uri(manifestUri, value).ToString());
-                }
-            }
-
-            foreach (var baseUrlElement in root.Descendants(ns + "BaseURL"))
-            {
-                if (topLevelBaseUrls.Contains(baseUrlElement))
-                    continue;
-                var value = baseUrlElement.Value.Trim();
-                if (IsAbsoluteHttpUrl(value))
-                    baseUrlElement.Value = ProxyRootFor(value);
-            }
-
-            var urlAttributeTargets = new (string Element, string Attribute)[]
-            {
-                ("SegmentTemplate", "media"),
-                ("SegmentTemplate", "initialization"),
-                ("SegmentURL", "media"),
-                ("Initialization", "sourceURL")
-            };
-            foreach (var element in root.Descendants())
-            {
-                foreach (var target in urlAttributeTargets)
-                {
-                    if (element.Name.LocalName != target.Element)
-                        continue;
-                    var attribute = element.Attribute(target.Attribute);
-                    if (attribute == null)
-                        continue;
-
-                    var value = attribute.Value;
-                    string hostRoot;
-                    string rest;
-                    if (IsAbsoluteHttpUrl(value))
-                    {
-                        var authorityStart = value.IndexOf("://", StringComparison.Ordinal) + 3;
-                        var pathStart = value.IndexOfAny(new[] { '/', '?', '#' }, authorityStart);
-                        if (pathStart < 0)
-                        {
-                            hostRoot = value + "/";
-                            rest = "";
-                        }
-                        else if (value[pathStart] == '/')
-                        {
-                            hostRoot = value[..(pathStart + 1)];
-                            rest = value[(pathStart + 1)..];
-                        }
-                        else
-                        {
-                            hostRoot = value[..pathStart] + "/";
-                            rest = value[pathStart..];
-                        }
-                    }
-                    else if (value.StartsWith("/") && !value.StartsWith("//"))
-                    {
-                        hostRoot = manifestUri.GetLeftPart(UriPartial.Authority) + "/";
-                        rest = value.TrimStart('/');
-                    }
-                    else
-                        continue;
-
-                    attribute.Value = ProxyRootFor(hostRoot) + rest;
-                }
-            }
+            var location = RewriteDashManifestForProxy(document, new Uri(finalUrl), ProxyRootFor);
+            if (location != null)
+                state.DetailsState.SetDashManifestLocation(dashSource, location);
 
             var mpd = document.ToString(SaveOptions.DisableFormatting);
             if (sourceSubtitle != null)
                 mpd = InjectDashSubtitle(mpd, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings));
             return (mpd, isDynamic);
         }
+
+        private static readonly (string Element, string Attribute)[] DashUrlAttributes = new (string Element, string Attribute)[]
+        {
+            ("SegmentTemplate", "media"),
+            ("SegmentTemplate", "initialization"),
+            ("SegmentTemplate", "index"),
+            ("SegmentTemplate", "bitstreamSwitching"),
+            ("SegmentURL", "media"),
+            ("SegmentURL", "index"),
+            ("Initialization", "sourceURL"),
+            ("RepresentationIndex", "sourceURL"),
+            ("BitstreamSwitching", "sourceURL")
+        };
+
+        /// <summary>
+        /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
+        /// Removes Location and PatchLocation and returns the resolved Location URL, or null.
+        /// </summary>
+        /// <param name="proxyRootFor">Maps an upstream host root (scheme://authority/) to its proxy root URL ending in '/'.</param>
+        public static string? RewriteDashManifestForProxy(XDocument document, Uri manifestUri, Func<string, string> proxyRootFor)
+        {
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            XNamespace ns = root.Name.Namespace;
+
+            string? location = null;
+            foreach (var locationElement in root.Elements(ns + "Location").ToList())
+            {
+                if (location == null && Uri.TryCreate(manifestUri, locationElement.Value.Trim(), out var resolvedLocation) && IsHttpUri(resolvedLocation))
+                {
+                    location = resolvedLocation.AbsoluteUri;
+                }
+                locationElement.Remove();
+            }
+            root.Elements(ns + "PatchLocation").Remove();
+
+            if (!root.Elements(ns + "BaseURL").Any())
+                root.AddFirst(new XElement(ns + "BaseURL", manifestUri.AbsoluteUri));
+
+            RewriteDashElementForProxy(root, manifestUri, proxyRootFor);
+            return location;
+        }
+
+        private static void RewriteDashElementForProxy(XElement element, Uri parentBase, Func<string, string> proxyRootFor)
+        {
+            var baseUrlName = element.Name.Namespace + "BaseURL";
+            Uri? levelBase = null;
+            foreach (var baseUrlElement in element.Elements(baseUrlName))
+            {
+                if (!Uri.TryCreate(parentBase, baseUrlElement.Value.Trim(), out var resolved) || !IsHttpUri(resolved))
+                    continue;
+                baseUrlElement.Value = ToDashProxyUrl(resolved.AbsoluteUri, proxyRootFor);
+                levelBase ??= resolved;
+            }
+            levelBase ??= parentBase;
+
+            foreach (var target in DashUrlAttributes)
+            {
+                if (element.Name.LocalName != target.Element)
+                    continue;
+                var attribute = element.Attribute(target.Attribute);
+                if (attribute == null)
+                    continue;
+
+                // Values may hold $Number%05d$ templates, so they are resolved as strings rather than parsed as Uri.
+                var absoluteUrl = ToAbsoluteDashTemplateUrl(attribute.Value, levelBase);
+                if (absoluteUrl != null)
+                    attribute.Value = ToDashProxyUrl(absoluteUrl, proxyRootFor);
+            }
+
+            foreach (var child in element.Elements())
+            {
+                if (child.Name != baseUrlName)
+                    RewriteDashElementForProxy(child, levelBase, proxyRootFor);
+            }
+        }
+
+        private static string? ToAbsoluteDashTemplateUrl(string value, Uri levelBase)
+        {
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return value;
+            if (value.StartsWith("//", StringComparison.Ordinal))
+                return levelBase.Scheme + ":" + value;
+            if (value.StartsWith("/", StringComparison.Ordinal))
+                return levelBase.GetLeftPart(UriPartial.Authority) + value;
+            return null;
+        }
+
+        private static string ToDashProxyUrl(string absoluteUrl, Func<string, string> proxyRootFor)
+        {
+            var authorityStart = absoluteUrl.IndexOf("://", StringComparison.Ordinal) + 3;
+            var pathStart = absoluteUrl.IndexOfAny(new[] { '/', '?', '#' }, authorityStart);
+            if (pathStart < 0)
+                return proxyRootFor(absoluteUrl + "/");
+            if (absoluteUrl[pathStart] == '/')
+                return proxyRootFor(absoluteUrl[..(pathStart + 1)]) + absoluteUrl[(pathStart + 1)..];
+            return proxyRootFor(absoluteUrl[..pathStart] + "/") + absoluteUrl[pathStart..];
+        }
+
+        private static bool IsHttpUri(Uri uri) => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
 
         [HttpGet]
         public async Task<IActionResult> SourceDashWidevineUrl(int videoIndex = -1, int audioIndex = -1, bool isLoopback = true)
