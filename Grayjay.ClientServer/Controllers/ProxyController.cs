@@ -30,7 +30,7 @@ namespace Grayjay.ClientServer.Controllers
         {
             public required string BaseUrl { get; init; }
             public IRequestModifier? Modifier { get; init; }
-            public ManagedHttpClient Client { get; init; } = new ManagedHttpClient();
+            public required ManagedHttpClient Client { get; init; }
         }
         private static readonly ConcurrentDictionary<string, DashRelativeProxyEntry> DashRelativeProxies = new();
         private static readonly ConcurrentDictionary<string, string> DashRelativeProxyTokens = new();
@@ -40,7 +40,7 @@ namespace Grayjay.ClientServer.Controllers
             var key = $"{state.WindowID}|{modifierId ?? ""}|{baseUrl}";
             var token = DashRelativeProxyTokens.GetOrAdd(key, _ => Guid.NewGuid().ToString("N"));
             DashRelativeProxies.AddOrUpdate(token,
-                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier },
+                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = new ManagedHttpClient() },
                 (_, existing) => ReferenceEquals(existing.Modifier, modifier)
                     ? existing
                     : new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = existing.Client });
