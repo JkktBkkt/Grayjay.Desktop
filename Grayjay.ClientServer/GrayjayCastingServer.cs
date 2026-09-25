@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Net;
+using System.Text;
 using Grayjay.ClientServer.Controllers;
 using Grayjay.ClientServer.Proxy;
 using Grayjay.ClientServer.Sabr;
@@ -161,6 +162,47 @@ namespace Grayjay.ClientServer
 
                 (var task, var metadata) = DetailsController.GenerateSourceDash(context.GetState(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
                 return Results.Content(await task, "application/dash+xml");
+            });
+
+            AddCorsHandler("/details/SourceDashUrl", [ "GET", "HEAD", "OPTIONS" ]);
+            _app.MapMethods("/details/SourceDashUrl", [ "HEAD" ], async (HttpContext context, int videoIndex, int subtitleIndex = -1, bool subtitleIsLocal = false) =>
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+                var activeDevice = StateCasting.Instance.ActiveDevice;
+                if (activeDevice == null)
+                    return Results.BadRequest("No active casting device.");
+
+                var mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
+                context.Response.Headers["Content-Length"] = Encoding.UTF8.GetByteCount(mpd).ToString();
+                context.Response.Headers["Content-Type"] = "application/dash+xml";
+                return Results.StatusCode(200);
+            });
+            _app.MapGet("/details/SourceDashUrl", async (HttpContext context, int videoIndex, int subtitleIndex = -1, bool subtitleIsLocal = false) =>
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+                var activeDevice = StateCasting.Instance.ActiveDevice;
+                if (activeDevice == null)
+                    return Results.BadRequest("No active casting device.");
+
+                var mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
+                return Results.Content(mpd, "application/dash+xml");
+            });
+
+            AddCorsHandler("/proxy/DashRelative/{token}/{**path}", [ "GET", "OPTIONS" ]);
+            _app.MapGet("/proxy/DashRelative/{token}/{**path}", async (HttpContext context, string token, string? path) =>
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+                var activeDevice = StateCasting.Instance.ActiveDevice;
+                if (activeDevice == null)
+                {
+                    context.Response.StatusCode = 400;
+                    return;
+                }
+
+                await ProxyController.ServeDashRelativeAsync(context, token, path);
             });
 
             AddCorsHandler("/details/SourceHLS", [ "GET", "HEAD", "OPTIONS" ]);
