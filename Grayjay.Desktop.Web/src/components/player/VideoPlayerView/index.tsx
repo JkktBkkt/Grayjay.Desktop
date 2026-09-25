@@ -331,7 +331,13 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             return;
         }
 
-        const descriptor = await DetailsBackend.sourceProxy(source.url, source.video, source.videoIsLocal, source.audio, source.audioIsLocal, source.subtitle, source.subtitleIsLocal, currentTag);
+        const tag = currentTag;
+        const descriptor = await DetailsBackend.sourceProxy(source.url, source.video, source.videoIsLocal, source.audio, source.audioIsLocal, source.subtitle, source.subtitleIsLocal, tag);
+        // A newer source change (or unload) started while this one waited, so this source is stale.
+        if (tag !== currentTag) {
+            console.info("Skipped a superseded source change", source);
+            return;
+        }
         console.log("Direct url", descriptor.url, descriptor.type);
 
         if (untrack(isCasting)) {
