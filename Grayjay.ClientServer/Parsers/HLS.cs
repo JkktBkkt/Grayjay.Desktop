@@ -36,8 +36,22 @@ public static class HLS
         }
     }
 
+    public static bool IsMediaPlaylist(string content)
+    {
+        foreach (var line in content.AsSpan().EnumerateLines())
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("#EXTINF:") || trimmed.StartsWith("#EXT-X-TARGETDURATION:"))
+                return true;
+        }
+        return false;
+    }
+
     public static MasterPlaylist ParseMasterPlaylist(string masterPlaylistContent, string sourceUrl)
     {
+        if (IsMediaPlaylist(masterPlaylistContent))
+            throw new InvalidDataException("Expected a master playlist, got a media playlist");
+
         Uri baseUrl = new Uri(new Uri(sourceUrl), "./");
         var variantPlaylists = new List<VariantPlaylistReference>();
         var mediaRenditions = new List<MediaRendition>();
@@ -106,7 +120,10 @@ public static class HLS
         string? mapUrl = null;
         long mapBytesStart = -1;
         long mapBytesLength = -1;
-        var mapLine = lines.FirstOrDefault(x => x.StartsWith("#EXT-X-MAP:"));
+        var mapIndex = Array.FindIndex(lines, line => line.StartsWith("#EXT-X-MAP:"));
+        var firstKeyIndex = Array.FindIndex(lines, line => line.StartsWith("#EXT-X-KEY:"));
+        var mapBeforeKey = mapIndex >= 0 && (firstKeyIndex < 0 || mapIndex < firstKeyIndex);
+        var mapLine = mapIndex >= 0 ? lines[mapIndex] : null;
         if (!string.IsNullOrEmpty(mapLine))
         {
             var mapAttrs = ParseAttributes(mapLine.Trim());
@@ -118,9 +135,7 @@ public static class HLS
                 ParseByteRange(byterangeValue, out mapBytesLength, out mapBytesStart);
         }
                 
-        DecryptionInfo? decryptionInfo = null;
-        var keyLine = lines.LastOrDefault(l => l.StartsWith("#EXT-X-KEY:"));
-        if (!string.IsNullOrEmpty(keyLine))
+        static DecryptionInfo ParseKeyLine(string keyLine, Uri baseUrl)
         {
             var keyAttrs = ParseAttributes(keyLine.Trim());
             var method = keyAttrs.TryGetValue("METHOD", out var methodRaw) && !string.IsNullOrWhiteSpace(methodRaw)
@@ -141,8 +156,18 @@ public static class HLS
 
             keyAttrs.TryGetValue("KEYFORMAT", out var keyFormat);
             keyAttrs.TryGetValue("KEYFORMATVERSIONS", out var keyFormatVersions);
-            decryptionInfo = new DecryptionInfo(method, keyUrl, iv, keyFormat, keyFormatVersions);
+            return new DecryptionInfo(method, keyUrl, iv, keyFormat, keyFormatVersions);
         }
+
+        static string NormalizeKeyFormat(string? keyFormat)
+        {
+            return string.IsNullOrEmpty(keyFormat) ? "identity" : keyFormat;
+        }
+
+        var keys = new List<DecryptionInfo>();
+        var activeKeys = new List<DecryptionInfo>();
+        List<DecryptionInfo>? activeKeysSnapshot = null;
+        List<DecryptionInfo>? mapKeys = null;
 
         var segments = new List<Segment>();
         MediaSegment? currentSegment = null;
@@ -150,12 +175,32 @@ public static class HLS
         List<string> unhandled = new List<string>();
         List<string> segmentUnhandled = new List<string>();
 
-        foreach (var line in lines)
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
+            var line = lines[lineIndex];
+            if (lineIndex == mapIndex)
+            {
+                activeKeysSnapshot ??= activeKeys.ToList();
+                mapKeys = activeKeysSnapshot;
+            }
+
             if (line.StartsWith("#EXTINF:"))
             {
                 var duration = double.Parse(line.Substring(8, line.IndexOf(',') - 8), CultureInfo.InvariantCulture);
                 currentSegment = new MediaSegment(duration);
+            }
+            else if (line.StartsWith("#EXT-X-KEY:"))
+            {
+                var keyInfo = ParseKeyLine(line, baseUrl);
+                keys.Add(keyInfo);
+
+                if (!keyInfo.IsEncrypted)
+                    activeKeys.Clear();
+                else
+                    activeKeys.RemoveAll(existing => !existing.IsEncrypted
+                        || string.Equals(NormalizeKeyFormat(existing.KeyFormat), NormalizeKeyFormat(keyInfo.KeyFormat), StringComparison.OrdinalIgnoreCase));
+                activeKeys.Add(keyInfo);
+                activeKeysSnapshot = null;
             }
             else if (line == "#EXT-X-DISCONTINUITY")
                 segments.Add(new DiscontinuitySegment());
@@ -174,6 +219,8 @@ public static class HLS
             {
                 if (currentSegment != null)
                 {
+                    activeKeysSnapshot ??= activeKeys.ToList();
+                    currentSegment.Keys = activeKeysSnapshot;
                     currentSegment.Uri = line.Trim().EnsureAbsoluteUrl(baseUrl);
                     segments.Add(currentSegment);
                     currentSegment = null;
@@ -194,11 +241,13 @@ public static class HLS
             segments,
             mapUrl,
             unhandled,
-            decryptionInfo
+            keys
         )
         {
             MapBytesStart = mapBytesStart,
             MapBytesLength = mapBytesLength,
+            MapBeforeKey = mapBeforeKey,
+            MapKeys = mapKeys,
             IndependentSegments = independentSegments
         };
     }
@@ -221,31 +270,11 @@ public static class HLS
     }
     public static List<HLSVariantVideoUrlSource> ParseToVideoSources(object parentSource, string content, string url)
     {
-        try
-        {
-            MasterPlaylist playlist = ParseMasterPlaylist(content, url);
-            return playlist.GetVideoSources();
-        }
-        catch
-        {
-            if (content.Split('\n').Any(x => x.Trim().StartsWith("#EXTINF:")))
-            {
-                if (parentSource is HLSManifestSource)
-                {
-                    throw new NotImplementedException();
-                }
-                else if (parentSource is HLSManifestAudioSource)
-                {
-                    throw new NotImplementedException();
-                }
-                else
-                    throw new NotImplementedException();
-            }
-            else
-                throw;
-        }
-        
+        if (IsMediaPlaylist(content))
+            return new List<HLSVariantVideoUrlSource>();
 
+        MasterPlaylist playlist = ParseMasterPlaylist(content, url);
+        return playlist.GetVideoSources();
     }
 
     private static void ParseByteRange(string value, out long length, out long start)
@@ -543,10 +572,64 @@ public static class HLS
         public string? MapUrl;
         public long MapBytesStart = -1;
         public long MapBytesLength = -1;
-        public DecryptionInfo? Decryption;
+        public bool MapBeforeKey;
+        public List<DecryptionInfo>? MapKeys;
+        public List<DecryptionInfo> Keys = new List<DecryptionInfo>();
         public List<string> UnHandled { get; } = new List<string>();
 
-        public VariantPlaylist(int? version, int? targetDuration, long? mediaSequence, int? discontinuitySequence, DateTime? programDateTime, string? playlistType, StreamInfo? streamInfo, List<Segment> segments, string? mapUrl = null, List<string>? unhandled = null, DecryptionInfo? decryption = null)
+        public DecryptionInfo? Decryption => Keys.LastOrDefault(IsLocallyDecryptable);
+
+        public DecryptionInfo? GetSegmentDecryption(MediaSegment segment)
+        {
+            return GetKeySetDecryption(segment.Keys ?? Keys);
+        }
+
+        public DecryptionInfo? GetMapDecryption()
+        {
+            if (string.IsNullOrEmpty(MapUrl) || MapBeforeKey)
+                return null;
+            if (MapKeys != null)
+                return GetKeySetDecryption(MapKeys);
+            var firstMediaSegment = Segments.OfType<MediaSegment>().FirstOrDefault();
+            if (firstMediaSegment == null)
+                return Keys.Any(key => key.IsEncrypted) ? Keys.LastOrDefault(IsLocallyDecryptable) : null;
+            return GetSegmentDecryption(firstMediaSegment);
+        }
+
+        private static DecryptionInfo? GetKeySetDecryption(List<DecryptionInfo> keySet)
+        {
+            if (!keySet.Any(key => key.IsEncrypted))
+                return null;
+            return keySet.LastOrDefault(IsLocallyDecryptable);
+        }
+
+        public static bool IsLocallyDecryptable(DecryptionInfo key)
+        {
+            return string.Equals(key.Method, "AES-128", StringComparison.OrdinalIgnoreCase)
+                && (string.IsNullOrEmpty(key.KeyFormat) || string.Equals(key.KeyFormat, "identity", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public DecryptionInfo? FindUnsupportedKey()
+        {
+            var segmentKeySets = Segments.OfType<MediaSegment>()
+                .Select(segment => segment.Keys)
+                .Where(keys => keys != null)
+                .Select(keys => keys!)
+                .ToList();
+            if (MapKeys != null && !MapBeforeKey)
+                segmentKeySets.Add(MapKeys);
+            var keySets = segmentKeySets.Count > 0 ? segmentKeySets : new List<List<DecryptionInfo>> { Keys };
+
+            foreach (var keySet in keySets)
+            {
+                var firstEncryptedKey = keySet.FirstOrDefault(key => key.IsEncrypted);
+                if (firstEncryptedKey != null && !keySet.Any(IsLocallyDecryptable))
+                    return firstEncryptedKey;
+            }
+            return null;
+        }
+
+        public VariantPlaylist(int? version, int? targetDuration, long? mediaSequence, int? discontinuitySequence, DateTime? programDateTime, string? playlistType, StreamInfo? streamInfo, List<Segment> segments, string? mapUrl = null, List<string>? unhandled = null, List<DecryptionInfo>? keys = null)
         {
             Version = version;
             TargetDuration = targetDuration;
@@ -557,7 +640,9 @@ public static class HLS
             StreamInfo = streamInfo;
             Segments = segments;
             MapUrl = mapUrl;
-            Decryption = decryption;
+
+            if (keys != null)
+                Keys.AddRange(keys);
 
             if(unhandled != null)
                 UnHandled.AddRange(unhandled);
@@ -591,39 +676,23 @@ public static class HLS
             if (StreamInfo != null)
                 builder.Append(StreamInfo.ToM3U8Line());
 
-            if (Decryption != null)
+            var usePositionalKeys = Segments.OfType<MediaSegment>().Any(segment => segment.Keys != null);
+            if (!usePositionalKeys)
             {
-                var keyBuilder = new StringBuilder();
-                keyBuilder.Append("#EXT-X-KEY:METHOD=");
-                keyBuilder.Append(Decryption.Method);
-                if (!string.Equals(Decryption.Method, "NONE", StringComparison.OrdinalIgnoreCase))
+                foreach (var key in Keys)
+                    AppendKeyLine(builder, key);
+            }
+
+            List<DecryptionInfo>? lastEmittedKeys = null;
+            if (usePositionalKeys && !MapBeforeKey)
+            {
+                var mapKeySet = MapKeys ?? Segments.OfType<MediaSegment>().FirstOrDefault(segment => segment.Keys != null)?.Keys;
+                if (mapKeySet != null)
                 {
-                    if (!string.IsNullOrEmpty(Decryption.KeyUrl))
-                    {
-                        keyBuilder.Append(",URI=\"");
-                        keyBuilder.Append(Decryption.KeyUrl);
-                        keyBuilder.Append("\"");
-                    }
-
-                    if (!string.IsNullOrEmpty(Decryption.IV))
-                        keyBuilder.Append($",IV=0x{Decryption.IV}");
-
-                    if (!string.IsNullOrEmpty(Decryption.KeyFormat))
-                    {
-                        keyBuilder.Append(",KEYFORMAT=\"");
-                        keyBuilder.Append(Decryption.KeyFormat);
-                        keyBuilder.Append("\"");
-                    }
-
-                    if (!string.IsNullOrEmpty(Decryption.KeyFormatVersions))
-                    {
-                        keyBuilder.Append(",KEYFORMATVERSIONS=\"");
-                        keyBuilder.Append(Decryption.KeyFormatVersions);
-                        keyBuilder.Append("\"");
-                    }
+                    foreach (var key in mapKeySet)
+                        AppendKeyLine(builder, key);
+                    lastEmittedKeys = mapKeySet;
                 }
-
-                builder.AppendLine(keyBuilder.ToString());
             }
 
             if (!string.IsNullOrEmpty(MapUrl))
@@ -645,9 +714,53 @@ public static class HLS
             }
 
             foreach (var segment in Segments)
+            {
+                if (usePositionalKeys && segment is MediaSegment mediaSegment && mediaSegment.Keys != null
+                    && !ReferenceEquals(mediaSegment.Keys, lastEmittedKeys))
+                {
+                    foreach (var key in mediaSegment.Keys)
+                        AppendKeyLine(builder, key);
+                    lastEmittedKeys = mediaSegment.Keys;
+                }
                 builder.Append(segment.ToM3U8Line());
+            }
 
             return builder.ToString();
+        }
+
+        private static void AppendKeyLine(StringBuilder builder, DecryptionInfo key)
+        {
+            var keyBuilder = new StringBuilder();
+            keyBuilder.Append("#EXT-X-KEY:METHOD=");
+            keyBuilder.Append(key.Method);
+            if (!string.Equals(key.Method, "NONE", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(key.KeyUrl))
+                {
+                    keyBuilder.Append(",URI=\"");
+                    keyBuilder.Append(key.KeyUrl);
+                    keyBuilder.Append("\"");
+                }
+
+                if (!string.IsNullOrEmpty(key.IV))
+                    keyBuilder.Append($",IV=0x{key.IV}");
+
+                if (!string.IsNullOrEmpty(key.KeyFormat))
+                {
+                    keyBuilder.Append(",KEYFORMAT=\"");
+                    keyBuilder.Append(key.KeyFormat);
+                    keyBuilder.Append("\"");
+                }
+
+                if (!string.IsNullOrEmpty(key.KeyFormatVersions))
+                {
+                    keyBuilder.Append(",KEYFORMATVERSIONS=\"");
+                    keyBuilder.Append(key.KeyFormatVersions);
+                    keyBuilder.Append("\"");
+                }
+            }
+
+            builder.AppendLine(keyBuilder.ToString());
         }
 
         public List<HLSVariantVideoUrlSource> GetVideoSources()
@@ -823,6 +936,8 @@ public static class HLS
         public string Uri = "";
         public long BytesStart = -1;
         public long BytesLength = -1;
+
+        public List<DecryptionInfo>? Keys;
 
         public List<string> Unhandled = new List<string>();
 

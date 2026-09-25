@@ -22,8 +22,8 @@ namespace Grayjay.ClientServer.Helpers
             return false;
         }
 
-        public static bool IsDownloadable(IVideoSource source) => source is VideoUrlSource videoUrlSource || source is HLSManifestSource || source is DashManifestRawSource || (source is UMPSource ump && !ump.IsLive) || (source is UMPVideoFormatSource umpFormat && !umpFormat.Parent.IsLive);
-        public static bool IsDownloadable(IAudioSource source) => source is AudioUrlSource videoUrlSource || source is HLSManifestAudioSource || source is DashManifestRawAudioSource || (source is UMPAudioFormatSource umpFormat && !umpFormat.Parent.IsLive);
+        public static bool IsDownloadable(IVideoSource source) => (source is VideoUrlSource videoUrlSource || source is HLSManifestSource || source is DashManifestRawSource || (source is UMPSource ump && !ump.IsLive) || (source is UMPVideoFormatSource umpFormat && !umpFormat.Parent.IsLive)) && !(source is IWidevineSource);
+        public static bool IsDownloadable(IAudioSource source) => (source is AudioUrlSource videoUrlSource || source is HLSManifestAudioSource || source is DashManifestRawAudioSource || (source is UMPAudioFormatSource umpFormat && !umpFormat.Parent.IsLive)) && !(source is IWidevineSource);
 
         public static List<IVideoSource> ExpandUMPVideoSources(IEnumerable<IVideoSource> sources) =>
             sources.SelectMany(x => x is UMPSource ump ? ump.GetVideoFormatSources().Cast<IVideoSource>() : new[] { x }).ToList();
