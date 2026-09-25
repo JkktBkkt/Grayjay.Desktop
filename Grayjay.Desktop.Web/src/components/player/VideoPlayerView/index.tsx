@@ -3,7 +3,7 @@ import styles from './index.module.css';
 import PlayerControlsView from '../PlayerControlsView';
 import { Duration } from 'luxon';
 import { SourceSelected } from '../../contentDetails/VideoDetailView';
-import { DetailsBackend } from '../../../backend/DetailsBackend';
+import { DetailsBackend, ISourceDrm } from '../../../backend/DetailsBackend';
 import { CastConnectionState, useCasting } from '../../../contexts/Casting';
 import { CastingBackend } from '../../../backend/CastingBackend';
 import { Event0 } from "../../../utility/Event";
@@ -22,6 +22,16 @@ import { focusable } from '../../../focusable'; void focusable;
 import { FocusableOptions, InputSource } from '../../../nav';
 import { SettingsBackend } from '../../../backend/SettingsBackend';
 
+export type PlaybackErrorKind = "drm-license" | "drm" | "generic";
+
+type DashErrorPayload = {
+    code?: number;
+    message?: string;
+    data?: {
+        responseCode?: number;
+    };
+};
+
 interface VideoProps {
     onVideoDimensionsChanged: (width: number, height: number) => void;
     children: JSX.Element;
@@ -38,7 +48,7 @@ interface VideoProps {
     onToggleSubtitles?: () => void;
     onProgress?: (progress: number) => void;
     onEnded?: () => void;
-    onError?: (message: string, fatal: boolean, reloadable?: boolean) => void;
+    onError?: (message: string, fatal: boolean, kind: PlaybackErrorKind, reloadable?: boolean) => void;
     onPositionChanged?: (time: Duration) => void;
     onIncreasePlaybackSpeed?: () => void;
     onDecreasePlaybackSpeed?: () => void;
@@ -77,6 +87,10 @@ export type VideoPlayerViewHandle = {
     seek(time: Duration): Promise<void>;
 };
 
+function absoluteUrl(relativeUrl: string): string {
+    return new URL(relativeUrl, window.location.origin).toString();
+}
+
 const VideoPlayerView: Component<VideoProps> = (props) => {
     const casting = useCasting()!;
     
@@ -89,6 +103,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     let timeout: NodeJS.Timeout | undefined;
     let volumeBeforeMute: number | undefined = undefined;
     let subtitleMap: Map<string, HTMLParagraphElement> = new Map<string, HTMLParagraphElement>();
+    let sideLoadedSubtitleTrack: HTMLTrackElement | undefined;
     const [areControlsVisible, setAreControlsVisible] = createSignal(false);
     const [duration, setDuration] = createSignal(Duration.fromMillis(0));
     const [videoDimensions, setVideoDimensions] = createSignal({ width: 1920, height: 1080 });
@@ -333,7 +348,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             console.info("change source because changeSourceToSetSource call");
 
             try {
-                changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time);
+                changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time, descriptor.drm, descriptor.subtitleIndex, descriptor.subtitleIsLocal);
             }
             catch(ex) {
                 console.error("Failed to load source", ex);
@@ -617,8 +632,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         props.onVolumeChanged?.(volume);
     };
 
-    const onError = (error: string, fatal: boolean, reloadable?: boolean) => {
-        props.onError?.(error, fatal, reloadable);
+    const onError = (error: string, fatal: boolean, kind: PlaybackErrorKind = "generic", reloadable?: boolean) => {
+        props.onError?.(error, fatal, kind, reloadable);
         if (fatal) {
             setLoaderGameVisible(undefined);
             setIsPlaying(false);
@@ -643,9 +658,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setResumePositionVisible(visible);
     });
 
-    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration) => {
+    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, drm?: ISourceDrm, subtitleIndex?: number, subtitleIsLocal?: boolean) => {
         //TODO: Implement playWhenReady ?
-        console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime});
+        console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime, drm, subtitleIndex, subtitleIsLocal});
         setIsAudioOnly(false);
         setIsPlaying(false);
         frameRate = undefined;
@@ -674,7 +689,12 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             subtitle.remove();
         }
 
-        subtitleMap.clear();          
+        subtitleMap.clear();
+
+        if (sideLoadedSubtitleTrack) {
+            sideLoadedSubtitleTrack.remove();
+            sideLoadedSubtitleTrack = undefined;
+        }
 
         const currentVolume = currentVolume$();
         if (dashPlayer) {
@@ -724,7 +744,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                         text: {
                             dispatchForManualRendering: true
                         },
-                        manifestRequestTimeout: 60000
+                        manifestRequestTimeout: 60000,
+                        retryAttempts: {
+                            license: 0
+                        }
                     }
                 });
 
@@ -823,7 +846,27 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     onVolumeChanged(dashPlayer?.getVolume() ?? 1);
                 });
 
-                const fatalErrorCodes = [
+                const isKnownErrorCode = (code: number | undefined): code is number => code !== undefined;
+
+                const drmErrorCodes = (): number[] => ([
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_UNKNOWN_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_CLIENT_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_SERVICE_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_OUTPUT_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_HARDWARECHANGE_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_DOMAIN_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_NO_CHALLENGE_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.SERVER_CERTIFICATE_UPDATED_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.KEY_STATUS_CHANGED_EXPIRED_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_NO_LICENSE_SERVER_URL_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.KEY_SYSTEM_ACCESS_DENIED_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.KEY_SESSION_CREATED_ERROR_CODE,
+                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_LICENSER_ERROR_CODE,
+                ] as (number | undefined)[]).filter(isKnownErrorCode);
+
+                const fatalErrorCodes = (): number[] => ([
                     // Manifest/MPD errors – playback won’t start if these occur:
                     dashjs.MediaPlayer.errors.MANIFEST_LOADER_PARSING_FAILURE_ERROR_CODE,
                     dashjs.MediaPlayer.errors.MANIFEST_LOADER_LOADING_FAILURE_ERROR_CODE,
@@ -850,22 +893,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_SIDX_CODE,
                     dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_XLINK_CODE,
 
-                    // DRM/Protection errors – if the content is encrypted and these errors occur, playback cannot proceed:
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_UNKNOWN_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_CLIENT_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_SERVICE_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_OUTPUT_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_HARDWARECHANGE_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEYERR_DOMAIN_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_NO_CHALLENGE_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.SERVER_CERTIFICATE_UPDATED_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.KEY_STATUS_CHANGED_EXPIRED_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_NO_LICENSE_SERVER_URL_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.KEY_SYSTEM_ACCESS_DENIED_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.KEY_SESSION_CREATED_ERROR_CODE,
-                    dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_LICENSER_ERROR_CODE,
+                    ...drmErrorCodes(),
 
                     // MSS errors – if using Microsoft Smooth Streaming content:
                     dashjs.MediaPlayer.errors.MSS_NO_TFRF_CODE,
@@ -886,21 +914,54 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     dashjs.MediaPlayer.errors.INDEXEDDB_TIMEOUT_ERROR,
                     dashjs.MediaPlayer.errors.INDEXEDDB_ABORT_ERROR,
                     dashjs.MediaPlayer.errors.INDEXEDDB_UNKNOWN_ERROR
-                ];
+                ] as (number | undefined)[]).filter(isKnownErrorCode);
+
+                const classifyDashError = (code: number | undefined): PlaybackErrorKind => {
+                    if (code === undefined) {
+                        return "generic";
+                    }
+                    if (code === dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_LICENSER_ERROR_CODE) {
+                        return "drm-license";
+                    }
+                    return drmErrorCodes().includes(code) ? "drm" : "generic";
+                };
 
                 dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (data) => {
                     console.error("DashJS ERROR", data);
-                    const code = (data.error as any)?.code;
-                    onError(`DashJS Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    const dashError = data.error as DashErrorPayload | undefined;
+                    const code = dashError?.code;
+                    const responseCode = dashError?.data?.responseCode;
+                    const statusSuffix = responseCode !== undefined ? ` (license server status ${responseCode})` : "";
+                    onError(`DashJS Error${statusSuffix}: ${JSON.stringify(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false, classifyDashError(code));
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.PLAYBACK_ERROR, (data) => {
                     console.error("DashJS PLAYBACK_ERROR", data);
-                    const code = (data.error as any)?.code;
-                    onError(`DashJS Playback Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    const code = (data.error as DashErrorPayload | undefined)?.code;
+                    onError(`DashJS Playback Error: ${JSON.stringify(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false);
                 });
 
+                if (drm) {
+                    dashPlayer.setProtectionData({
+                        [drm.keySystem]: {
+                            serverURL: absoluteUrl(drm.licenseUrl),
+                            ...(drm.serviceCertificate ? { serverCertificate: drm.serviceCertificate } : {})
+                        }
+                    });
+                }
+
                 dashPlayer.initialize(videoElement, sourceUrl, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
+
+                if (drm && subtitleIndex !== undefined && subtitleIndex >= 0) {
+                    const trackElement = document.createElement("track");
+                    trackElement.kind = "subtitles";
+                    trackElement.label = "Subtitles";
+                    trackElement.default = true;
+                    trackElement.src = absoluteUrl(`/proxy/Subtitle?subtitleIndex=${subtitleIndex}&subtitleIsLocal=${subtitleIsLocal === true}&windowId=${Globals.WindowID}`);
+                    videoElement.appendChild(trackElement);
+                    trackElement.track.mode = "showing";
+                    sideLoadedSubtitleTrack = trackElement;
+                }
             } else if ((mediaType === 'application/vnd.apple.mpegurl' || mediaType === 'application/x-mpegURL') && Hls.isSupported()) {
                 videoElement.onerror = (event: Event | string, source?: string, lineno?: number, colno?: number, error?: Error) => {
                     console.error("Player error", {source, lineno, colno, error});
@@ -978,7 +1039,19 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
                 videoElement
                 
-                hlsPlayer = new Hls({ startPosition: -1 });
+                const hlsBaseConfig = { startPosition: -1 };
+                hlsPlayer = drm
+                    ? new Hls({
+                        ...hlsBaseConfig,
+                        emeEnabled: true,
+                        drmSystems: {
+                            [drm.keySystem]: {
+                                licenseUrl: absoluteUrl(drm.licenseUrl),
+                                ...(drm.certificateUrl ? { serverCertificateUrl: absoluteUrl(drm.certificateUrl) } : {})
+                            }
+                        }
+                    })
+                    : new Hls(hlsBaseConfig);
 
                 //TODO: Framerate
                 /*hlsPlayer.on(Hls.Events.MANIFEST_PARSED, (eventName, data) => {
@@ -1085,7 +1158,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
                 if (mediaType === 'application/vnd.yt-ump') {
                     const player = new UmpPlayer(videoElement, sourceUrl, {
-                        onError: (message, fatal, kind) => onError(message, fatal, kind === "reload" || kind === "blocked"),
+                        onError: (message, fatal, kind) => onError(message, fatal, "generic", kind === "reload" || kind === "blocked"),
                         onCueEnter: (id, text) => {
                             const subtitle = document.createElement("div");
                             subtitle.textContent = cueText(text);

@@ -27,6 +27,7 @@ using Grayjay.Engine.Models.Video.Sources;
 using Grayjay.Engine.Pagers;
 using Grayjay.Engine.V8;
 using Grayjay.Engine.Web;
+using Google.Protobuf;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using System;
@@ -59,6 +60,54 @@ namespace Grayjay.ClientServer.Controllers
 
             public RequestExecutor _videoRequestExecutor = null;
             public RequestExecutor _audioRequestExecutor = null;
+            public RequestExecutor _licenseRequestExecutor = null;
+            public IWidevineSource _licenseRequestExecutorSource = null;
+
+            public void ClearLicenseRequestExecutor()
+            {
+                RequestExecutor oldExecutor;
+                lock (this)
+                {
+                    oldExecutor = _licenseRequestExecutor;
+                    _licenseRequestExecutor = null;
+                    _licenseRequestExecutorSource = null;
+                }
+                if (oldExecutor != null)
+                {
+                    try
+                    {
+                        lock (oldExecutor)
+                            oldExecutor.Cleanup();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.w(nameof(DetailsState), "License request executor cleanup failed: " + ex.Message, ex);
+                    }
+                }
+            }
+
+            private readonly List<string> _dashRelativeProxyTokens = new List<string>();
+
+            public void RegisterDashRelativeProxyToken(string token)
+            {
+                if (string.IsNullOrEmpty(token))
+                    return;
+                lock (_dashRelativeProxyTokens)
+                {
+                    if (!_dashRelativeProxyTokens.Contains(token))
+                        _dashRelativeProxyTokens.Add(token);
+                }
+            }
+
+            public void ClearDashRelativeProxies()
+            {
+                lock (_dashRelativeProxyTokens)
+                {
+                    foreach (var token in _dashRelativeProxyTokens)
+                        ProxyController.RemoveDashRelativeProxy(token);
+                    _dashRelativeProxyTokens.Clear();
+                }
+            }
 
             public long _lastWatchPosition = 0;
             public DateTime _lastWatchPositionChange = DateTime.MinValue;
@@ -129,9 +178,20 @@ namespace Grayjay.ClientServer.Controllers
 
             public void Dispose()
             {
+                try
+                {
+                    VideoPlaybackTracker?.onConcluded();
+                }
+                catch (Exception ex)
+                {
+                    Logger.w(nameof(DetailsState), "Failed to call onConcluded on PlaybackTracker during dispose: " + ex.Message, ex);
+                }
+                VideoPlaybackTracker = null;
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
+                ClearLicenseRequestExecutor();
+                ClearDashRelativeProxies();
             }
         }
 
@@ -144,6 +204,8 @@ namespace Grayjay.ClientServer.Controllers
             state.ClearCachedDash();
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
+            state.ClearLicenseRequestExecutor();
+            state.ClearDashRelativeProxies();
             state.VideoLoaded = video;
             state.VideoLocal = videoLocal;
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
@@ -277,7 +339,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptCaptchaRequiredException captchaEx)
             {
-                throw new NotImplementedException("Captcha");
+                throw CreateCaptchaDialogException("post", captchaEx);
             }
             catch(Exception ex)
             {
@@ -342,7 +404,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptCaptchaRequiredException captchaEx)
             {
-                throw new NotImplementedException("Captcha");
+                throw CreateCaptchaDialogException("video", captchaEx);
             }
             catch(Exception ex)
             {
@@ -493,6 +555,17 @@ namespace Grayjay.ClientServer.Controllers
             var sourceVideo = (videoIndex >= 0) ? video.Video.VideoSources[videoIndex] : null;
             var sourceAudio = (audioIndex >= 0 && video.Video is UnMuxedVideoDescriptor unmuxed) ? unmuxed.AudioSources[audioIndex] : null;
 
+            if (AnyWidevine(sourceVideo, sourceAudio))
+            {
+                throw new DialogException(new ExceptionModel()
+                {
+                    Type = ExceptionModel.EXCEPTION_GENERAL,
+                    Title = "Cannot download this video",
+                    Message = "DRM protected sources cannot be downloaded",
+                    CanRetry = false
+                });
+            }
+
             VideoDownload existing = StateDownloads.GetDownloadingVideo(video.ID);
             
             //TODO: Edgecases
@@ -519,14 +592,21 @@ namespace Grayjay.ClientServer.Controllers
                 if (!hlsResponse.IsOk)
                     return new List<VideoQuality>();
                 string hlsContent = hlsResponse.Body.AsString();
-                var hlsManifest = Parsers.HLS.ParseMasterPlaylist(hlsContent, hlsVideo.Url);
-                return hlsManifest.GetVideoSources().Select(x => new VideoQuality()
-                {
-                    Name = $"({x.Width}x{x.Height}) " + x.Name,
-                    Width = x.Width,
-                    Height = x.Height
-                }).ToList();
 
+                try
+                {
+                    var hlsManifest = Parsers.HLS.ParseMasterPlaylist(hlsContent, hlsVideo.Url);
+                    return hlsManifest.GetVideoSources().Select(x => new VideoQuality()
+                    {
+                        Name = $"({x.Width}x{x.Height}) " + x.Name,
+                        Width = x.Width,
+                        Height = x.Height
+                    }).ToList();
+                }
+                catch (InvalidDataException)
+                {
+                    return new List<VideoQuality>();
+                }
             }
             return new List<VideoQuality>();
         }
@@ -851,6 +931,481 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
+        public async Task<IActionResult> SourceDashUrl(int videoIndex, bool isLoopback = true)
+            => await SourceDashUrlInternal(videoIndex, isLoopback, retried: false);
+
+        private async Task<IActionResult> SourceDashUrlInternal(int videoIndex, bool isLoopback, bool retried)
+        {
+            var state = this.State();
+            var proxySettings = new ProxySettings(isLoopback);
+            var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, -1, -1, proxySettings);
+            if (cachedTask != null)
+                return Content(await cachedTask, "application/dash+xml");
+
+            try
+            {
+                (var mpd, var isDynamic) = GenerateSourceDashUrl(state, videoIndex, proxySettings);
+                if (!isDynamic)
+                    state.DetailsState.SetCachedDash(videoIndex, -1, -1, proxySettings, Task.FromResult(mpd));
+                return Content(mpd, "application/dash+xml");
+            }
+            catch (ScriptReloadRequiredException reloadEx)
+            {
+                if (retried)
+                    throw;
+                await StatePlatform.HandleReloadRequired(reloadEx);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                var reloadedSources = state.DetailsState.VideoLoaded?.Video?.VideoSources;
+                if (videoIndex >= 0 && (reloadedSources == null || videoIndex >= reloadedSources.Length))
+                    throw new InvalidDataException("Video source is no longer available after reload");
+                return await SourceDashUrlInternal(videoIndex, isLoopback, retried: true);
+            }
+        }
+
+        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, int videoIndex, ProxySettings? proxySettings)
+        {
+            (var sourceVideo, _, _) = GetSources(state, videoIndex, -1, -1, false, false, false);
+            if (!(sourceVideo is DashManifestSource dashSource))
+                throw new Exception("Expected a DASH manifest source.");
+
+            var modifier = dashSource.GetRequestModifier();
+            var headers = new Grayjay.Engine.Models.HttpHeaders();
+            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), dashSource.Url, modifier, headers);
+            if (!res.IsOk)
+                throw new InvalidDataException($"Failed to fetch manifest [{res.Code}]");
+
+            var finalUrl = res.FinalUrl;
+            var baseUri = GetBaseUri(state, proxySettings);
+            var modifierId = modifier != null ? ProxyController.GetOrCreateModifierId(state, modifier, finalUrl) : null;
+
+            var document = XDocument.Load(new MemoryStream(res.Bytes));
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            bool isDynamic = string.Equals((string?)root.Attribute("type"), "dynamic", StringComparison.OrdinalIgnoreCase);
+
+            string ProxyRootFor(string absoluteBase)
+            {
+                var token = ProxyController.GetOrCreateDashRelativeProxy(state, absoluteBase, modifier, modifierId);
+                state.DetailsState.RegisterDashRelativeProxyToken(token);
+                return $"{baseUri}/proxy/DashRelative/{token}/";
+            }
+
+            static bool IsAbsoluteHttpUrl(string value) =>
+                Uri.TryCreate(value, UriKind.Absolute, out var absolute)
+                && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps);
+
+            var manifestUri = new Uri(finalUrl);
+            XNamespace ns = root.Name.Namespace;
+
+            var topLevelBaseUrls = root.Elements(ns + "BaseURL").ToList();
+            if (topLevelBaseUrls.Count == 0)
+            {
+                var addedBaseUrl = new XElement(ns + "BaseURL", ProxyRootFor(finalUrl));
+                root.AddFirst(addedBaseUrl);
+                topLevelBaseUrls.Add(addedBaseUrl);
+            }
+            else
+            {
+                foreach (var baseUrlElement in topLevelBaseUrls)
+                {
+                    var value = baseUrlElement.Value.Trim();
+                    baseUrlElement.Value = ProxyRootFor(IsAbsoluteHttpUrl(value) ? value : new Uri(manifestUri, value).ToString());
+                }
+            }
+
+            foreach (var baseUrlElement in root.Descendants(ns + "BaseURL"))
+            {
+                if (topLevelBaseUrls.Contains(baseUrlElement))
+                    continue;
+                var value = baseUrlElement.Value.Trim();
+                if (IsAbsoluteHttpUrl(value))
+                    baseUrlElement.Value = ProxyRootFor(value);
+            }
+
+            var urlAttributeTargets = new (string Element, string Attribute)[]
+            {
+                ("SegmentTemplate", "media"),
+                ("SegmentTemplate", "initialization"),
+                ("SegmentURL", "media"),
+                ("Initialization", "sourceURL")
+            };
+            foreach (var element in root.Descendants())
+            {
+                foreach (var target in urlAttributeTargets)
+                {
+                    if (element.Name.LocalName != target.Element)
+                        continue;
+                    var attribute = element.Attribute(target.Attribute);
+                    if (attribute == null)
+                        continue;
+
+                    var value = attribute.Value;
+                    string hostRoot;
+                    string rest;
+                    if (IsAbsoluteHttpUrl(value))
+                    {
+                        var authorityStart = value.IndexOf("://", StringComparison.Ordinal) + 3;
+                        var pathStart = value.IndexOfAny(new[] { '/', '?', '#' }, authorityStart);
+                        if (pathStart < 0)
+                        {
+                            hostRoot = value + "/";
+                            rest = "";
+                        }
+                        else if (value[pathStart] == '/')
+                        {
+                            hostRoot = value[..(pathStart + 1)];
+                            rest = value[(pathStart + 1)..];
+                        }
+                        else
+                        {
+                            hostRoot = value[..pathStart] + "/";
+                            rest = value[pathStart..];
+                        }
+                    }
+                    else if (value.StartsWith("/") && !value.StartsWith("//"))
+                    {
+                        hostRoot = manifestUri.GetLeftPart(UriPartial.Authority) + "/";
+                        rest = value.TrimStart('/');
+                    }
+                    else
+                        continue;
+
+                    attribute.Value = ProxyRootFor(hostRoot) + rest;
+                }
+            }
+
+            return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> SourceDashWidevineUrl(int videoIndex = -1, int audioIndex = -1, bool isLoopback = true)
+            => await SourceDashWidevineUrlInternal(videoIndex, audioIndex, isLoopback, retried: false);
+
+        private async Task<IActionResult> SourceDashWidevineUrlInternal(int videoIndex, int audioIndex, bool isLoopback, bool retried)
+        {
+            var state = this.State();
+            var proxySettings = new ProxySettings(isLoopback);
+            var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, -1, proxySettings);
+            if (cachedTask != null)
+                return Content(await cachedTask, "application/dash+xml");
+
+            try
+            {
+                var mpd = GenerateSourceDashWidevineUrl(state, videoIndex, audioIndex, proxySettings);
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, -1, proxySettings, Task.FromResult(mpd));
+                return Content(mpd, "application/dash+xml");
+            }
+            catch (ScriptReloadRequiredException reloadEx)
+            {
+                if (retried)
+                    throw;
+                await StatePlatform.HandleReloadRequired(reloadEx);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                var reloadedDescriptor = state.DetailsState.VideoLoaded?.Video;
+                if (videoIndex >= 0 && (reloadedDescriptor?.VideoSources == null || videoIndex >= reloadedDescriptor.VideoSources.Length))
+                {
+                    throw new InvalidDataException("Video source is no longer available after reload");
+                }
+                if (audioIndex >= 0 && (!(reloadedDescriptor is UnMuxedVideoDescriptor reloadedUnmuxed) || reloadedUnmuxed.AudioSources == null || audioIndex >= reloadedUnmuxed.AudioSources.Length))
+                {
+                    throw new InvalidDataException("Audio source is no longer available after reload");
+                }
+                return await SourceDashWidevineUrlInternal(videoIndex, audioIndex, isLoopback, retried: true);
+            }
+        }
+
+        public static string GenerateSourceDashWidevineUrl(WindowState state, int videoIndex, int audioIndex, ProxySettings? proxySettings)
+        {
+            (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, false, false, false);
+
+            var tracks = new List<(string Url, IRequestModifier? Modifier, long Duration, Dictionary<string, string> AdaptationParameters, Dictionary<string, string> RepresentationParameters)>();
+
+            if (sourceVideo != null)
+            {
+                if (!(sourceVideo is VideoUrlSource videoUrlSource) || !(sourceVideo is IWidevineSource))
+                {
+                    throw new Exception("Expected a Widevine url source.");
+                }
+
+                tracks.Add((
+                    videoUrlSource.Url,
+                    videoUrlSource.GetRequestModifier(),
+                    videoUrlSource.Duration,
+                    new Dictionary<string, string>()
+                    {
+                        { "mimeType", videoUrlSource.Container },
+                        { "codecs", videoUrlSource.Codec },
+                        { "subsegmentAlignment", "true" },
+                        { "subsegmentStartsWithSAP", "1" }
+                    },
+                    new Dictionary<string, string>()
+                    {
+                        { "mimeType", videoUrlSource.Container },
+                        { "codecs", videoUrlSource.Codec },
+                        { "width", videoUrlSource.Width.ToString() },
+                        { "height", videoUrlSource.Height.ToString() },
+                        { "startWithSAP", "1" },
+                        { "bandwidth", "100000" }
+                    }));
+            }
+            if (sourceAudio != null)
+            {
+                if (!(sourceAudio is AudioUrlSource audioUrlSource) || !(sourceAudio is IWidevineSource))
+                {
+                    throw new Exception("Expected a Widevine url source.");
+                }
+
+                tracks.Add((
+                    audioUrlSource.Url,
+                    audioUrlSource.GetRequestModifier(),
+                    audioUrlSource.Duration,
+                    new Dictionary<string, string>()
+                    {
+                        { "mimeType", audioUrlSource.Container },
+                        { "codecs", audioUrlSource.Codec },
+                        { "subsegmentAlignment", "true" },
+                        { "subsegmentStartsWithSAP", "1" }
+                    },
+                    new Dictionary<string, string>()
+                    {
+                        { "mimeType", audioUrlSource.Container },
+                        { "codecs", audioUrlSource.Codec },
+                        { "startWithSAP", "1" },
+                        { "bandwidth", "100000" }
+                    }));
+            }
+            if (tracks.Count == 0)
+                throw new Exception("Expected a Widevine url source.");
+
+            var baseUri = GetBaseUri(state, proxySettings);
+            var duration = tracks.Max(track => track.Duration);
+            var dashBuilder = new DashBuilder(duration, DashBuilder.PROFILE_ON_DEMAND);
+            var representationId = 1;
+
+            foreach (var track in tracks)
+            {
+                var metaData = FetchMp4Metadata(track.Url, track.Modifier);
+                var modifierId = track.Modifier != null ? ProxyController.GetOrCreateModifierId(state, track.Modifier, track.Url) : null;
+                var token = ProxyController.GetOrCreateDashRelativeProxy(state, track.Url, track.Modifier, modifierId);
+                state.DetailsState.RegisterDashRelativeProxyToken(token);
+                var proxiedUrl = $"{baseUri}/proxy/DashRelative/{token}/";
+
+                var representationIdString = representationId.ToString();
+                representationId++;
+                dashBuilder.WithAdaptationSet(track.AdaptationParameters, adaptationSet =>
+                {
+                    adaptationSet.TagClosed("ContentProtection", new Dictionary<string, string>()
+                    {
+                        { "schemeIdUri", "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed" },
+                        { "value", "widevine" }
+                    });
+                    adaptationSet.WithRepresentation(representationIdString, track.RepresentationParameters, representation =>
+                    {
+                        representation.WithSegmentBase(proxiedUrl, metaData.FileInitStart.Value, metaData.FileInitEnd.Value, metaData.FileIndexStart.Value, metaData.FileIndexEnd.Value);
+                    });
+                });
+            }
+            return dashBuilder.Build();
+        }
+
+        private static StreamMetaData FetchMp4Metadata(string url, IRequestModifier? modifier)
+        {
+            const int maxFullBodyBytes = 32 * 1024 * 1024;
+            byte[]? fullBody = null;
+            var client = new ManagedHttpClient();
+
+            byte[]? FetchBytes(long offset, int count)
+            {
+                if (fullBody != null)
+                {
+                    if (offset >= fullBody.Length)
+                        return null;
+                    int available = (int)Math.Min(count, fullBody.Length - offset);
+                    var slice = new byte[available];
+                    Array.Copy(fullBody, offset, slice, 0, available);
+                    return slice;
+                }
+
+                var rangeHeaders = new Grayjay.Engine.Models.HttpHeaders();
+                rangeHeaders.Set("Range", $"bytes={offset}-{offset + count - 1}");
+                var res = ModifierHttp.GetBytesBounded(client, url, modifier, rangeHeaders, maxFullBodyBytes);
+                if (res.LimitExceeded)
+                {
+                    throw new DialogException(new ExceptionModel()
+                    {
+                        Title = "Cannot play this video",
+                        Message = "The DRM protected stream does not support range requests and is too large to buffer",
+                        CanRetry = false
+                    });
+                }
+                if (!res.IsOk || res.Bytes == null)
+                    return null;
+                if (res.Bytes.Length <= count)
+                    return res.Bytes;
+
+                if (res.Code == 206)
+                    return null;
+                fullBody = res.Bytes;
+                return FetchBytes(offset, count);
+            }
+
+            var metaData = Mp4MetadataHelper.FindOnDemandRanges(FetchBytes);
+            if (metaData == null || metaData.FileInitStart == null || metaData.FileInitEnd == null || metaData.FileIndexStart == null || metaData.FileIndexEnd == null)
+            {
+                throw new DialogException(new ExceptionModel()
+                {
+                    Title = "Cannot play this video",
+                    Message = "The DRM protected stream does not expose the MP4 structure required for playback",
+                    CanRetry = false
+                });
+            }
+            return metaData;
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> WidevineLicense(int videoIndex, int audioIndex, bool videoIsLocal = false, bool audioIsLocal = false)
+        {
+            var state = this.State();
+            var detailsState = state.DetailsState;
+
+            byte[] challenge;
+            using (var memoryStream = new MemoryStream())
+            {
+                await Request.Body.CopyToAsync(memoryStream);
+                challenge = memoryStream.ToArray();
+            }
+            if (challenge.Length == 0)
+                return BadRequest("Missing license challenge body");
+
+            (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, videoIsLocal, audioIsLocal, false);
+            var widevineSource = (sourceVideo as IWidevineSource) ?? (sourceAudio as IWidevineSource);
+            if (widevineSource == null)
+                return BadRequest("Selected source is not a Widevine source");
+            if (string.IsNullOrEmpty(widevineSource.LicenseUri))
+                return BadRequest("Widevine source has no license URI");
+
+            try
+            {
+                RequestExecutor? executor = null;
+                if (widevineSource.HasLicenseRequestExecutor)
+                {
+                    lock (detailsState)
+                    {
+                        executor = detailsState._licenseRequestExecutor;
+                        if (executor == null || executor.DidCleanup || !ReferenceEquals(detailsState._licenseRequestExecutorSource, widevineSource))
+                        {
+                            detailsState.ClearLicenseRequestExecutor();
+                            executor = widevineSource.GetLicenseRequestExecutor();
+                            detailsState._licenseRequestExecutor = executor;
+                            detailsState._licenseRequestExecutorSource = widevineSource;
+                        }
+                    }
+                    if (executor == null)
+                        Logger.w(nameof(DetailsController), "License request executor unavailable, falling back to direct license requests");
+                }
+
+                byte[]? license;
+                if (executor != null)
+                {
+                    lock (executor)
+                    {
+                        if (executor.DidCleanup)
+                            return StatusCode(502, "License request executor was cleaned up");
+                        license = executor.ExecuteRequest(widevineSource.LicenseUri, new Dictionary<string, string>(), "POST", challenge);
+                    }
+                }
+                else
+                {
+                    var modifier = (widevineSource as JSSource)?.GetRequestModifier();
+                    var headers = new Grayjay.Engine.Models.HttpHeaders();
+                    headers.Add("Content-Type", "application/octet-stream");
+                    var res = ModifierHttp.PostBytes(new ManagedHttpClient(), widevineSource.LicenseUri, challenge, modifier, headers);
+                    if (!res.IsOk)
+                        return StatusCode(502, $"License server returned [{res.Code}]");
+                    license = res.Bytes;
+                }
+
+                if (license == null || license.Length == 0)
+                    return StatusCode(502, "Received an empty Widevine license");
+                return File(license, "application/octet-stream");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error<DetailsController>("Widevine license request failed", ex);
+                return StatusCode(502, "Widevine license request failed: " + ex.Message);
+            }
+        }
+
+        [HttpGet]
+        public IActionResult WidevineCertificate(int videoIndex, int audioIndex, bool videoIsLocal = false, bool audioIsLocal = false)
+        {
+            var state = this.State();
+            (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, videoIsLocal, audioIsLocal, false);
+            var widevineSource = (sourceVideo as IWidevineSource) ?? (sourceAudio as IWidevineSource);
+            if (widevineSource == null)
+                return BadRequest("Selected source is not a Widevine source");
+
+            var certificate = TryDecodeServiceCertificate(widevineSource.ServiceCertificate);
+            if (certificate == null)
+                return NotFound("Selected source has no Widevine service certificate");
+            return File(certificate, "application/octet-stream");
+        }
+
+        private static byte[]? TryDecodeServiceCertificate(string? base64)
+        {
+            if (string.IsNullOrWhiteSpace(base64))
+                return null;
+
+            var normalized = string.Concat(base64.Where(character => !char.IsWhiteSpace(character)));
+
+            try
+            {
+                return UnwrapServiceCertificate(normalized.DecodeBase64Url());
+            }
+            catch (FormatException ex)
+            {
+                Logger.Warning<DetailsController>("Invalid Widevine serviceCertificate from plugin, continuing without privacy mode", ex);
+                return null;
+            }
+        }
+
+        private static byte[] UnwrapServiceCertificate(byte[] certificate)
+        {
+            if (certificate.Length < 2 || certificate[0] != 0x08 || certificate[1] != 0x05)
+                return certificate;
+
+            try
+            {
+                var input = new CodedInputStream(certificate);
+                while (!input.IsAtEnd)
+                {
+                    var tag = input.ReadTag();
+                    if (tag == 0)
+                        break;
+
+                    var wireType = WireFormat.GetTagWireType(tag);
+                    if (wireType == WireFormat.WireType.LengthDelimited)
+                    {
+                        var payload = input.ReadBytes();
+                        if (WireFormat.GetTagFieldNumber(tag) == 2)
+                            return payload.ToByteArray();
+                    }
+                    else if (wireType == WireFormat.WireType.Varint)
+                    {
+                        input.ReadUInt64();
+                    }
+                    else
+                    {
+                        input.SkipLastField();
+                    }
+                }
+            }
+            catch (InvalidProtocolBufferException)
+            {
+            }
+            return certificate;
+        }
+
+        [HttpGet]
         public async Task<IActionResult> SourceHLS(int videoIndex = -1, int audioIndex = -1, int subtitleIndex = -1, bool subtitleIsLocal = false, bool isLoopback = true, string? modifierId = null)
         {
             return Content(await GenerateSourceHLS(this.State(), videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(isLoopback), modifierId), "application/x-mpegurl");
@@ -1020,10 +1575,46 @@ namespace Grayjay.ClientServer.Controllers
             else
             {
                 var video = EnsureVideo(this.State());
-                var bestVideoSourceIndex = VideoHelper.SelectBestVideoSourceIndex(video.Video.VideoSources.Cast<IVideoSource>().ToList(), GrayjaySettings.Instance.Playback.GetPreferredQualityPixelCount(), new List<string>() { "video/mp4" });
-                var bestAudioSourceIndex = (video.Video is UnMuxedVideoDescriptor unmuxed) ? 
-                    VideoHelper.SelectBestAudioSourceIndex(unmuxed.AudioSources.Cast<IAudioSource>().ToList(), new List<string>() { "audio/mp4" }, GrayjaySettings.Instance.Playback.GetPrimaryLanguage(), 9999 * 9999) : 
+                var videoSourceList = video.Video.VideoSources.Cast<IVideoSource>().ToList();
+                var audioSourceList = (video.Video is UnMuxedVideoDescriptor unmuxed) ? unmuxed.AudioSources.Cast<IAudioSource>().ToList() : null;
+
+                var videoSourceCandidates = videoSourceList;
+                var audioSourceCandidates = audioSourceList;
+                bool hasWidevineSources = videoSourceList.Any(source => source is IWidevineSource)
+                    || (audioSourceList?.Any(source => source is IWidevineSource) ?? false);
+                if (hasWidevineSources && !StateWidevine.IsPlaybackAvailable)
+                {
+                    await StateWidevine.RefreshAsync();
+                }
+
+                if (!StateWidevine.IsPlaybackAvailable)
+                {
+                    var clearVideoSources = videoSourceList.Where(source => !(source is IWidevineSource)).ToList();
+                    if (clearVideoSources.Count > 0 && clearVideoSources.Count < videoSourceList.Count)
+                        videoSourceCandidates = clearVideoSources;
+                    if (audioSourceList != null)
+                    {
+                        var clearAudioSources = audioSourceList.Where(source => !(source is IWidevineSource)).ToList();
+                        if (clearAudioSources.Count > 0 && clearAudioSources.Count < audioSourceList.Count)
+                            audioSourceCandidates = clearAudioSources;
+                    }
+                }
+
+                var bestVideoCandidateIndex = VideoHelper.SelectBestVideoSourceIndex(videoSourceCandidates, GrayjaySettings.Instance.Playback.GetPreferredQualityPixelCount(), new List<string>() { "video/mp4" });
+                var bestVideoSourceIndex = (bestVideoCandidateIndex >= 0) ? videoSourceList.IndexOf(videoSourceCandidates[bestVideoCandidateIndex]) : -1;
+
+                if (bestVideoSourceIndex >= 0 && audioSourceCandidates != null)
+                {
+                    bool videoIsWidevine = videoSourceList[bestVideoSourceIndex] is IWidevineSource;
+                    var matchingAudioSources = audioSourceCandidates.Where(source => (source is IWidevineSource) == videoIsWidevine).ToList();
+                    if (matchingAudioSources.Count > 0)
+                        audioSourceCandidates = matchingAudioSources;
+                }
+
+                var bestAudioCandidateIndex = (audioSourceCandidates != null) ?
+                    VideoHelper.SelectBestAudioSourceIndex(audioSourceCandidates, new List<string>() { "audio/mp4" }, GrayjaySettings.Instance.Playback.GetPrimaryLanguage(), 9999 * 9999) :
                     -1;
+                var bestAudioSourceIndex = (bestAudioCandidateIndex >= 0) ? audioSourceList!.IndexOf(audioSourceCandidates![bestAudioCandidateIndex]) : -1;
 
                 if (bestVideoSourceIndex == -1 && bestAudioSourceIndex == -1 && video.DateTime > DateTime.Now)
                     throw new DialogException(new ExceptionModel()
@@ -1040,7 +1631,8 @@ namespace Grayjay.ClientServer.Controllers
                 {
                     (var videoSources, var audioSource, _) = GetSources(this.State(), bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false);
 
-                    if(videoSources is DashManifestRawSource && audioSource is DashManifestRawAudioSource)
+                    bool dashRawPair = videoSources is DashManifestRawSource && audioSource is DashManifestRawAudioSource;
+                    if (dashRawPair || IsWidevineUrlPair(videoSources, audioSource))
                     {
                         return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false);
                     }
@@ -1090,14 +1682,55 @@ namespace Grayjay.ClientServer.Controllers
                     return UmpSourceDescriptor(state, umpSource, videoIndex, subtitleIndex, subtitleIsLocal, tag);
                 throw new InvalidOperationException("UMP sources are cast through UmpCasting, not the source proxy");
             }
+
+            bool anyWidevine = AnyWidevine(sourceVideo, sourceAudio);
+            if (anyWidevine)
+            {
+                if (proxySettings?.ExposeLocalAsAny == true)
+                {
+                    throw CreateCastDrmException();
+                }
+                await EnsureWidevinePlaybackAvailableAsync();
+            }
+            SourceDescriptor WithDrm(SourceDescriptor descriptor)
+            {
+                if (anyWidevine)
+                {
+                    var widevineSource = (sourceVideo as IWidevineSource) ?? (sourceAudio as IWidevineSource);
+                    var certificateBytes = TryDecodeServiceCertificate(widevineSource?.ServiceCertificate);
+                    descriptor.Drm = new SourceDrm()
+                    {
+                        LicenseUrl = $"/details/WidevineLicense?videoIndex={videoIndex}&audioIndex={audioIndex}&videoIsLocal={videoIsLocal}&audioIsLocal={audioIsLocal}&windowId={state.WindowID}",
+                        ServiceCertificate = (certificateBytes != null) ? Convert.ToBase64String(certificateBytes) : null,
+                        CertificateUrl = (certificateBytes != null) ? $"/details/WidevineCertificate?videoIndex={videoIndex}&audioIndex={audioIndex}&videoIsLocal={videoIsLocal}&audioIsLocal={audioIsLocal}&windowId={state.WindowID}" : null
+                    };
+                }
+                return descriptor;
+            }
+            SourceDescriptor WidevineUrlDescriptor(int dashVideoIndex, int dashAudioIndex, int dashSubtitleIndex, bool dashSubtitleIsLocal)
+            {
+                return WithDrm(new SourceDescriptor($"/details/SourceDashWidevineUrl?videoIndex={dashVideoIndex}&audioIndex={dashAudioIndex}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}", "application/dash+xml", dashVideoIndex, dashAudioIndex, dashSubtitleIndex, false, false, dashSubtitleIsLocal));
+            }
+
             if (subtitleIndex >= 0 && sourceVideo is HLSManifestSource)
-                return DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
+                return WithDrm(DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
 
             if (subtitleIndex >= 0 && sourceAudio is HLSManifestAudioSource)
-                return DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
-                
+                return WithDrm(DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
+
             if (sourceVideo != null && (sourceAudio != null || sourceSubtitle != null))
             {
+                if (anyWidevine)
+                {
+                    if (IsWidevineUrlSource(sourceVideo) && (sourceAudio == null || IsWidevineUrlSource(sourceAudio)))
+                    {
+                        var widevineAudioIndex = (sourceAudio != null) ? audioIndex : -1;
+                        return WidevineUrlDescriptor(videoIndex, widevineAudioIndex, subtitleIndex, subtitleIsLocal);
+                    }
+                    throw DialogException.FromException("Cannot play this source",
+                        new Exception("DRM protected sources cannot be combined with clear audio tracks"));
+                }
+
                 if (sourceAudio != null && !(sourceVideo is DashManifestRawSource && sourceAudio is DashManifestRawAudioSource) && (!(sourceVideo is IStreamMetaDataSource) || !(sourceAudio is IStreamMetaDataSource)))
                     throw DialogException.FromException("Cannot play this source", new Exception("Unmuxed sources require IStreamMetaDataSource info to translate to dash"));
 
@@ -1116,11 +1749,17 @@ namespace Grayjay.ClientServer.Controllers
             else if (sourceVideo != null)
             {
                 if (sourceVideo is VideoUrlSource vus)
+                {
+                    if (vus is IWidevineSource)
+                        return WidevineUrlDescriptor(videoIndex, -1, -1, false);
                     return DirectVideoUrlSource(vus, videoIndex, videoIsLocal, proxySettings);
+                }
                 else if (sourceVideo is HLSManifestSource)
-                    return DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
+                    return WithDrm(DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
                 else if (sourceVideo is LocalVideoSource lvs)
                     return LocalVideoSource(state, lvs);
+                else if (sourceVideo is DashManifestSource)
+                    return WithDrm(new SourceDescriptor($"/details/SourceDashUrl?videoIndex={videoIndex}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}", "application/dash+xml", videoIndex, -1, -1, false, false, false));
                 else if (sourceVideo is DashManifestRawSource das)
                 {
                     if (!(sourceVideo is IStreamMetaDataSource))
@@ -1146,9 +1785,13 @@ namespace Grayjay.ClientServer.Controllers
             else if (sourceAudio != null)
             {
                 if (sourceAudio is AudioUrlSource aus)
+                {
+                    if (aus is IWidevineSource)
+                        return WidevineUrlDescriptor(-1, audioIndex, subtitleIndex, subtitleIsLocal);
                     return DirectAudioUrlSource(aus, audioIndex, audioIsLocal, proxySettings);
+                }
                 else if (sourceAudio is HLSManifestAudioSource)
-                    return DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
+                    return WithDrm(DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
                 else if (sourceAudio is LocalAudioSource las)
                     return LocalAudioSource(state, las);
                 else
@@ -1177,6 +1820,77 @@ namespace Grayjay.ClientServer.Controllers
                 playback.SubtitleUrl = $"/details/Subtitle?subtitleIndex={subtitleIndex}&subtitleIsLocal={subtitleIsLocal}&windowId={state.WindowID}";
             details.UmpPlaybackId = playback.Id;
             return new SourceDescriptor($"/Ump/Info?id={playback.Id}", UMPSource.CONTAINER, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
+        }
+
+        private static DialogException CreateCaptchaDialogException(string contentKind, ScriptCaptchaRequiredException captchaException)
+        {
+            _ = StateApp.HandleCaptchaException(captchaException.Config, captchaException);
+            return new DialogException(new ExceptionModel()
+            {
+                Type = ExceptionModel.EXCEPTION_SCRIPT,
+                Title = "Captcha required",
+                Message = $"The source requires a captcha to be solved before this {contentKind} can load. Solve the captcha in the window that opened, then retry.",
+                CanRetry = true,
+                TypeName = nameof(ScriptCaptchaRequiredException)
+            }, captchaException);
+        }
+
+        internal static DialogException CreateCastDrmException()
+        {
+            return new DialogException(new ExceptionModel()
+            {
+                Title = "Cannot cast this video",
+                Message = "DRM protected content cannot be cast",
+                CanRetry = false
+            });
+        }
+
+        private static bool AnyWidevine(IVideoSource? sourceVideo, IAudioSource? sourceAudio)
+        {
+            return sourceVideo is IWidevineSource || sourceAudio is IWidevineSource;
+        }
+
+        private static bool IsWidevineUrlSource(IVideoSource? sourceVideo)
+        {
+            return sourceVideo is VideoUrlSource && sourceVideo is IWidevineSource;
+        }
+
+        private static bool IsWidevineUrlSource(IAudioSource? sourceAudio)
+        {
+            return sourceAudio is AudioUrlSource && sourceAudio is IWidevineSource;
+        }
+
+        private static bool IsWidevineUrlPair(IVideoSource? sourceVideo, IAudioSource? sourceAudio)
+        {
+            return IsWidevineUrlSource(sourceVideo) && IsWidevineUrlSource(sourceAudio);
+        }
+
+        private static async Task EnsureWidevinePlaybackAvailableAsync()
+        {
+            if (StateWidevine.IsPlaybackAvailable)
+                return;
+
+            await StateWidevine.RefreshAsync();
+            if (StateWidevine.IsPlaybackAvailable)
+                return;
+
+            var status = StateWidevine.Status;
+            if (status?.RequiresRestart == true)
+            {
+                throw new DialogException(new ExceptionModel()
+                {
+                    Title = "Restart required for DRM playback",
+                    Message = "The Widevine DRM component was installed but requires an application restart before it can be used.",
+                    CanRetry = false
+                });
+            }
+
+            throw new DialogException(new ExceptionModel()
+            {
+                Title = "DRM playback not available",
+                Message = "This source requires Widevine DRM, which is not installed or still downloading. Try again in a moment.",
+                CanRetry = true
+            });
         }
 
         private static readonly Regex _repIdRegex = new Regex("Representation\\s+id=\"(\\d+)\"", RegexOptions.Compiled);
@@ -1423,6 +2137,7 @@ namespace Grayjay.ClientServer.Controllers
             public bool AudioIsLocal { get; set; }
             public int SubtitleIndex { get; set; }
             public bool SubtitleIsLocal { get; set; }
+            public SourceDrm? Drm { get; set; }
 
             public SourceDescriptor() { }
             public SourceDescriptor(string url, string type, int videoIndex = -1, int audioIndex = -1, int subtitleIndex = -1, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false)
@@ -1436,6 +2151,16 @@ namespace Grayjay.ClientServer.Controllers
                 AudioIsLocal = audioIsLocal;
                 SubtitleIsLocal = subtitleIsLocal;
             }
+        }
+
+        public class SourceDrm
+        {
+            public string KeySystem { get; set; } = "com.widevine.alpha";
+            public string LicenseUrl { get; set; }
+            [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+            public string? ServiceCertificate { get; set; }
+            [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+            public string? CertificateUrl { get; set; }
         }
 
         private static string GetBaseUri(WindowState state, ProxySettings? proxySettings)

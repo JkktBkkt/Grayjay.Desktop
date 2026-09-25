@@ -161,6 +161,7 @@ namespace Grayjay.Desktop
                     await Task.Delay(TimeSpan.FromSeconds(5));
 
                     var status = await cef.GetWidevineStatusAsync();
+                    StateWidevine.Update(status);
                     everRegistered |= status.Registered;
 
                     if (!status.Installed)
@@ -504,6 +505,17 @@ namespace Grayjay.Desktop
             {
                 PackageBrowser.Process = cef;
                 Logger.i(nameof(Program), $"Main: Starting JustCefProcess finished ({startCefWatch.ElapsedMilliseconds}ms)");
+
+                StateWidevine.SetStatusRefresher(() => cef.GetWidevineStatusAsync());
+
+                try
+                {
+                    StateWidevine.Update(await cef.GetWidevineStatusAsync());
+                }
+                catch (Exception ex)
+                {
+                    Logger.w(nameof(Program), "Failed to query the initial Widevine status.", ex);
+                }
 
                 _ = MonitorWidevineAsync(cef);
             }

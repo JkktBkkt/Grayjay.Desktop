@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using Grayjay.ClientServer;
 using Grayjay.ClientServer.Proxy;
+using Grayjay.Engine.Models;
 using Microsoft.ClearScript.V8;
 using Microsoft.VisualBasic;
 
@@ -112,7 +113,7 @@ public class ProxyTests
             {
                 await httpStream.WriteRequestAsync(new HttpProxyRequest()
                 {
-                    Headers = expectedHeaders,
+                    Headers = new HttpHeaders(expectedHeaders),
                     Method = "GET",
                     Path = "/hello",
                     Version = "HTTP/1.1"
@@ -132,7 +133,7 @@ public class ProxyTests
             Assert.AreEqual("GET", readRequest.Method);
             Assert.AreEqual("/hello", readRequest.Path);
             Assert.AreEqual("HTTP/1.1", readRequest.Version);
-            CollectionAssert.AreEquivalent(expectedHeaders, readRequest.Headers);
+            AssertDictionariesAreEqual(expectedHeaders, readRequest.Headers);
 
             using var bodyStream = new MemoryStream();
             await inputHttpStream.TransferUntilEndOfStreamAsync(bodyStream);
@@ -160,12 +161,12 @@ public class ProxyTests
                 {
                     await httpStream.WriteRequestAsync(new HttpProxyRequest()
                     {
-                        Headers = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase)
+                        Headers = new HttpHeaders(new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase)
                         {
                             { "host", "grayjay.app"},
                             { "content-length", contents[i].Length.ToString() },
                             { "i", i.ToString() }
-                        },
+                        }),
                         Method = "GET",
                         Path = "/hello",
                         Version = "HTTP/1.1"
@@ -187,7 +188,7 @@ public class ProxyTests
             Assert.AreEqual("GET", readRequest.Method);
             Assert.AreEqual("/hello", readRequest.Path);
             Assert.AreEqual("HTTP/1.1", readRequest.Version);
-            CollectionAssert.AreEquivalent(new Dictionary<string, string>()
+            AssertDictionariesAreEqual(new Dictionary<string, string>()
             {
                 { "host", "grayjay.app"},
                 { "content-length", contents[i].Length.ToString() },
@@ -1599,6 +1600,18 @@ public class ProxyTests
         {
             listener.Stop();
         }
+    }
+
+    public static void AssertDictionariesAreEqual(IDictionary<string, string> expected, HttpHeaders actual)
+    {
+        var actualByName = actual.ToDictionaryList();
+        var duplicateNames = actualByName.Where(pair => pair.Value.Count > 1).Select(pair => pair.Key).ToList();
+        if (duplicateNames.Count > 0)
+        {
+            Assert.Fail($"Actual headers contain duplicate names: {string.Join(", ", duplicateNames)}");
+        }
+        var actualDictionary = actualByName.ToDictionary(pair => pair.Key, pair => pair.Value[0], StringComparer.InvariantCultureIgnoreCase);
+        AssertDictionariesAreEqual(expected, actualDictionary);
     }
 
     public static void AssertDictionariesAreEqual<TKey, TValue>(IDictionary<TKey, TValue> expected, IDictionary<TKey, TValue> actual)

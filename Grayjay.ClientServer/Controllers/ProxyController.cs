@@ -26,6 +26,126 @@ namespace Grayjay.ClientServer.Controllers
         private static readonly ConcurrentDictionary<string, string> ModifierIdCache = new();
         private static readonly Dictionary<(string? modifierId, string url), string> ExistingHlsProxies = new();
 
+        public class DashRelativeProxyEntry
+        {
+            public required string BaseUrl { get; init; }
+            public IRequestModifier? Modifier { get; init; }
+            public ManagedHttpClient Client { get; init; } = new ManagedHttpClient();
+        }
+        private static readonly ConcurrentDictionary<string, DashRelativeProxyEntry> DashRelativeProxies = new();
+        private static readonly ConcurrentDictionary<string, string> DashRelativeProxyTokens = new();
+
+        public static string GetOrCreateDashRelativeProxy(WindowState state, string baseUrl, IRequestModifier? modifier, string? modifierId)
+        {
+            var key = $"{state.WindowID}|{modifierId ?? ""}|{baseUrl}";
+            var token = DashRelativeProxyTokens.GetOrAdd(key, _ => Guid.NewGuid().ToString("N"));
+            DashRelativeProxies.AddOrUpdate(token,
+                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier },
+                (_, existing) => ReferenceEquals(existing.Modifier, modifier)
+                    ? existing
+                    : new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = existing.Client });
+            return token;
+        }
+
+        public static void RemoveDashRelativeProxy(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+                return;
+            if (!DashRelativeProxies.TryRemove(token, out _))
+                return;
+
+            foreach (var pair in DashRelativeProxyTokens)
+            {
+                if (pair.Value == token)
+                    DashRelativeProxyTokens.TryRemove(pair.Key, out _);
+            }
+        }
+
+        [HttpGet("/proxy/DashRelative/{token}/{**path}")]
+        public async Task<IActionResult> DashRelative(string token, string? path)
+        {
+            if (!DashRelativeProxies.TryGetValue(token, out var entry))
+                return NotFound();
+
+            var relative = path ?? "";
+            if (Request.QueryString.HasValue)
+                relative += Request.QueryString.Value;
+
+            string targetUrl;
+            if (string.IsNullOrEmpty(relative))
+            {
+                targetUrl = entry.BaseUrl;
+            }
+            else
+            {
+                if (relative.StartsWith("//") || (Uri.TryCreate(relative, UriKind.Absolute, out var absoluteProbe) && (absoluteProbe.Scheme == Uri.UriSchemeHttp || absoluteProbe.Scheme == Uri.UriSchemeHttps)))
+                {
+                    return BadRequest();
+                }
+
+                var baseUri = new Uri(entry.BaseUrl);
+                if (!Uri.TryCreate(baseUri, relative, out var resolved))
+                    return BadRequest();
+                if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
+                    return BadRequest();
+
+                targetUrl = resolved.ToString();
+            }
+
+            var headers = new Engine.Models.HttpHeaders();
+            if (Request.Headers.TryGetValue("Range", out var rangeValues))
+                headers.Set("Range", rangeValues.ToString());
+
+            var modified = entry.Modifier?.ModifyRequest(targetUrl, headers);
+            var finalUrl = modified?.Url ?? targetUrl;
+            var finalHeaders = modified?.Headers ?? headers;
+            var impersonate = modified?.Options?.ImpersonateTarget;
+
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
+            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges" };
+
+            void RelayHeaders(IEnumerable<KeyValuePair<string, string>> upstreamHeaders, bool relayContentLength)
+            {
+                foreach (var header in upstreamHeaders)
+                {
+                    var name = header.Key.ToLowerInvariant();
+                    if (headersToRelay.Contains(name) || (relayContentLength && name == "content-length"))
+                        Response.Headers[header.Key] = header.Value;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(impersonate))
+            {
+                var res = Libcurl.Perform(new Libcurl.Request()
+                {
+                    Url = finalUrl,
+                    Method = "GET",
+                    Headers = finalHeaders.Where(headerPair => !string.IsNullOrEmpty(headerPair.Key) && headerPair.Value != null).ToList(),
+                    ImpersonateTarget = impersonate
+                });
+
+                var body = res.BodyBytes ?? Array.Empty<byte>();
+                Response.StatusCode = res.Status;
+                RelayHeaders(res.Headers, relayContentLength: false);
+                Response.ContentLength = body.Length;
+                await Response.Body.WriteAsync(body, HttpContext.RequestAborted);
+                return new EmptyResult();
+            }
+
+            var resp = entry.Client.GET(finalUrl, finalHeaders);
+            Response.StatusCode = resp.Code;
+            if (resp.Headers != null)
+            {
+                RelayHeaders(resp.Headers, relayContentLength: true);
+            }
+            if (resp.Body != null)
+            {
+                using var bodyStream = resp.Body.AsStream();
+                await bodyStream.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+            }
+            return new EmptyResult();
+        }
+
         [HttpGet]
         public async Task<IActionResult> Image(string url, string cacheName = null)
         {
@@ -205,8 +325,6 @@ namespace Grayjay.ClientServer.Controllers
             try
             {
                 var masterPlaylist = Parsers.HLS.ParseMasterPlaylist(body, hlsUrl);
-                if (masterPlaylist.Unhandled.Any(x=>x.StartsWith("#EXTINF:")))
-                    throw new ArgumentException("Is a variant playlist");
                 masterPlaylist = ProxyHLSMasterPlaylist(baseUri, masterPlaylist, proxyMedia, modifierId, state?.WindowID);
                 return masterPlaylist;
             }

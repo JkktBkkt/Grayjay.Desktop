@@ -16,7 +16,7 @@ import ic_close from '../../../assets/icons/icon24_close.svg';
 import store from '../../../assets/icons/icon24_store.svg';
 import more from '../../../assets/icons/icon_button_more.svg';
 import donate from '../../../assets/icons/icon24_donate.svg';
-import VideoPlayerView, { VideoPlayerViewHandle } from "../../player/VideoPlayerView";
+import VideoPlayerView, { PlaybackErrorKind, VideoPlayerViewHandle } from "../../player/VideoPlayerView";
 import { VideoMode, VideoState, useVideo } from "../../../contexts/VideoProvider";
 import ScrollContainer from "../../containers/ScrollContainer";
 import VirtualFlexibleArrayList from "../../containers/VirtualFlexibleArrayList";
@@ -411,8 +411,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
     };
 
-    const handleError = (error: string, fatal: boolean, reloadable?: boolean) => {
-        console.info("Error occurred", { fatal, error });
+    const handleError = (error: string, fatal: boolean, kind: PlaybackErrorKind = "generic", reloadable?: boolean) => {
+        console.info("Error occurred", { fatal, error, kind, reloadable });
 
         if (!fatal) {
             return;
@@ -434,13 +434,21 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
 
         const nvi = nextVideoIndex();
-        if (nvi === undefined) {
-            console.error("Playback error: " + error, { errorCounter });
+        const isDrmError = kind === "drm-license" || kind === "drm";
+        const stopAndAsk = nvi === undefined || isDrmError;
+        if (stopAndAsk) {
+            console.error("Playback error: " + error, { errorCounter, kind });
             exitFullscreen();
+            let message = "An error occurred while playing the video, do you want to reload?";
+            if (kind === "drm-license") {
+                message = "The license server refused playback. Reload to try again?";
+            } else if (kind === "drm") {
+                message = "DRM playback failed. Reload to try again?";
+            }
             setTimeout(() => {
                 UIOverlay.overlayConfirm(
                     { yes: () => reloadMedia() },
-                    "An error occurred while playing the video, do you want to reload?"
+                    message
                 );
             }, 0);
         } else {
