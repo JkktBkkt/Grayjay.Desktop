@@ -60,19 +60,37 @@ namespace Grayjay.ClientServer.Controllers
 
             public RequestExecutor _videoRequestExecutor = null;
             public RequestExecutor _audioRequestExecutor = null;
-            public RequestExecutor _licenseRequestExecutor = null;
-            public IWidevineSource _licenseRequestExecutorSource = null;
+            private readonly Dictionary<IWidevineSource, RequestExecutor> _licenseRequestExecutors = new Dictionary<IWidevineSource, RequestExecutor>(ReferenceEqualityComparer.Instance);
+            private readonly Dictionary<IWidevineSource, IReadOnlyList<byte[]>> _widevinePsshData = new Dictionary<IWidevineSource, IReadOnlyList<byte[]>>(ReferenceEqualityComparer.Instance);
 
-            public void ClearLicenseRequestExecutor()
+            /// <summary>
+            /// Returns the live license executor for this source, creating one per source like Android's per-track DRM callback.
+            /// </summary>
+            public RequestExecutor? GetOrCreateLicenseRequestExecutor(IWidevineSource source)
             {
-                RequestExecutor oldExecutor;
                 lock (this)
                 {
-                    oldExecutor = _licenseRequestExecutor;
-                    _licenseRequestExecutor = null;
-                    _licenseRequestExecutorSource = null;
+                    if (_licenseRequestExecutors.TryGetValue(source, out var existing) && !existing.DidCleanup)
+                        return existing;
+
+                    var executor = source.GetLicenseRequestExecutor();
+                    if (executor != null)
+                        _licenseRequestExecutors[source] = executor;
+                    else
+                        _licenseRequestExecutors.Remove(source);
+                    return executor;
                 }
-                if (oldExecutor != null)
+            }
+
+            public void ClearLicenseRequestExecutors()
+            {
+                List<RequestExecutor> oldExecutors;
+                lock (this)
+                {
+                    oldExecutors = _licenseRequestExecutors.Values.ToList();
+                    _licenseRequestExecutors.Clear();
+                }
+                foreach (var oldExecutor in oldExecutors)
                 {
                     try
                     {
@@ -84,6 +102,24 @@ namespace Grayjay.ClientServer.Controllers
                         Logger.w(nameof(DetailsState), "License request executor cleanup failed: " + ex.Message, ex);
                     }
                 }
+            }
+
+            public void SetWidevinePsshData(IWidevineSource source, IReadOnlyList<byte[]> psshData)
+            {
+                lock (_widevinePsshData)
+                    _widevinePsshData[source] = psshData;
+            }
+
+            public IReadOnlyList<byte[]>? GetWidevinePsshData(IWidevineSource source)
+            {
+                lock (_widevinePsshData)
+                    return _widevinePsshData.TryGetValue(source, out var psshData) ? psshData : null;
+            }
+
+            public void ClearWidevinePsshData()
+            {
+                lock (_widevinePsshData)
+                    _widevinePsshData.Clear();
             }
 
             private readonly List<string> _dashRelativeProxyTokens = new List<string>();
@@ -190,7 +226,8 @@ namespace Grayjay.ClientServer.Controllers
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
-                ClearLicenseRequestExecutor();
+                ClearLicenseRequestExecutors();
+                ClearWidevinePsshData();
                 ClearDashRelativeProxies();
             }
         }
@@ -204,7 +241,8 @@ namespace Grayjay.ClientServer.Controllers
             state.ClearCachedDash();
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
-            state.ClearLicenseRequestExecutor();
+            state.ClearLicenseRequestExecutors();
+            state.ClearWidevinePsshData();
             state.ClearDashRelativeProxies();
             state.VideoLoaded = video;
             state.VideoLocal = videoLocal;
@@ -1125,16 +1163,17 @@ namespace Grayjay.ClientServer.Controllers
         {
             (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, false, false, false);
 
-            var tracks = new List<(string Url, IRequestModifier? Modifier, long Duration, Dictionary<string, string> AdaptationParameters, Dictionary<string, string> RepresentationParameters)>();
+            var tracks = new List<(IWidevineSource Source, string Url, IRequestModifier? Modifier, long Duration, Dictionary<string, string> AdaptationParameters, Dictionary<string, string> RepresentationParameters)>();
 
             if (sourceVideo != null)
             {
-                if (!(sourceVideo is VideoUrlSource videoUrlSource) || !(sourceVideo is IWidevineSource))
+                if (!(sourceVideo is VideoUrlSource videoUrlSource) || !(sourceVideo is IWidevineSource videoWidevineSource))
                 {
                     throw new Exception("Expected a Widevine url source.");
                 }
 
                 tracks.Add((
+                    videoWidevineSource,
                     videoUrlSource.Url,
                     videoUrlSource.GetRequestModifier(),
                     videoUrlSource.Duration,
@@ -1157,12 +1196,13 @@ namespace Grayjay.ClientServer.Controllers
             }
             if (sourceAudio != null)
             {
-                if (!(sourceAudio is AudioUrlSource audioUrlSource) || !(sourceAudio is IWidevineSource))
+                if (!(sourceAudio is AudioUrlSource audioUrlSource) || !(sourceAudio is IWidevineSource audioWidevineSource))
                 {
                     throw new Exception("Expected a Widevine url source.");
                 }
 
                 tracks.Add((
+                    audioWidevineSource,
                     audioUrlSource.Url,
                     audioUrlSource.GetRequestModifier(),
                     audioUrlSource.Duration,
@@ -1194,6 +1234,7 @@ namespace Grayjay.ClientServer.Controllers
             {
                 var track = tracks[trackIndex];
                 var metaData = probes[trackIndex].MetaData;
+                state.DetailsState.SetWidevinePsshData(track.Source, probes[trackIndex].WidevinePsshData);
                 var modifierId = track.Modifier != null ? ProxyController.GetOrCreateModifierId(state, track.Modifier, track.Url) : null;
                 var token = ProxyController.GetOrCreateDashRelativeProxy(state, track.Url, track.Modifier, modifierId);
                 state.DetailsState.RegisterDashRelativeProxyToken(token);
@@ -1274,7 +1315,7 @@ namespace Grayjay.ClientServer.Controllers
                 return BadRequest("Missing license challenge body");
 
             (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, videoIsLocal, audioIsLocal, false);
-            var widevineSource = (sourceVideo as IWidevineSource) ?? (sourceAudio as IWidevineSource);
+            var widevineSource = SelectWidevineLicenseSource(sourceVideo as IWidevineSource, sourceAudio as IWidevineSource, challenge, detailsState.GetWidevinePsshData);
             if (widevineSource == null)
                 return BadRequest("Selected source is not a Widevine source");
             if (string.IsNullOrEmpty(widevineSource.LicenseUri))
@@ -1285,17 +1326,7 @@ namespace Grayjay.ClientServer.Controllers
                 RequestExecutor? executor = null;
                 if (widevineSource.HasLicenseRequestExecutor)
                 {
-                    lock (detailsState)
-                    {
-                        executor = detailsState._licenseRequestExecutor;
-                        if (executor == null || executor.DidCleanup || !ReferenceEquals(detailsState._licenseRequestExecutorSource, widevineSource))
-                        {
-                            detailsState.ClearLicenseRequestExecutor();
-                            executor = widevineSource.GetLicenseRequestExecutor();
-                            detailsState._licenseRequestExecutor = executor;
-                            detailsState._licenseRequestExecutorSource = widevineSource;
-                        }
-                    }
+                    executor = detailsState.GetOrCreateLicenseRequestExecutor(widevineSource);
                     if (executor == null)
                         Logger.w(nameof(DetailsController), "License request executor unavailable, falling back to direct license requests");
                 }
@@ -1330,6 +1361,29 @@ namespace Grayjay.ClientServer.Controllers
                 Logger.Error<DetailsController>("Widevine license request failed", ex);
                 return StatusCode(502, "Widevine license request failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Picks the track whose license config serves this challenge. The challenge carries the PSSH data in
+        /// plaintext (also in privacy mode), so a unique match selects that track; otherwise video comes first.
+        /// </summary>
+        public static IWidevineSource? SelectWidevineLicenseSource(IWidevineSource? videoSource, IWidevineSource? audioSource, byte[] challenge, Func<IWidevineSource, IReadOnlyList<byte[]>?> psshDataFor)
+        {
+            if (videoSource == null || audioSource == null || ReferenceEquals(videoSource, audioSource))
+                return videoSource ?? audioSource;
+
+            bool videoMatches = ChallengeContainsPsshData(challenge, psshDataFor(videoSource));
+            bool audioMatches = ChallengeContainsPsshData(challenge, psshDataFor(audioSource));
+            if (audioMatches && !videoMatches)
+                return audioSource;
+            return videoSource;
+        }
+
+        private static bool ChallengeContainsPsshData(byte[] challenge, IReadOnlyList<byte[]>? psshData)
+        {
+            if (psshData == null)
+                return false;
+            return psshData.Any(pattern => pattern.Length >= 16 && challenge.AsSpan().IndexOf(pattern) >= 0);
         }
 
         [HttpGet]
