@@ -6,6 +6,7 @@ using Grayjay.Desktop.POC.Port.States;
 using Grayjay.Engine.Models.Video.Additions;
 using Grayjay.Engine.Packages;
 using Grayjay.Engine.Web;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using System;
@@ -68,6 +69,39 @@ namespace Grayjay.ClientServer.Controllers
             return new EmptyResult();
         }
 
+        /// <summary>
+        /// Returns the still-encoded path and query after the proxy prefix, so percent-escapes reach upstream unchanged.
+        /// Falls back to the decoded route path when the raw request target does not carry the prefix.
+        /// </summary>
+        public static string GetDashRelativeRequestPath(string? rawTarget, string token, string? path, string? queryString)
+        {
+            var prefix = $"/proxy/DashRelative/{token}/";
+            if (rawTarget != null && rawTarget.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return rawTarget[prefix.Length..];
+            return (path ?? "") + (queryString ?? "");
+        }
+
+        /// <summary>
+        /// Resolves a relative request against the proxy base URL. Returns null for absolute or
+        /// protocol-relative input, unparsable input, or a result on another origin.
+        /// </summary>
+        public static string? ResolveDashRelativeTarget(string baseUrl, string relative)
+        {
+            if (string.IsNullOrEmpty(relative))
+                return baseUrl;
+
+            if (relative.StartsWith("//") || (Uri.TryCreate(relative, UriKind.Absolute, out var absoluteProbe) && (absoluteProbe.Scheme == Uri.UriSchemeHttp || absoluteProbe.Scheme == Uri.UriSchemeHttps)))
+                return null;
+
+            var baseUri = new Uri(baseUrl);
+            if (!Uri.TryCreate(baseUri, relative, out var resolved))
+                return null;
+            if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return resolved.AbsoluteUri;
+        }
+
         public static async Task ServeDashRelativeAsync(HttpContext context, string token, string? path)
         {
             if (!DashRelativeProxies.TryGetValue(token, out var entry))
@@ -76,36 +110,13 @@ namespace Grayjay.ClientServer.Controllers
                 return;
             }
 
-            var relative = path ?? "";
-            if (context.Request.QueryString.HasValue)
-                relative += context.Request.QueryString.Value;
-
-            string targetUrl;
-            if (string.IsNullOrEmpty(relative))
+            var rawTarget = context.Features.Get<IHttpRequestFeature>()?.RawTarget;
+            var relative = GetDashRelativeRequestPath(rawTarget, token, path, context.Request.QueryString.Value);
+            var targetUrl = ResolveDashRelativeTarget(entry.BaseUrl, relative);
+            if (targetUrl == null)
             {
-                targetUrl = entry.BaseUrl;
-            }
-            else
-            {
-                if (relative.StartsWith("//") || (Uri.TryCreate(relative, UriKind.Absolute, out var absoluteProbe) && (absoluteProbe.Scheme == Uri.UriSchemeHttp || absoluteProbe.Scheme == Uri.UriSchemeHttps)))
-                {
-                    context.Response.StatusCode = 400;
-                    return;
-                }
-
-                var baseUri = new Uri(entry.BaseUrl);
-                if (!Uri.TryCreate(baseUri, relative, out var resolved))
-                {
-                    context.Response.StatusCode = 400;
-                    return;
-                }
-                if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
-                {
-                    context.Response.StatusCode = 400;
-                    return;
-                }
-
-                targetUrl = resolved.ToString();
+                context.Response.StatusCode = 400;
+                return;
             }
 
             var headers = new Engine.Models.HttpHeaders();
