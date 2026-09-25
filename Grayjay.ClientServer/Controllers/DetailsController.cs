@@ -931,23 +931,16 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> SourceDashUrl(int videoIndex, bool isLoopback = true)
-            => await SourceDashUrlInternal(videoIndex, isLoopback, retried: false);
+        public async Task<IActionResult> SourceDashUrl(int videoIndex, int subtitleIndex = -1, bool subtitleIsLocal = false, bool isLoopback = true)
+            => await SourceDashUrlInternal(videoIndex, subtitleIndex, subtitleIsLocal, isLoopback, retried: false);
 
-        private async Task<IActionResult> SourceDashUrlInternal(int videoIndex, bool isLoopback, bool retried)
+        private async Task<IActionResult> SourceDashUrlInternal(int videoIndex, int subtitleIndex, bool subtitleIsLocal, bool isLoopback, bool retried)
         {
             var state = this.State();
             var proxySettings = new ProxySettings(isLoopback);
-            var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, -1, -1, proxySettings);
-            if (cachedTask != null)
-                return Content(await cachedTask, "application/dash+xml");
-
             try
             {
-                (var mpd, var isDynamic) = GenerateSourceDashUrl(state, videoIndex, proxySettings);
-                if (!isDynamic)
-                    state.DetailsState.SetCachedDash(videoIndex, -1, -1, proxySettings, Task.FromResult(mpd));
-                return Content(mpd, "application/dash+xml");
+                return Content(await GetOrGenerateSourceDashUrl(state, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings), "application/dash+xml");
             }
             catch (ScriptReloadRequiredException reloadEx)
             {
@@ -958,13 +951,25 @@ namespace Grayjay.ClientServer.Controllers
                 var reloadedSources = state.DetailsState.VideoLoaded?.Video?.VideoSources;
                 if (videoIndex >= 0 && (reloadedSources == null || videoIndex >= reloadedSources.Length))
                     throw new InvalidDataException("Video source is no longer available after reload");
-                return await SourceDashUrlInternal(videoIndex, isLoopback, retried: true);
+                return await SourceDashUrlInternal(videoIndex, subtitleIndex, subtitleIsLocal, isLoopback, retried: true);
             }
         }
 
-        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, int videoIndex, ProxySettings? proxySettings)
+        public static async Task<string> GetOrGenerateSourceDashUrl(WindowState state, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings proxySettings)
         {
-            (var sourceVideo, _, _) = GetSources(state, videoIndex, -1, -1, false, false, false);
+            var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, -1, subtitleIndex, proxySettings);
+            if (cachedTask != null)
+                return await cachedTask;
+
+            (var mpd, var isDynamic) = GenerateSourceDashUrl(state, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings);
+            if (!isDynamic)
+                state.DetailsState.SetCachedDash(videoIndex, -1, subtitleIndex, proxySettings, Task.FromResult(mpd));
+            return mpd;
+        }
+
+        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings)
+        {
+            (var sourceVideo, _, var sourceSubtitle) = GetSources(state, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
             if (!(sourceVideo is DashManifestSource dashSource))
                 throw new Exception("Expected a DASH manifest source.");
 
@@ -1073,7 +1078,10 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
+            var mpd = document.ToString(SaveOptions.DisableFormatting);
+            if (sourceSubtitle != null)
+                mpd = InjectDashSubtitle(mpd, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings));
+            return (mpd, isDynamic);
         }
 
         [HttpGet]
@@ -1718,6 +1726,14 @@ namespace Grayjay.ClientServer.Controllers
             if (subtitleIndex >= 0 && sourceAudio is HLSManifestAudioSource)
                 return WithDrm(DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
 
+            if (sourceVideo is DashManifestSource && sourceAudio == null)
+            {
+                var dashSubtitleIndex = (sourceSubtitle != null) ? subtitleIndex : -1;
+                // DRM subtitles are side-loaded by the player, so only clear manifests embed them.
+                var subtitleQuery = (!anyWidevine && dashSubtitleIndex >= 0) ? $"&subtitleIndex={dashSubtitleIndex}&subtitleIsLocal={subtitleIsLocal}" : "";
+                return WithDrm(new SourceDescriptor($"/details/SourceDashUrl?videoIndex={videoIndex}{subtitleQuery}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}", "application/dash+xml", videoIndex, -1, dashSubtitleIndex, false, false, subtitleIsLocal));
+            }
+
             if (sourceVideo != null && (sourceAudio != null || sourceSubtitle != null))
             {
                 if (anyWidevine)
@@ -1758,8 +1774,6 @@ namespace Grayjay.ClientServer.Controllers
                     return WithDrm(DirectHLSUrlSource(state, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null));
                 else if (sourceVideo is LocalVideoSource lvs)
                     return LocalVideoSource(state, lvs);
-                else if (sourceVideo is DashManifestSource)
-                    return WithDrm(new SourceDescriptor($"/details/SourceDashUrl?videoIndex={videoIndex}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}", "application/dash+xml", videoIndex, -1, -1, false, false, false));
                 else if (sourceVideo is DashManifestRawSource das)
                 {
                     if (!(sourceVideo is IStreamMetaDataSource))
