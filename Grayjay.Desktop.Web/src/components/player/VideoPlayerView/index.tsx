@@ -32,6 +32,24 @@ type DashErrorPayload = {
     };
 };
 
+// dash.js error payloads can reference themselves (a segment request carries its representation), which JSON.stringify rejects.
+const stringifyDashError = (error: unknown): string => {
+    const seen = new WeakSet<object>();
+    try {
+        return JSON.stringify(error, (_key, value: unknown) => {
+            if (typeof value === "object" && value !== null) {
+                if (seen.has(value)) {
+                    return "[Circular]";
+                }
+                seen.add(value);
+            }
+            return value;
+        });
+    } catch {
+        return String(error);
+    }
+};
+
 interface VideoProps {
     onVideoDimensionsChanged: (width: number, height: number) => void;
     children: JSX.Element;
@@ -992,13 +1010,13 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     const code = dashError?.code;
                     const responseCode = dashError?.data?.responseCode;
                     const statusSuffix = responseCode !== undefined ? ` (license server status ${responseCode})` : "";
-                    onError(`DashJS Error${statusSuffix}: ${JSON.stringify(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false, classifyDashError(code));
+                    onError(`DashJS Error${statusSuffix}: ${stringifyDashError(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false, classifyDashError(code));
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.PLAYBACK_ERROR, (data) => {
                     console.error("DashJS PLAYBACK_ERROR", data);
                     const code = (data.error as DashErrorPayload | undefined)?.code;
-                    onError(`DashJS Playback Error: ${JSON.stringify(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false);
+                    onError(`DashJS Playback Error: ${stringifyDashError(data.error)}`, code !== undefined ? fatalErrorCodes().includes(code) : false);
                 });
 
                 if (drm) {
