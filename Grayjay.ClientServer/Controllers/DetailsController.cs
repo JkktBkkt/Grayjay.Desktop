@@ -294,10 +294,17 @@ namespace Grayjay.ClientServer.Controllers
             state.VideoLocal = videoLocal;
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
-            state.VideoPlaybackTracker?.onConcluded();
             try
             {
-                state.VideoPlaybackTracker = video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null;
+                state.VideoPlaybackTracker?.onConcluded();
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(DetailsController), "Failed to conclude the previous playback tracker: " + ex.Message, ex);
+            }
+            try
+            {
+                state.VideoPlaybackTracker = video?.GetPlaybackTracker() ?? (video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null);
             }
             catch (Exception ex)
             {
