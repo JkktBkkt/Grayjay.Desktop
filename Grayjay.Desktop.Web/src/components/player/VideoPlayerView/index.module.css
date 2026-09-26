@@ -2,6 +2,8 @@
     width: 100%;
     height: 100%;
     position: relative;
+    /* Keeps the controls' z-indexes (the progress bar uses 999) below app dialogs. */
+    isolation: isolate;
     /*padding: 24px;*/
     background-color: black;
 }
