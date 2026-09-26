@@ -142,6 +142,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     const [loaderGameVisible$, setLoaderGameVisible] = createSignal<number>();
     let frameRate: number | undefined = undefined; //TODO: Framerate is currently not accurate, not properly exposed by video,hlsjs,dashjs, would need to feed it in from sources
     let currentUrl: string | undefined;
+    let stoppedByDrmError = false;
     let loader: LoaderGameHandle | undefined;
     let currentTag = uuidv4();
 
@@ -585,6 +586,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     };
 
     const play = () => {
+        if (stoppedByDrmError) {
+            // Like ExoPlayer after a fatal error, stay stopped until the source is reloaded.
+            return;
+        }
         if (dashPlayer) {
             dashPlayer.play();
         } else {
@@ -665,6 +670,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             setIsPlaying(false);
             if (kind !== "generic") {
                 // Like ExoPlayer, stop at a DRM error instead of playing the unencrypted lead under the dialog.
+                stoppedByDrmError = true;
                 pause();
             }
         }
@@ -765,6 +771,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
         setIsAudioOnly(false);
         setIsPlaying(false);
+        stoppedByDrmError = false;
         frameRate = undefined;
 
         if (!untrack(isCasting))
@@ -839,7 +846,12 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     if (isCasting()) {
                         return;
                     }
-            
+                    if (stoppedByDrmError) {
+                        // Media keys play the element directly, bypassing play().
+                        pause();
+                        return;
+                    }
+
                     setIsPlaying(true);
                 });
             
