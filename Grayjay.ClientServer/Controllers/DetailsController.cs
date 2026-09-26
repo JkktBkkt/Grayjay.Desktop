@@ -166,12 +166,32 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             private long _videoLoadId = 0;
+            private string? _newestVideoLoadUrl = null;
             private readonly object _videoLoadLock = new object();
+            private readonly object _videoLoadIdLock = new object();
 
             /// <summary>
             /// Starts a video load and returns its id. Only the newest load may change the loaded video, like Android's TaskHandler.
             /// </summary>
-            public long BeginVideoLoad() => Interlocked.Increment(ref _videoLoadId);
+            public long BeginVideoLoad(string? url = null)
+            {
+                lock (_videoLoadIdLock)
+                {
+                    _newestVideoLoadUrl = url;
+                    return Interlocked.Increment(ref _videoLoadId);
+                }
+            }
+
+            /// <summary>
+            /// Returns whether url is the url of the newest load.
+            /// </summary>
+            public bool IsNewestVideoLoadUrl(string url)
+            {
+                lock (_videoLoadIdLock)
+                {
+                    return _newestVideoLoadUrl == url;
+                }
+            }
 
             /// <summary>
             /// Runs apply when no newer load has started since loadId, and returns whether it ran.
@@ -475,7 +495,7 @@ namespace Grayjay.ClientServer.Controllers
         public VideoLoadResult VideoLoad(string url)
         {
             var state = this.State().DetailsState;
-            long loadId = state.BeginVideoLoad();
+            long loadId = state.BeginVideoLoad(url);
             Logger.i(nameof(DetailsController), "Loading: " + url);
             VideoLocal local = StateDownloads.GetDownloadedVideo(url);
             IPlatformContentDetails contentDetails = null;
@@ -549,6 +569,18 @@ namespace Grayjay.ClientServer.Controllers
             if (!state.TryApplyVideoLoad(loadId, () => ChangeVideo(video, videoLocal)))
             {
                 Logger.i(nameof(DetailsController), "Skipped the state change of a superseded load: " + url);
+                // Releases what the load took (a play token), unless the newer load has the same url and may share it.
+                if (video != null && !state.IsNewestVideoLoadUrl(url))
+                {
+                    try
+                    {
+                        video.GetPlaybackTracker()?.onConcluded();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.w(nameof(DetailsController), "Failed to conclude the playback tracker of a superseded load: " + ex.Message, ex);
+                    }
+                }
             }
         }
 
