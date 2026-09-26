@@ -166,6 +166,7 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             private long _videoLoadId = 0;
+            private long _appliedVideoLoadId = 0;
             private string? _newestVideoLoadUrl = null;
             private readonly object _videoLoadLock = new object();
             private readonly object _videoLoadIdLock = new object();
@@ -205,6 +206,26 @@ namespace Grayjay.ClientServer.Controllers
                         return false;
                     }
                     apply();
+                    _appliedVideoLoadId = loadId;
+                    return true;
+                }
+            }
+
+            /// <summary>
+            /// Moves the playback tracker out when no load started after the applied one, and returns whether it did.
+            /// A newer load keeps the tracker, as its ChangeVideo concludes it.
+            /// </summary>
+            public bool TryTakePlaybackTracker(out PlaybackTracker? tracker)
+            {
+                lock (_videoLoadLock)
+                {
+                    if (Interlocked.Read(ref _videoLoadId) != _appliedVideoLoadId)
+                    {
+                        tracker = null;
+                        return false;
+                    }
+                    tracker = VideoPlaybackTracker;
+                    VideoPlaybackTracker = null;
                     return true;
                 }
             }
@@ -582,6 +603,25 @@ namespace Grayjay.ClientServer.Controllers
                     }
                 }
             }
+        }
+
+        [HttpGet]
+        public bool VideoClose()
+        {
+            var state = this.State().DetailsState;
+            if (!state.TryTakePlaybackTracker(out var tracker) || tracker == null)
+            {
+                return false;
+            }
+            try
+            {
+                tracker.onConcluded();
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(DetailsController), "Failed to conclude the playback tracker on close: " + ex.Message, ex);
+            }
+            return true;
         }
 
         [HttpGet]

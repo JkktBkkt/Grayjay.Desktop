@@ -23,6 +23,9 @@ export abstract class DetailsBackend {
     static async videoLoad(url: string): Promise<IVideoLoadResult> {
         return await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url));
     }
+    static async videoClose(): Promise<boolean> {
+        return await Backend.GET("/details/VideoClose");
+    }
     static async videoCurrent(): Promise<PagerResult<IPlatformVideoDetails>> {
         return await Backend.GET("/details/VideoCurrent");
     }

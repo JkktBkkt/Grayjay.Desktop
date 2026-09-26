@@ -157,6 +157,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
     };
     const closeVideo = () => {
         openVideoByUrlGeneration++;
+        if (index() !== undefined) {
+            DetailsBackend.videoClose().catch((error) => console.warn("Failed to release the playback tracker", error));
+        }
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);
