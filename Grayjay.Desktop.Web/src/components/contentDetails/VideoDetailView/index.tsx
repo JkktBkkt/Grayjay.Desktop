@@ -479,7 +479,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
 
     createEffect(async () => {
         const videoObj = videoLoaded$();
-        if (!videoLoadedIsValid$()) {
+        // Reopening the last video keeps its old details readable while VideoLoad replaces the backend state they point at.
+        if (!videoLoadedIsValid$() || videoLoaded$.loading) {
             setVideoSource();
             return;
         }
