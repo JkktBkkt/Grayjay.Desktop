@@ -663,6 +663,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         if (fatal) {
             setLoaderGameVisible(undefined);
             setIsPlaying(false);
+            if (kind !== "generic") {
+                // Like ExoPlayer, stop at a DRM error instead of playing the unencrypted lead under the dialog.
+                pause();
+            }
         }
     };
 
