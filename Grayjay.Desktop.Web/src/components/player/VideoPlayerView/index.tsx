@@ -21,6 +21,8 @@ import { clearLiveChatOnSeek } from '../../../state/StateLiveChat';
 import { focusable } from '../../../focusable'; void focusable;
 import { FocusableOptions, InputSource } from '../../../nav';
 import { SettingsBackend } from '../../../backend/SettingsBackend';
+import ExceptionModel from '../../../backend/exceptions/ExceptionModel';
+import UIOverlay from '../../../state/UIOverlay';
 
 export type PlaybackErrorKind = "drm-license" | "drm" | "generic";
 
@@ -1509,15 +1511,23 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
             casting.actions.close();
 
-            await CastingBackend.mediaLoad({
-                streamType: req.source.isLive ? "LIVE" : "BUFFERED",
-                resumePosition: req.resumePosition,
-                duration: req.duration,
-                sourceSelected: req.source,
-                speed: await getDefaultPlaybackSpeed(),
-                tag: req.tag,
-                title: req.title
-            });
+            try {
+                await CastingBackend.mediaLoad({
+                    streamType: req.source.isLive ? "LIVE" : "BUFFERED",
+                    resumePosition: req.resumePosition,
+                    duration: req.duration,
+                    sourceSelected: req.source,
+                    speed: await getDefaultPlaybackSpeed(),
+                    tag: req.tag,
+                    title: req.title
+                });
+            } catch (error) {
+                // The backend refuses sources it cannot cast (DRM) with a dialog; like Android, stay in cast mode.
+                console.error("Failed to load the source on the cast device", error);
+                if (error instanceof ExceptionModel) {
+                    UIOverlay.overlayError(error);
+                }
+            }
 
             setPendingCastLoad(null);
         },
