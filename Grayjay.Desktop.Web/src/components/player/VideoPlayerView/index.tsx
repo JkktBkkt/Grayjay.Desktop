@@ -1525,6 +1525,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 // The backend refuses sources it cannot cast (DRM) with a dialog; like Android, stay in cast mode.
                 console.error("Failed to load the source on the cast device", error);
                 if (error instanceof ExceptionModel) {
+                    // App dialogs render outside the fullscreen player, so leave fullscreen first.
+                    await syncFullscreenToDom(false);
                     UIOverlay.overlayError(error);
                 }
             }
