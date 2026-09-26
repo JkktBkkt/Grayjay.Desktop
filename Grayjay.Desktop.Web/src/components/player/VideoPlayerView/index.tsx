@@ -387,6 +387,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         if (casting && isCurrentlyCasting) {
             console.info("start casting because isCasting change");
             changeSource(undefined);
+            // Like Android, keep the local position until the device reports one, so a refused cast resumes here.
+            setPosition(lastLocalPositionBeforeCast);
             stopHideControls();
 
             const s = props.source;
@@ -486,13 +488,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         console.info("casting video ended");
     }));
 
-    createEffect(() => {
-        if (!casting) {
-            return;
-        }
-
-        const time = casting.activeDevice.time();
-        if (!isCasting() || untrack(isScrubbing)) {
+    // Like Android, only a time reported by the device moves the position; the last report may be stale.
+    createEffect(on(casting.activeDevice.time, (time) => {
+        if (!untrack(isCasting) || untrack(isScrubbing)) {
             return;
         }
 
@@ -501,7 +499,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
         const timeLeft = duration().minus(time);
         console.log("Received position", {time_s: time.as('seconds'), timeLeft_s: timeLeft.as('seconds')});
-    });
+    }, { defer: true }));
 
     createEffect(on(position, () => {
         setEndControlsVisible(false);
