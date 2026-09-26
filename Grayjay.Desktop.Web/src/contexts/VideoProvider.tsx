@@ -5,7 +5,7 @@ import { IPlatformVideo } from "../backend/models/content/IPlatformVideo";
 import { Duration } from "luxon";
 import { SettingsBackend } from "../backend/SettingsBackend";
 import StateWebsocket from "../state/StateWebsocket";
-import { DetailsBackend } from "../backend/DetailsBackend";
+import { DetailsBackend, IVideoLoadResult } from "../backend/DetailsBackend";
 
 export enum VideoState {
     Closed = 0,
@@ -53,6 +53,7 @@ export interface VideoContextValue {
         setTheatrePinned: (pinned: boolean) => void;
         setVolume: (volume: number) => void;
         setStartTime: (startTime: Duration | undefined) => void;
+        takePreloadedVideoLoad: (url: string) => IVideoLoadResult | undefined;
     }
 };
 
@@ -81,8 +82,13 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         return q[i];
     })
 
+    // Only set while openVideoByUrl fills the queue, so the view reuses that load instead of loading again.
+    let preloadedVideoLoad: IVideoLoadResult | undefined;
+    let openVideoByUrlGeneration = 0;
+
     const openVideo = (v: IPlatformVideo, time?: Duration, videoState?: VideoState) => { 
         const desiredVideoState = videoState ?? VideoState.Maximized;
+        openVideoByUrlGeneration++;
         batch(() => {
             setIndex(0);
             setStartTime(time);
@@ -95,13 +101,31 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         const desiredVideoState = videoState ?? VideoState.Maximized;
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
+        const generation = ++openVideoByUrlGeneration;
         const videoLoadResult = await DetailsBackend.videoLoad(url);
-        batch(() => {
-            setIndex(0);
-            setStartTime(time);
-            setQueue([ videoLoadResult.video ]);
+        if (generation !== openVideoByUrlGeneration) {
+            return;
+        }
 
-        });
+        preloadedVideoLoad = videoLoadResult;
+        try {
+            batch(() => {
+                setIndex(0);
+                setStartTime(time);
+                setQueue([ videoLoadResult.video ]);
+            });
+        } finally {
+            preloadedVideoLoad = undefined;
+        }
+    };
+    const takePreloadedVideoLoad = (url: string): IVideoLoadResult | undefined => {
+        const preloaded = preloadedVideoLoad;
+        if (!preloaded || (preloaded.video.backendUrl ?? preloaded.video.url) !== url) {
+            return undefined;
+        }
+
+        preloadedVideoLoad = undefined;
+        return preloaded;
     };
     const sq = (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffle?: boolean, videoState?: VideoState) => { 
         if (index < 0 || index >= queue.length) {
@@ -110,6 +134,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         }
 
         const desiredVideoState = videoState ?? VideoState.Maximized;
+        openVideoByUrlGeneration++;
         batch(() => {
             setIndex(index);
             setQueue(queue);
@@ -131,6 +156,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         setQueue([ ... (queue() ?? []), video ]);
     };
     const closeVideo = () => {
+        openVideoByUrlGeneration++;
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);
@@ -204,7 +230,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
             setTheatrePinned,
             setVolume,
             refetchWatchLater,
-            setStartTime
+            setStartTime,
+            takePreloadedVideoLoad
         }
     };
 
