@@ -124,7 +124,7 @@ namespace Grayjay.ClientServer.Settings
         public class PlaybackSettings
         {
             [SettingsField("Primary Language", SettingsField.DROPDOWN, "", -1)]
-            [SettingsDropdownOptions("English")]
+            [SettingsDropdownOptions("English", "Spanish", "German", "French", "Japanese", "Korean", "Thai", "Vietnamese", "Indonesian", "Hindi", "Arabic", "Turkish", "Russian", "Portuguese", "Chinese", "Italian")]
             public int PrimaryLanguage { get; set; } = 0;
 
             public string GetPrimaryLanguage()
@@ -142,10 +142,11 @@ namespace Grayjay.ClientServer.Settings
                     8 => "id",
                     9 => "hi",
                     10 => "ar",
-                    11 => "tu",
+                    11 => "tr",
                     12 => "ru",
                     13 => "pt",
                     14 => "zh",
+                    15 => "it",
                     _ => null
                 };
             }
