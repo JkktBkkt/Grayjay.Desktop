@@ -41,32 +41,40 @@ namespace Grayjay.ClientServer.Controllers
             lock (_lock)
             {
                 _details = details;
+                var videoSources = VideoHelper.ReorderVideoSources(VideoHelper.ExpandUMPVideoSources(details.Video.VideoSources).Where(x=>x.IsDownloadable()).ToList(), (details.Video is UnMuxedVideoDescriptor unmux && (unmux.AudioSources?.Any(x=>x.IsDownloadable()) ?? false)) || details.Video.VideoSources.Any(x => x is UMPSource));
                 _sources = new DownloadSources()
                 {
-                    VideoSources = VideoHelper.ReorderVideoSources(VideoHelper.ExpandUMPVideoSources(details.Video.VideoSources).Where(x=>x.IsDownloadable()).ToList(), (details.Video is UnMuxedVideoDescriptor unmux && (unmux.AudioSources?.Any(x=>x.IsDownloadable()) ?? false)) || details.Video.VideoSources.Any(x => x is UMPSource)),
+                    VideoSources = videoSources,
                     AudioSources = VideoHelper.ReorderAudioSources(((details.Video is UnMuxedVideoDescriptor unmux2) ? unmux2.AudioSources.Where(x=>x.IsDownloadable()).ToList() : new List<IAudioSource>())
                         .Concat(VideoHelper.GetUMPAudioSources(details.Video.VideoSources).Where(x => x.IsDownloadable())).ToList()),
                     SubtitleSources = details.Subtitles.ToList(),
-                    ManifestSources = details.Video.VideoSources.Where(x => x is HLSManifestSource)
-                        .ToDictionary(x => Array.IndexOf(details.Video.VideoSources, x), y =>
-                        {
-                            var hlsSource = y as HLSManifestSource;
-                            try
-                            {
-                                var modifier = hlsSource?.GetRequestModifier();
-
-                                var manifest = Parsers.HLS.DownloadAndParsePlaylist(hlsSource.Url, modifier).Result;
-                                return manifest.GetVideoSources();
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.w(nameof(DownloadController), "Failed to extract HLS manifest: " + ex.Message);
-                                return new List<HLSVariantVideoUrlSource>();
-                            }
-
-                        })
+                    ManifestSources = GetManifestSources(videoSources, LoadManifestVariants)
                 };
                 return details;
+            }
+        }
+
+        //Keyed by the index in the given list, which is the index the download dialog and Download use.
+        public static Dictionary<int, List<HLSVariantVideoUrlSource>> GetManifestSources(IList<IVideoSource> videoSources, Func<HLSManifestSource, List<HLSVariantVideoUrlSource>> loadVariants)
+        {
+            return Enumerable.Range(0, videoSources.Count)
+                .Where(index => videoSources[index] is HLSManifestSource)
+                .ToDictionary(index => index, index => loadVariants((HLSManifestSource)videoSources[index]));
+        }
+
+        private static List<HLSVariantVideoUrlSource> LoadManifestVariants(HLSManifestSource hlsSource)
+        {
+            try
+            {
+                var modifier = hlsSource.GetRequestModifier();
+
+                var manifest = Parsers.HLS.DownloadAndParsePlaylist(hlsSource.Url, modifier).Result;
+                return manifest.GetVideoSources();
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(DownloadController), "Failed to extract HLS manifest: " + ex.Message);
+                return new List<HLSVariantVideoUrlSource>();
             }
         }
         public static PlatformVideoDetails LoadDownload(string url)
