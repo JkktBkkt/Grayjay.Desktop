@@ -147,9 +147,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
 
         const preloaded = video?.actions.takePreloadedVideoLoad(url);
+        const generation = video?.actions.videoGeneration() ?? 0;
         try {
             return await UIOverlay.catchDialogExceptions(async ()=>{
-                const result = preloaded ?? await DetailsBackend.videoLoad(url);
+                const result = preloaded ?? await DetailsBackend.videoLoad(url, generation);
                 setVideoLocal(result?.local);
                 console.info("set video", { url, video: result?.video, local: result?.local });
                 return result?.video;

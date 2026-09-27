@@ -20,11 +20,11 @@ export abstract class DetailsBackend {
         return await Backend.GET("/details/PostCurrent");
     }
 
-    static async videoLoad(url: string): Promise<IVideoLoadResult> {
-        return await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url));
+    static async videoLoad(url: string, generation: number): Promise<IVideoLoadResult> {
+        return await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url) + "&generation=" + generation);
     }
-    static async videoClose(): Promise<boolean> {
-        return await Backend.GET("/details/VideoClose");
+    static async videoClose(generation: number): Promise<boolean> {
+        return await Backend.GET("/details/VideoClose?generation=" + generation);
     }
     static async videoCurrent(): Promise<PagerResult<IPlatformVideoDetails>> {
         return await Backend.GET("/details/VideoCurrent");

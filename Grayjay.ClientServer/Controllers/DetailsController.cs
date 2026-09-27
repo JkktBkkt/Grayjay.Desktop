@@ -184,7 +184,8 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             private long _videoLoadId = 0;
-            private long _appliedVideoLoadId = 0;
+            private long _appliedVideoGeneration = 0;
+            private long _closedVideoGeneration = 0;
             private string? _newestVideoLoadUrl = null;
             private readonly object _videoLoadLock = new object();
             private readonly object _videoLoadIdLock = new object();
@@ -213,10 +214,26 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             /// <summary>
-            /// Runs apply when no newer load has started since loadId, and returns whether it ran.
+            /// The frontend open generation of the applied load, 0 when unknown.
             /// </summary>
-            public bool TryApplyVideoLoad(long loadId, Action apply)
+            public long AppliedVideoGeneration
             {
+                get
+                {
+                    lock (_videoLoadLock)
+                    {
+                        return _appliedVideoGeneration;
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Runs apply when no newer load has started since loadId, and returns whether it ran.
+            /// When the frontend already closed the load's generation, its playback tracker is moved out into closedTracker.
+            /// </summary>
+            public bool TryApplyVideoLoad(long loadId, long generation, Action apply, out PlaybackTracker? closedTracker)
+            {
+                closedTracker = null;
                 lock (_videoLoadLock)
                 {
                     if (Interlocked.Read(ref _videoLoadId) != loadId)
@@ -224,20 +241,26 @@ namespace Grayjay.ClientServer.Controllers
                         return false;
                     }
                     apply();
-                    _appliedVideoLoadId = loadId;
+                    _appliedVideoGeneration = generation;
+                    if (generation > 0 && generation <= _closedVideoGeneration)
+                    {
+                        closedTracker = VideoPlaybackTracker;
+                        VideoPlaybackTracker = null;
+                    }
                     return true;
                 }
             }
 
             /// <summary>
-            /// Moves the playback tracker out when no load started after the applied one, and returns whether it did.
-            /// A newer load keeps the tracker, as its ChangeVideo concludes it.
+            /// Marks every open generation up to generation as closed, and moves the playback tracker out when the applied load is one of them.
+            /// A close that arrives after a newer open applied leaves that newer tracker alone. Generation 0 is never closed.
             /// </summary>
-            public bool TryTakePlaybackTracker(out PlaybackTracker? tracker)
+            public bool TryTakeClosedPlaybackTracker(long generation, out PlaybackTracker? tracker)
             {
                 lock (_videoLoadLock)
                 {
-                    if (Interlocked.Read(ref _videoLoadId) != _appliedVideoLoadId)
+                    _closedVideoGeneration = Math.Max(_closedVideoGeneration, generation);
+                    if (_appliedVideoGeneration <= 0 || _appliedVideoGeneration > generation)
                     {
                         tracker = null;
                         return false;
@@ -564,7 +587,7 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public VideoLoadResult VideoLoad(string url)
+        public VideoLoadResult VideoLoad(string url, long generation = 0)
         {
             var state = this.State().DetailsState;
             long loadId = state.BeginVideoLoad(url);
@@ -602,15 +625,15 @@ namespace Grayjay.ClientServer.Controllers
 
             if (contentDetails is PlatformVideoDetails video)
             {
-                ApplyVideoLoad(state, loadId, url, video, local);
+                ApplyVideoLoad(state, loadId, generation, url, video, local);
             }
             else if (local != null)
             {
-                ApplyVideoLoad(state, loadId, url, null, local);
+                ApplyVideoLoad(state, loadId, generation, url, null, local);
             }
             else if (contentDetails == null)
             {
-                ApplyVideoLoad(state, loadId, url, null, null);
+                ApplyVideoLoad(state, loadId, generation, url, null, null);
                 Logger.e(nameof(DetailsController), "Failed to load video", contentDetailsException);
                 if (contentDetailsException is TargetInvocationException targetInvocationException && targetInvocationException.InnerException != null)
                     contentDetailsException = targetInvocationException.InnerException;
@@ -618,7 +641,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             else
             {
-                ApplyVideoLoad(state, loadId, url, null, null);
+                ApplyVideoLoad(state, loadId, generation, url, null, null);
                 throw new DialogException(new ExceptionModel()
                 {
                     Type = ExceptionModel.EXCEPTION_GENERAL,
@@ -636,9 +659,24 @@ namespace Grayjay.ClientServer.Controllers
             };
         }
 
-        private void ApplyVideoLoad(DetailsState state, long loadId, string url, PlatformVideoDetails video, VideoLocal videoLocal)
+        private void ApplyVideoLoad(DetailsState state, long loadId, long generation, string url, PlatformVideoDetails video, VideoLocal videoLocal)
         {
-            if (!state.TryApplyVideoLoad(loadId, () => ChangeVideo(video, videoLocal)))
+            if (state.TryApplyVideoLoad(loadId, generation, () => ChangeVideo(video, videoLocal), out var closedTracker))
+            {
+                if (closedTracker != null)
+                {
+                    Logger.i(nameof(DetailsController), "Concluding the playback tracker of a load whose player already closed: " + url);
+                    try
+                    {
+                        closedTracker.onConcluded();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.w(nameof(DetailsController), "Failed to conclude the playback tracker of a closed load: " + ex.Message, ex);
+                    }
+                }
+            }
+            else
             {
                 Logger.i(nameof(DetailsController), "Skipped the state change of a superseded load: " + url);
                 // Releases what the load took (a play token), unless the newer load has the same url and may share it.
@@ -657,10 +695,10 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public bool VideoClose()
+        public bool VideoClose(long generation = 0)
         {
             var state = this.State().DetailsState;
-            if (!state.TryTakePlaybackTracker(out var tracker) || tracker == null)
+            if (!state.TryTakeClosedPlaybackTracker(generation, out var tracker) || tracker == null)
             {
                 return false;
             }
@@ -880,7 +918,7 @@ namespace Grayjay.ClientServer.Controllers
             catch (ScriptReloadRequiredException reloadEx)
             {
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url, state.DetailsState.AppliedVideoGeneration);
                 return await SourceDash(videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, isLoopback);
             }
             catch (Exception ex)
@@ -1175,7 +1213,7 @@ namespace Grayjay.ClientServer.Controllers
                 if (retried)
                     throw;
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url, state.DetailsState.AppliedVideoGeneration);
                 var reloadedSources = state.DetailsState.VideoLoaded?.Video?.VideoSources;
                 if (videoIndex >= 0 && (reloadedSources == null || videoIndex >= reloadedSources.Length))
                     throw new InvalidDataException("Video source is no longer available after reload");
@@ -1362,7 +1400,7 @@ namespace Grayjay.ClientServer.Controllers
                 if (retried)
                     throw;
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url, state.DetailsState.AppliedVideoGeneration);
                 var reloadedDescriptor = state.DetailsState.VideoLoaded?.Video;
                 if (videoIndex >= 0 && (reloadedDescriptor?.VideoSources == null || videoIndex >= reloadedDescriptor.VideoSources.Length))
                 {

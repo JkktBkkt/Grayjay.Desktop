@@ -54,6 +54,7 @@ export interface VideoContextValue {
         setVolume: (volume: number) => void;
         setStartTime: (startTime: Duration | undefined) => void;
         takePreloadedVideoLoad: (url: string) => IVideoLoadResult | undefined;
+        videoGeneration: () => number;
     }
 };
 
@@ -84,11 +85,12 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
 
     // Only set while openVideoByUrl fills the queue, so the view reuses that load instead of loading again.
     let preloadedVideoLoad: IVideoLoadResult | undefined;
-    let openVideoByUrlGeneration = 0;
+    // Bumped by every open and close; sent with each load and close so the backend can release the trackers of closed loads.
+    let videoGeneration = 0;
 
     const openVideo = (v: IPlatformVideo, time?: Duration, videoState?: VideoState) => { 
         const desiredVideoState = videoState ?? VideoState.Maximized;
-        openVideoByUrlGeneration++;
+        videoGeneration++;
         batch(() => {
             setIndex(0);
             setStartTime(time);
@@ -101,9 +103,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         const desiredVideoState = videoState ?? VideoState.Maximized;
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
-        const generation = ++openVideoByUrlGeneration;
-        const videoLoadResult = await DetailsBackend.videoLoad(url);
-        if (generation !== openVideoByUrlGeneration) {
+        const generation = ++videoGeneration;
+        const videoLoadResult = await DetailsBackend.videoLoad(url, generation);
+        if (generation !== videoGeneration) {
             return;
         }
 
@@ -134,7 +136,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         }
 
         const desiredVideoState = videoState ?? VideoState.Maximized;
-        openVideoByUrlGeneration++;
+        videoGeneration++;
         batch(() => {
             setIndex(index);
             setQueue(queue);
@@ -156,10 +158,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         setQueue([ ... (queue() ?? []), video ]);
     };
     const closeVideo = () => {
-        openVideoByUrlGeneration++;
-        if (index() !== undefined) {
-            DetailsBackend.videoClose().catch((error) => console.warn("Failed to release the playback tracker", error));
-        }
+        // Sent even with nothing open, as a first openVideoByUrl may still be loading.
+        const closedGeneration = videoGeneration++;
+        DetailsBackend.videoClose(closedGeneration).catch((error) => console.warn("Failed to release the playback tracker", error));
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);
@@ -234,7 +235,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
             setVolume,
             refetchWatchLater,
             setStartTime,
-            takePreloadedVideoLoad
+            takePreloadedVideoLoad,
+            videoGeneration: () => videoGeneration
         }
     };
 
