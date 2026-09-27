@@ -104,10 +104,20 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            public void SetWidevinePsshData(IWidevineSource source, IReadOnlyList<byte[]> psshData)
+            /// <summary>
+            /// Stores psshData only when generation is still the current cache generation, and returns whether it did.
+            /// </summary>
+            public bool TrySetWidevinePsshData(long generation, IWidevineSource source, IReadOnlyList<byte[]> psshData)
             {
                 lock (_widevinePsshData)
+                {
+                    if (generation != CachedDashGeneration)
+                    {
+                        return false;
+                    }
                     _widevinePsshData[source] = psshData;
+                    return true;
+                }
             }
 
             public IReadOnlyList<byte[]>? GetWidevinePsshData(IWidevineSource source)
@@ -144,14 +154,22 @@ namespace Grayjay.ClientServer.Controllers
 
             private readonly List<string> _dashRelativeProxyTokens = new List<string>();
 
-            public void RegisterDashRelativeProxyToken(string token)
+            /// <summary>
+            /// Creates and registers a DashRelative proxy only when generation is still the current cache generation, else returns null.
+            /// A stale request creates nothing, as its proxy key can match a token the next video already uses.
+            /// </summary>
+            public string? TryCreateDashRelativeProxy(long generation, Func<string> createProxy)
             {
-                if (string.IsNullOrEmpty(token))
-                    return;
                 lock (_dashRelativeProxyTokens)
                 {
-                    if (!_dashRelativeProxyTokens.Contains(token))
+                    if (generation != CachedDashGeneration)
+                    {
+                        return null;
+                    }
+                    var token = createProxy();
+                    if (!string.IsNullOrEmpty(token) && !_dashRelativeProxyTokens.Contains(token))
                         _dashRelativeProxyTokens.Add(token);
+                    return token;
                 }
             }
 
@@ -234,6 +252,7 @@ namespace Grayjay.ClientServer.Controllers
             public DateTime _lastWatchPositionChange = DateTime.MinValue;
             public LiveChatManager? LiveChatManager { get; set; }
             private object _cachedDashLockObject = new object();
+            private long _cachedDashGeneration = 0;
             public int CachedDashVideoIndex = -1;
             public int CachedDashAudioIndex = -1;
             public int CachedDashSubtitleIndex = -1;
@@ -256,10 +275,25 @@ namespace Grayjay.ClientServer.Controllers
                 return id;
             }
 
+            /// <summary>
+            /// Bumped by every ClearCachedDash, so a request that started before a video change cannot write into the next video's state.
+            /// </summary>
+            public long CachedDashGeneration
+            {
+                get
+                {
+                    lock (_cachedDashLockObject)
+                    {
+                        return _cachedDashGeneration;
+                    }
+                }
+            }
+
             public void ClearCachedDash()
             {
                 lock (_cachedDashLockObject)
                 {
+                    _cachedDashGeneration++;
                     CachedDashAudioIndex = -1;
                     CachedDashVideoIndex = 1;
                     CachedDashTask = null;
@@ -286,6 +320,22 @@ namespace Grayjay.ClientServer.Controllers
                     CachedDashSubtitleIndex = subtitleIndex;
                     CachedDashTask = dash;
                     CachedDashProxySettings = proxySettings;
+                }
+            }
+
+            /// <summary>
+            /// Caches dash only when generation is still the current cache generation, and returns whether it did.
+            /// </summary>
+            public bool TrySetCachedDash(long generation, int videoIndex, int audioIndex, int subtitleIndex, ProxySettings? proxySettings, Task<string> dash)
+            {
+                lock (_cachedDashLockObject)
+                {
+                    if (generation != _cachedDashGeneration)
+                    {
+                        return false;
+                    }
+                    SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, dash);
+                    return true;
                 }
             }
 
@@ -324,6 +374,9 @@ namespace Grayjay.ClientServer.Controllers
         {
             var state = this.State().DetailsState;
             video = video ?? videoLocal;
+            // Assigned before the DASH generation bump, so a request that reads the new generation also reads the new video.
+            state.VideoLoaded = video;
+            state.VideoLocal = videoLocal;
             state.ClearCachedDash();
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
@@ -331,8 +384,6 @@ namespace Grayjay.ClientServer.Controllers
             state.ClearWidevinePsshData();
             state.ClearDashManifestLocations();
             state.ClearDashRelativeProxies();
-            state.VideoLoaded = video;
-            state.VideoLocal = videoLocal;
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
             try
@@ -1115,6 +1166,10 @@ namespace Grayjay.ClientServer.Controllers
             {
                 return Content(await GetOrGenerateSourceDashUrl(state, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings), "application/dash+xml");
             }
+            catch (SupersededDashRequestException)
+            {
+                return StatusCode(409, "The video changed while the DASH manifest was generated");
+            }
             catch (ScriptReloadRequiredException reloadEx)
             {
                 if (retried)
@@ -1130,17 +1185,18 @@ namespace Grayjay.ClientServer.Controllers
 
         public static async Task<string> GetOrGenerateSourceDashUrl(WindowState state, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings proxySettings)
         {
+            var generation = state.DetailsState.CachedDashGeneration;
             var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, -1, subtitleIndex, proxySettings);
             if (cachedTask != null)
                 return await cachedTask;
 
-            (var mpd, var isDynamic) = GenerateSourceDashUrl(state, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings);
-            if (!isDynamic)
-                state.DetailsState.SetCachedDash(videoIndex, -1, subtitleIndex, proxySettings, Task.FromResult(mpd));
+            (var mpd, var isDynamic) = GenerateSourceDashUrl(state, generation, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings);
+            if (!isDynamic && !state.DetailsState.TrySetCachedDash(generation, videoIndex, -1, subtitleIndex, proxySettings, Task.FromResult(mpd)))
+                throw new SupersededDashRequestException();
             return mpd;
         }
 
-        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings)
+        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, long generation, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings)
         {
             (var sourceVideo, _, var sourceSubtitle) = GetSources(state, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
             if (!(sourceVideo is DashManifestSource dashSource))
@@ -1163,8 +1219,8 @@ namespace Grayjay.ClientServer.Controllers
 
             string ProxyRootFor(string hostRoot)
             {
-                var token = ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId);
-                state.DetailsState.RegisterDashRelativeProxyToken(token);
+                var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId))
+                    ?? throw new SupersededDashRequestException();
                 return $"{baseUri}/proxy/DashRelative/{token}/";
             }
 
@@ -1285,15 +1341,21 @@ namespace Grayjay.ClientServer.Controllers
         {
             var state = this.State();
             var proxySettings = new ProxySettings(isLoopback);
+            var generation = state.DetailsState.CachedDashGeneration;
             var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, -1, proxySettings);
             if (cachedTask != null)
                 return Content(await cachedTask, "application/dash+xml");
 
             try
             {
-                var mpd = await GenerateSourceDashWidevineUrl(state, videoIndex, audioIndex, proxySettings);
-                state.DetailsState.SetCachedDash(videoIndex, audioIndex, -1, proxySettings, Task.FromResult(mpd));
+                var mpd = await GenerateSourceDashWidevineUrl(state, generation, videoIndex, audioIndex, proxySettings);
+                if (!state.DetailsState.TrySetCachedDash(generation, videoIndex, audioIndex, -1, proxySettings, Task.FromResult(mpd)))
+                    throw new SupersededDashRequestException();
                 return Content(mpd, "application/dash+xml");
+            }
+            catch (SupersededDashRequestException)
+            {
+                return StatusCode(409, "The video changed while the DASH manifest was generated");
             }
             catch (ScriptReloadRequiredException reloadEx)
             {
@@ -1314,7 +1376,7 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        public static async Task<string> GenerateSourceDashWidevineUrl(WindowState state, int videoIndex, int audioIndex, ProxySettings? proxySettings)
+        public static async Task<string> GenerateSourceDashWidevineUrl(WindowState state, long generation, int videoIndex, int audioIndex, ProxySettings? proxySettings)
         {
             (var sourceVideo, var sourceAudio, _) = GetSources(state, videoIndex, audioIndex, -1, false, false, false);
 
@@ -1389,10 +1451,11 @@ namespace Grayjay.ClientServer.Controllers
             {
                 var track = tracks[trackIndex];
                 var metaData = probes[trackIndex].MetaData;
-                state.DetailsState.SetWidevinePsshData(track.Source, probes[trackIndex].WidevinePsshData);
+                if (!state.DetailsState.TrySetWidevinePsshData(generation, track.Source, probes[trackIndex].WidevinePsshData))
+                    throw new SupersededDashRequestException();
                 var modifierId = track.Modifier != null ? ProxyController.GetOrCreateModifierId(state, track.Modifier, track.Url) : null;
-                var token = ProxyController.GetOrCreateDashRelativeProxy(state, track.Url, track.Modifier, modifierId);
-                state.DetailsState.RegisterDashRelativeProxyToken(token);
+                var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, track.Url, track.Modifier, modifierId))
+                    ?? throw new SupersededDashRequestException();
                 var proxiedUrl = $"{baseUri}/proxy/DashRelative/{token}/";
 
                 var representationIdString = representationId.ToString();
@@ -2326,6 +2389,13 @@ namespace Grayjay.ClientServer.Controllers
         }
 
 
+
+        /// <summary>
+        /// Thrown when the video changed while a DASH manifest was generated for the previous one.
+        /// </summary>
+        private sealed class SupersededDashRequestException : Exception
+        {
+        }
 
         public class VideoLoadResult
         {
