@@ -1265,6 +1265,7 @@ namespace Grayjay.ClientServer.Controllers
             var location = RewriteDashManifestForProxy(document, new Uri(finalUrl), ProxyRootFor);
             if (location != null)
                 state.DetailsState.SetDashManifestLocation(dashSource, location);
+            WrapBareWidevinePssh(document);
 
             var mpd = document.ToString(SaveOptions.DisableFormatting);
             if (sourceSubtitle != null)
@@ -1370,6 +1371,40 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         private static bool IsHttpUri(Uri uri) => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+
+        private static readonly XNamespace CencNamespace = "urn:mpeg:cenc:2013";
+
+        /// <summary>
+        /// Wraps Widevine cenc:pssh values that carry only the pssh data in a pssh box.
+        /// EME rejects the bare data as CENC init data, which dash.js reports as a fatal DRM error.
+        /// </summary>
+        public static void WrapBareWidevinePssh(XDocument document)
+        {
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            foreach (var contentProtection in root.Descendants(root.Name.Namespace + "ContentProtection"))
+            {
+                // Widevine DRM system ID: https://dashif.org/identifiers/content_protection/
+                if (!string.Equals((string?)contentProtection.Attribute("schemeIdUri"), "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                foreach (var pssh in contentProtection.Elements(CencNamespace + "pssh"))
+                {
+                    byte[] data;
+                    try
+                    {
+                        data = Convert.FromBase64String(pssh.Value.Trim());
+                    }
+                    catch (FormatException)
+                    {
+                        continue;
+                    }
+
+                    var box = Mp4MetadataHelper.WrapBareWidevinePsshData(data);
+                    if (box != null)
+                        pssh.Value = Convert.ToBase64String(box);
+                }
+            }
+        }
 
         [HttpGet]
         public async Task<IActionResult> SourceDashWidevineUrl(int videoIndex = -1, int audioIndex = -1, bool isLoopback = true)

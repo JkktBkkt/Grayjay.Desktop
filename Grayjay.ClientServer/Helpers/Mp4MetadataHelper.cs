@@ -122,6 +122,24 @@ public static class Mp4MetadataHelper
         return result;
     }
 
+    /// <summary>
+    /// Wraps bare Widevine pssh data in a version 0 pssh box. Returns null when the input already is a pssh box.
+    /// </summary>
+    public static byte[]? WrapBareWidevinePsshData(byte[] data)
+    {
+        if (TryReadBox(data, 0, data.Length, out var type, out _, out var boxEnd) && type == "pssh" && boxEnd == data.Length)
+            return null;
+
+        // Header: size(4) type(4) version and flags(4, zero) SystemID(16) DataSize(4).
+        var box = new byte[32 + data.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(box.AsSpan(0, 4), (uint)box.Length);
+        Encoding.ASCII.GetBytes("pssh").CopyTo(box, 4);
+        WidevineSystemId.CopyTo(box, 12);
+        BinaryPrimitives.WriteUInt32BigEndian(box.AsSpan(28, 4), (uint)data.Length);
+        data.CopyTo(box, 32);
+        return box;
+    }
+
     private static byte[]? ReadWidevinePsshData(ReadOnlySpan<byte> content)
     {
         // Full box: version(1) flags(3) SystemID(16) [v1: KID_count(4) KIDs(16 each)] DataSize(4) Data.
