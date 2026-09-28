@@ -57,10 +57,10 @@
       <TargetPath>ffmpeg</TargetPath>
     </ContentWithTargetPath>
 
-    <ContentWithTargetPath Include="deps/win-x64/libcurl.dll" Condition="'$(RuntimeIdentifier)'=='win-x64'">
+    <ContentWithTargetPath Include="deps/win-x64/libcurl-impersonate.dll" Condition="'$(RuntimeIdentifier)'=='win-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <TargetPath>libcurl.dll</TargetPath>
+      <TargetPath>libcurl-impersonate.dll</TargetPath>
     </ContentWithTargetPath>
     <ContentWithTargetPath Include="deps/linux-x64/libcurl-impersonate.so" Condition="'$(RuntimeIdentifier)'=='linux-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
