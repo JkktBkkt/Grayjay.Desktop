@@ -25,7 +25,7 @@ build_sign_notarize() {
 
     # Build backend
     rm -rf bin/ obj/
-    dotnet publish -r $ARCH -c Release -p:AssemblyVersion=1.$VERSION.0.0
+    dotnet publish -r $ARCH -c Release -p:AssemblyVersion=1.$VERSION.0.0 || { echo "dotnet publish failed for $ARCH"; exit 1; }
     PUBLISH_PATH="bin/Release/net8.0/$ARCH/publish"
     mkdir -p "$PUBLISH_PATH/wwwroot"
     cp -r ../Grayjay.Desktop.Web/dist "$PUBLISH_PATH/wwwroot/web"
@@ -66,7 +66,7 @@ build_sign_notarize() {
     cp -a Info/Info-Helper-Plugin.plist "$APP_NAME/Contents/Frameworks/justcefnative Helper (Plugin).app/Contents/Info.plist"
     cp -a Info/Info-Helper-Renderer.plist "$APP_NAME/Contents/Frameworks/justcefnative Helper (Renderer).app/Contents/Info.plist"
 
-    bash ./sign-macos.sh "$APP_NAME"
+    bash ./sign-macos.sh "$APP_NAME" || { echo "Signing/notarization failed for $ARCH"; exit 1; }
 
     rm -f "Grayjay.Desktop-$ARCH.zip"
     rm -rf "Grayjay.app"
@@ -78,11 +78,21 @@ build_sign_notarize() {
     fi
 }
 
+SIGN_TEST="$(mktemp -t signtest)"
+cp /usr/bin/true "$SIGN_TEST"
+if ! codesign --sign "$APP_CERT" --force "$SIGN_TEST" >/dev/null 2>&1; then
+    rm -f "$SIGN_TEST"
+    echo "Error: cannot sign with \"$APP_CERT\"."
+    echo "Unlock the keychain first: security unlock-keychain ~/Library/Keychains/login.keychain-db"
+    exit 1
+fi
+rm -f "$SIGN_TEST"
+
 # Build front-end
 cd ../Grayjay.Desktop.Web
 npm install
 rm -rf dist
-npm run build
+npm run build || { echo "Front-end build failed"; exit 1; }
 cd ../Grayjay.Desktop.CEF
 
 build_sign_notarize "osx-x64"

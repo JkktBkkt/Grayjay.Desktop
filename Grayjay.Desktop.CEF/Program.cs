@@ -549,11 +549,11 @@ namespace Grayjay.Desktop
                 string sandboxArg = useSandbox ? "" : "--no-sandbox ";
 
                 if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
-                    cefStartArgs = "--use-alloy-style --use-native " + rootCacheDirCmd + extraArgs;
+                    cefStartArgs = "--use-alloy-style " + rootCacheDirCmd + extraArgs;
                 else if (Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") != null)
                     cefStartArgs = sandboxArg + rootCacheDirCmd + extraArgs;
                 else
-                    cefStartArgs = "--use-alloy-style --use-native " + sandboxArg + rootCacheDirCmd + extraArgs;
+                    cefStartArgs = "--use-alloy-style " + sandboxArg + rootCacheDirCmd + extraArgs;
 
                 Logger.i(nameof(Program), "Main: Starting JustCefProcess");
             }
