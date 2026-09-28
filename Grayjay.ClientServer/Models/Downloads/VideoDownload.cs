@@ -548,6 +548,8 @@ namespace Grayjay.ClientServer.Models.Downloads
             {
                 foreach (var task in downloadTasks)
                     await task;
+                if (IsCancelled)
+                    throw new OperationCanceledException("Cancelled");
                 wasSuccesful = true;
             }
             catch (Exception ex)
@@ -882,6 +884,9 @@ namespace Grayjay.ClientServer.Models.Downloads
                     }
                     for (int i = 0; i < rep.Segments.Count; i++)
                     {
+                        if (IsCancelled)
+                            throw new OperationCanceledException("Cancelled");
+
                         bool isLast = i == rep.Segments.Count - 1;
                         var segment = rep.Segments[i];
                         int segRead = 0;
@@ -909,6 +914,9 @@ namespace Grayjay.ClientServer.Models.Downloads
 
                         foreach(var segmentAudio in audioToDownload)
                         {
+                            if (IsCancelled)
+                                throw new OperationCanceledException("Cancelled");
+
                             int segReadAudio = 0;
                             if (executor != null)
                             {
@@ -1148,6 +1156,8 @@ namespace Grayjay.ClientServer.Models.Downloads
                 for (int i = 0; i < variantPlaylist.Segments.Count; i++)
                 {
                     cancel.ThrowIfCancellationRequested();
+                    if (IsCancelled)
+                        throw new OperationCanceledException("Cancelled");
 
                     if (!(variantPlaylist.Segments[i] is HLS.MediaSegment seg))
                         continue;
