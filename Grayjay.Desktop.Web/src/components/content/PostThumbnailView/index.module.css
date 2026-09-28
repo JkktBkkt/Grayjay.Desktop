@@ -189,7 +189,7 @@
     padding-right: 1%;
     overflow: hidden;
     position: relative;
-    z-index: 999;
+    z-index: 1;
 }
 .thumbnail {
     width: 30%;
