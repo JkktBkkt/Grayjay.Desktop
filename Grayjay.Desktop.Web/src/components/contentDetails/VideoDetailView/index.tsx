@@ -661,10 +661,16 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     });
     const hasRemoteLiveChat$ = createMemo(() => {
         const descriptor = liveChatWindow$();
-        return liveChatWindowEnabled$() === true && videoLoaded$()?.isLive === true && !liveChatWindow$.loading && videoLoadedIsValid$() && !!descriptor?.url && /^https?:\/\//i.test(descriptor.url) && !descriptor.error;
+        const liveChatViewAvailable = !!window.customElements?.get('justcef-view');
+        return liveChatWindowEnabled$() === true && liveChatViewAvailable && videoLoaded$()?.isLive === true && !liveChatWindow$.loading && videoLoadedIsValid$() && !!descriptor?.url && /^https?:\/\//i.test(descriptor.url) && !descriptor.error;
     });
     const shouldShowNativeChat$ = createMemo(() => {
-        return liveChatWindowEnabled$() === false;
+        const liveChatWindowEnabled = liveChatWindowEnabled$();
+        if (liveChatWindowEnabled === false) {
+            return true;
+        }
+        // Fall back to native chat when the plugin provides no usable chat window or the view is unavailable. (eg: headless mode)
+        return liveChatWindowEnabled === true && !liveChatWindow$.loading && !hasRemoteLiveChat$();
     });
     const shouldHideSideBar = createMemo(() => {
         //TODO: Expand these conditions
