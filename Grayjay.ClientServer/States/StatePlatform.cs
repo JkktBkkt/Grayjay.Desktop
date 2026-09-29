@@ -58,7 +58,7 @@ namespace Grayjay.Desktop.POC.Port.States
         private static event Action<GrayjayPlugin> OnSourceDisabled;
         private static event Action OnDevSourceChanged;
 
-        private static bool _didStartup = false;
+        private static volatile bool _didStartup = false;
 
         private static Regex REGEX_PAGER_REF = new Regex("[a-zA-Z]://grayjay\\.internal/refPager");
         private static ConcurrentDictionary<string, WeakReference<RefPager<PlatformContent>>> _refPagers = new ConcurrentDictionary<string, WeakReference<RefPager<PlatformContent>>>(); 
@@ -105,6 +105,7 @@ namespace Grayjay.Desktop.POC.Port.States
                 Logger.i(nameof(StatePlatform), $"Client [{plugin.Config.Name}] captcha changed, reloading");
                 await ReloadClient(plugin.Config.ID, true);
             };
+            StateWidevine.PlaybackBecameAvailable += () => _ = Task.Run(ReloadWidevineClientsAsync);
             PlatformNestedMedia.SetPluginResolver((url) =>
             {
                 var contentPlugin = GetContentClientOrNull(url);
@@ -113,6 +114,38 @@ namespace Grayjay.Desktop.POC.Port.States
                 else
                     return (null, null, null);
             });
+        }
+
+        // Plugins snapshot bridge.supportedFeatures when their script is evaluated. A client enabled before the
+        // Widevine CDM became available (first launch, CDM downloaded mid-session) would never offer DRM sources.
+        private static async Task ReloadWidevineClientsAsync()
+        {
+            try
+            {
+                await WaitForStartup();
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(StatePlatform), "Waiting for startup before reloading Widevine clients failed.", ex);
+                return;
+            }
+
+            foreach (var client in GetEnabledClients())
+            {
+                try
+                {
+                    var script = StatePlugins.GetPluginScript(client.Config.ID);
+                    if (script == null || !script.Contains("HLSWidevineSource"))
+                        continue;
+
+                    Logger.i(nameof(StatePlatform), $"Reloading [{client.Config.Name}] because Widevine became available");
+                    await ReloadClient(client.ID);
+                }
+                catch (Exception ex)
+                {
+                    Logger.w(nameof(StatePlatform), $"Failed to reload [{client.Config.Name}] after Widevine became available.", ex);
+                }
+            }
         }
 
         public static void InjectPlugin(GrayjayPlugin plugin)
@@ -1043,14 +1076,20 @@ namespace Grayjay.Desktop.POC.Port.States
         {
             if (_didStartup)
                 return Task.CompletedTask;
-            var waitTask = new TaskCompletionSource<bool>();
+            var waitTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Action<bool> handler = null;
             handler = (val) =>
             {
                 OnSourcesAvailableChanged -= handler;
-                waitTask.SetResult(true);
+                waitTask.TrySetResult(true);
             };
             OnSourcesAvailableChanged += handler;
+            // Startup may have finished between the first check and the subscription.
+            if (_didStartup)
+            {
+                OnSourcesAvailableChanged -= handler;
+                return Task.CompletedTask;
+            }
             return waitTask.Task;
         }
     }

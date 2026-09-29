@@ -28,6 +28,10 @@ namespace Grayjay.Desktop
         private const int NewWindowTimeoutSeconds = 5;
         private static readonly TimeSpan SandboxedReadyTimeout = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan TimedOutProcessExitDelay = TimeSpan.FromSeconds(6);
+        private static readonly TimeSpan WidevineMonitorFastInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan WidevineMonitorSlowInterval = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan WidevineMonitorFastPhase = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan WidevineMonitorDuration = TimeSpan.FromMinutes(30);
 
         private static bool IsProcessRunningByPath(string path, out Process? matchingProcess)
         {
@@ -266,34 +270,37 @@ namespace Grayjay.Desktop
             {
                 bool everRegistered = false;
                 var status = initialStatus;
+                var elapsed = Stopwatch.StartNew();
 
-                for (int poll = 0; poll <= 12; poll++)
+                while (true)
                 {
-                    if (poll > 0)
+                    if (status != null)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(5));
-                        status = await cef.GetWidevineStatusAsync();
-                        StateWidevine.Update(status);
+                        everRegistered |= status.Registered;
+
+                        if (StateWidevine.IsPlaybackAvailable)
+                        {
+                            Logger.i(nameof(Program), status.Installed ? $"Widevine CDM {status.Version} is active." : "The Widevine CDM loaded at startup is active.");
+                            return;
+                        }
+
+                        // Installed but unavailable only happens on Linux, where the CDM is loaded at browser startup.
+                        if (status.Installed)
+                        {
+                            Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
+
+                            await StateWindow.WaitForReadyAsync();
+                            StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
+                            return;
+                        }
                     }
 
-                    if (status == null)
-                        continue;
-                    everRegistered |= status.Registered;
+                    if (elapsed.Elapsed >= WidevineMonitorDuration || (!everRegistered && elapsed.Elapsed >= WidevineMonitorFastPhase))
+                        break;
 
-                    if (StateWidevine.IsPlaybackAvailable)
-                    {
-                        Logger.i(nameof(Program), status.Installed ? $"Widevine CDM {status.Version} is active." : "The Widevine CDM loaded at startup is active.");
-                        return;
-                    }
-
-                    if (!status.Installed)
-                        continue;
-
-                    Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
-
-                    await StateWindow.WaitForReadyAsync();
-                    StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
-                    return;
+                    await Task.Delay(elapsed.Elapsed < WidevineMonitorFastPhase ? WidevineMonitorFastInterval : WidevineMonitorSlowInterval);
+                    status = await cef.GetWidevineStatusAsync();
+                    StateWidevine.Update(status);
                 }
 
                 if (everRegistered)
