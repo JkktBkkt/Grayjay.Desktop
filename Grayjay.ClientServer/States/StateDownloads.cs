@@ -147,7 +147,7 @@ namespace Grayjay.ClientServer.States
         {
             if (_downloading.Delete(download))
             {
-                download.IsCancelled = true;
+                download.Cancel();
                 OnDownloadsChanged?.Invoke();
             }
         }
@@ -287,7 +287,8 @@ namespace Grayjay.ClientServer.States
         }
         private static async Task DownloadVideo(VideoDownload download)
         {
-            var cancel = StateApp.AppCancellationToken.Token;
+            using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(StateApp.AppCancellationToken.Token, download.CancellationToken);
+            var cancel = cancellationSource.Token;
             //TODO: Should download?
 
             if((download.PrepareTime?.DifferenceNowMinutes() ?? 99) > 15)

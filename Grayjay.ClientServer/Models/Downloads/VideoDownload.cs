@@ -72,7 +72,10 @@ namespace Grayjay.ClientServer.Models.Downloads
 
         public DateTime? PrepareTime { get; set; }
         public double Progress { get; set; } = 0.0;
-        public bool IsCancelled { get; set; } = false;
+        [JsonIgnore]
+        private readonly CancellationTokenSource _cancellationSource = new CancellationTokenSource();
+        [JsonIgnore]
+        public CancellationToken CancellationToken => _cancellationSource.Token;
 
         public long DownloadSpeedVideo { get; set; }
         public long DownloadSpeedAudio { get; set; }
@@ -321,6 +324,11 @@ namespace Grayjay.ClientServer.Models.Downloads
                     throw new DownloadException("No valid sources found for video/audio", false);
             }
         }
+        public void Cancel()
+        {
+            _cancellationSource.Cancel();
+        }
+
         public async Task Download(ManagedHttpClient client, Action<double> onProgress, CancellationToken cancel = default)
         {
             Logger.i(nameof(VideoDownload), $"VideoDownload Download [{Video.Name}]");
@@ -333,8 +341,7 @@ namespace Grayjay.ClientServer.Models.Downloads
             if (VideoDetails.ID.Value == null)
                 throw new InvalidOperationException("Video has no id");
 
-            if (IsCancelled)
-                throw new OperationCanceledException("Download got cancelled");
+            cancel.ThrowIfCancellationRequested();
 
             string videoDash = (VideoSource is DashManifestRawSource dVideoSource) ? dVideoSource.Generate() : null;
             List<DashRepresentation> videoRepresentations = (!string.IsNullOrEmpty(videoDash)) ? DashHelper.GetRepresentations(videoDash) : null;
@@ -412,7 +419,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                     if (VideoSourceToUse is UMPVideoFormatSource umpVideo)
                     {
                         var result = await UmpDownloader.DownloadTrackAsync(SabrStreamSpec.FromSource(umpVideo.Parent), SabrSession.ROLE_VIDEO, umpVideo.Format,
-                            umpVideo.Parent.Duration, VideoFilePath, GrayjaySettings.Instance.Downloads.GetByteRangeThreadCount(), progressCallback, () => IsCancelled, cancel);
+                            umpVideo.Parent.Duration, VideoFilePath, GrayjaySettings.Instance.Downloads.GetByteRangeThreadCount(), progressCallback, cancel);
                         VideoFileSize = result.Length;
                         VideoSourceMetaDataOverride = result.ToStreamMetaData();
                         VideoSourceMimeTypeOverride = umpVideo.Format.ContainerMimeType;
@@ -422,7 +429,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                         var rep = videoRepresentations.FirstOrDefault(x => x.MimeType.StartsWith("video/"));
                         var repAudio = AudioSourceToUse == null ? videoRepresentations.FirstOrDefault(x => x.MimeType.StartsWith("audio/")) : null;
 
-                        (var length, var metaData) = await DownloadDashRawSource("Video", client, dashManifestRawSource, rep, VideoFilePath, progressCallback, default, repAudio, (repAudio != null) ? AudioFilePath : null);
+                        (var length, var metaData) = await DownloadDashRawSource("Video", client, dashManifestRawSource, rep, VideoFilePath, progressCallback, cancel, repAudio, (repAudio != null) ? AudioFilePath : null);
                         VideoFileSize = length;
                         if (metaData != null)
                             VideoSourceMetaDataOverride = metaData;
@@ -438,12 +445,12 @@ namespace Grayjay.ClientServer.Models.Downloads
                         switch (VideoSource.Container)
                         {
                             case "application/vnd.apple.mpegurl":
-                                await DownloadHLSSource("Video", client, modifier, ((VideoUrlSource)VideoSource).Url, VideoFilePath, progressCallback);
+                                await DownloadHLSSource("Video", client, modifier, ((VideoUrlSource)VideoSource).Url, VideoFilePath, progressCallback, cancel);
                                 break;
                             default:
                                 if (!(VideoSource is VideoUrlSource))
                                     throw new NotImplementedException("Only support video urls for download");
-                                await DownloadSourceFile("Video", client, modifier, ((VideoUrlSource)VideoSource).Url, VideoFilePath, progressCallback);
+                                await DownloadSourceFile("Video", client, modifier, ((VideoUrlSource)VideoSource).Url, VideoFilePath, progressCallback, cancel: cancel);
                                 break;
                         }
                     }
@@ -481,7 +488,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                     if (AudioSourceToUse is UMPAudioFormatSource umpAudio)
                     {
                         var result = await UmpDownloader.DownloadTrackAsync(SabrStreamSpec.FromSource(umpAudio.Parent), SabrSession.ROLE_AUDIO, umpAudio.Format,
-                            umpAudio.Parent.Duration, AudioFilePath, GrayjaySettings.Instance.Downloads.GetByteRangeThreadCount(), progressCallback, () => IsCancelled, cancel);
+                            umpAudio.Parent.Duration, AudioFilePath, GrayjaySettings.Instance.Downloads.GetByteRangeThreadCount(), progressCallback, cancel);
                         AudioFileSize = result.Length;
                         AudioSourceMetaDataOverride = result.ToStreamMetaData();
                         AudioSourceMimeTypeOverride = umpAudio.Format.ContainerMimeType;
@@ -490,7 +497,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                     {
                         var rep = audioRepresentations.FirstOrDefault();
 
-                        (var length, var metaData) = await DownloadDashRawSource("Audio", client, dashManifestRawSource, rep, AudioFilePath, progressCallback);
+                        (var length, var metaData) = await DownloadDashRawSource("Audio", client, dashManifestRawSource, rep, AudioFilePath, progressCallback, cancel);
                         AudioFileSize = length;
                         if (metaData != null)
                             AudioSourceMetaDataOverride = metaData;
@@ -507,14 +514,14 @@ namespace Grayjay.ClientServer.Models.Downloads
                         {
                             case "application/vnd.apple.mpegurl":
                                 if (AudioSourceToUse is HLSVariantAudioUrlSource)
-                                    await DownloadHLSSource("Audio", client, modifier, ((AudioUrlSource)AudioSourceToUse).Url, AudioFilePath, progressCallback);
+                                    await DownloadHLSSource("Audio", client, modifier, ((AudioUrlSource)AudioSourceToUse).Url, AudioFilePath, progressCallback, cancel);
                                 else
                                     throw new NotImplementedException();
                                 break;
                             default:
                                 if (!(AudioSourceToUse is AudioUrlSource))
                                     throw new NotImplementedException("Only support audio urls for download");
-                                await DownloadSourceFile("Audio", client, modifier, ((AudioUrlSource)AudioSourceToUse).Url, AudioFilePath, progressCallback);
+                                await DownloadSourceFile("Audio", client, modifier, ((AudioUrlSource)AudioSourceToUse).Url, AudioFilePath, progressCallback, cancel: cancel);
                                 break;
                         }
                     }
@@ -548,6 +555,7 @@ namespace Grayjay.ClientServer.Models.Downloads
             {
                 foreach (var task in downloadTasks)
                     await task;
+                cancel.ThrowIfCancellationRequested();
                 wasSuccesful = true;
             }
             catch (Exception ex)
@@ -608,12 +616,12 @@ namespace Grayjay.ClientServer.Models.Downloads
                         Logger.i(nameof(VideoDownload), $"Download {Video.Name} ByteRange Parallel ({concurrency})");
                         sourceLength = long.Parse(head.Headers["content-length"]);
                         onProgress?.Invoke(sourceLength, 0, 0);
-                        await DownloadSourceRanges(client, modifier, stream, url, sourceLength, 1024 * 512, concurrency, onProgress);
+                        await DownloadSourceRanges(client, modifier, stream, url, sourceLength, 1024 * 512, concurrency, onProgress, cancel);
                     }
                     else
                     {
                         Logger.i(nameof(VideoDownload), $"Download {Video.Name} Sequentially");
-                        sourceLength = DownloadSourceSequential(client, modifier, stream, url, onProgress);
+                        sourceLength = DownloadSourceSequential(client, modifier, stream, url, onProgress, cancel);
                     }
                 }
             }
@@ -626,7 +634,7 @@ namespace Grayjay.ClientServer.Models.Downloads
 
         }
 
-        private long DownloadSourceSequential(ManagedHttpClient client, IRequestModifier? modifier, Stream fileStream, string url, Action<long, long, long> onProgress)
+        private long DownloadSourceSequential(ManagedHttpClient client, IRequestModifier? modifier, Stream fileStream, string url, Action<long, long, long> onProgress, CancellationToken cancel = default)
         {
             DateTime lastProgressNotify = DateTime.Now;
             int progressNotifyInterval = 500;
@@ -664,8 +672,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                         onProgress?.Invoke(sourceLength, totalRead, lastSpeed);
                     }
 
-                    if (IsCancelled)
-                        throw new OperationCanceledException("Cancelled");
+                    cancel.ThrowIfCancellationRequested();
                 }
                 while (read > 0);
 
@@ -719,8 +726,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                     lastProgressCount++;
                 }
 
-                if (IsCancelled)
-                    throw new OperationCanceledException("Cancelled", null);
+                cancel.ThrowIfCancellationRequested();
             }
             onProgress?.Invoke(sourceLength, totalRead, 0);
         }
@@ -856,7 +862,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                             segRead = data.Length;
                         }
                         else
-                            segRead = (int)DownloadSourceSequential(client, modifier, stream, rep.InitializationUrl, onProgress);
+                            segRead = (int)DownloadSourceSequential(client, modifier, stream, rep.InitializationUrl, onProgress, cancel);
                         read += segRead;
                         segmentsDownloadedCount++;
                         speedmeter.Activity(read);
@@ -873,7 +879,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                             segRead = data.Length;
                         }
                         else
-                            segRead = (int)DownloadSourceSequential(client, modifier, streamAudio, repAudio.InitializationUrl, onProgress);
+                            segRead = (int)DownloadSourceSequential(client, modifier, streamAudio, repAudio.InitializationUrl, onProgress, cancel);
                         readAudio += segRead;
                         segmentsDownloadedCount++;
                         speedmeter.Activity(readAudio);
@@ -882,6 +888,8 @@ namespace Grayjay.ClientServer.Models.Downloads
                     }
                     for (int i = 0; i < rep.Segments.Count; i++)
                     {
+                        cancel.ThrowIfCancellationRequested();
+
                         bool isLast = i == rep.Segments.Count - 1;
                         var segment = rep.Segments[i];
                         int segRead = 0;
@@ -892,7 +900,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                             segRead = data.Length;
                         }
                         else
-                            segRead = (int)DownloadSourceSequential(client, modifier, stream, segment.Url, onProgress);
+                            segRead = (int)DownloadSourceSequential(client, modifier, stream, segment.Url, onProgress, cancel);
                         read += segRead;
                         speedmeter.Activity(segRead);
 
@@ -909,6 +917,8 @@ namespace Grayjay.ClientServer.Models.Downloads
 
                         foreach(var segmentAudio in audioToDownload)
                         {
+                            cancel.ThrowIfCancellationRequested();
+
                             int segReadAudio = 0;
                             if (executor != null)
                             {
@@ -917,7 +927,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                                 segReadAudio = data.Length;
                             }
                             else
-                                segReadAudio = (int)DownloadSourceSequential(client, modifier, streamAudio, segmentAudio.Url, onProgress);
+                                segReadAudio = (int)DownloadSourceSequential(client, modifier, streamAudio, segmentAudio.Url, onProgress, cancel);
                             readAudio += segReadAudio;
                             speedmeter.Activity(segReadAudio);
 
