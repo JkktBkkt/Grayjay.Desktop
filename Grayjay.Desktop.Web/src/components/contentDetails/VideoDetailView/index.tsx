@@ -331,22 +331,14 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         const index = video?.index();
         const queue = video?.queue();
         const repeat = video?.repeat();
-        const shuffle = video?.shuffle();
 
-        console.info("previous video index", { currentIndex: index, queue, repeat, shuffle });
+        console.info("previous video index", { currentIndex: index, queue, repeat });
 
         if (index === undefined || !queue || queue.length === 0) {
             return undefined;
         }
 
-        if (shuffle) {
-            if (repeat) {
-                return Math.floor(Math.random() * (queue.length - 1));
-            } else {
-                // TODO: Don't repeat if repeat not enabled, track played
-                return Math.floor(Math.random() * (queue.length - 1));
-            }
-        } else if (index - 1 < 0) {
+        if (index - 1 < 0) {
             if (repeat) {
                 return queue.length - 1;
             } else {
@@ -361,22 +353,14 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         const index = video?.index();
         const queue = video?.queue();
         const repeat = video?.repeat();
-        const shuffle = video?.shuffle();
 
-        console.info("next video index", {currentIndex: index, queue, repeat, shuffle});
+        console.info("next video index", {currentIndex: index, queue, repeat});
 
         if (index === undefined || !queue || queue.length === 0) {
             return undefined;
         }
 
-        if (shuffle) {
-            if (repeat) {
-                return Math.floor(Math.random() * (queue.length - 1));
-            } else {
-                //TODO: Don't repeat if repeat not enabled, track played
-                return Math.floor(Math.random() * (queue.length - 1));
-            }
-        } else if (index + 1 >= queue.length) {
+        if (index + 1 >= queue.length) {
             if (repeat) {
                 return 0;
             } else {
@@ -392,8 +376,6 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         if (currentIndex === undefined) {
             return;
         }
-
-        /*TODO: Track played if shuffle enabled but repeat is not*/
 
         const currentVideo = videoLoaded$();
         const nextIndex = nextVideoIndex();
@@ -1940,20 +1922,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                                         video?.actions?.setShuffle(!video?.shuffle());
                                     }} onRepeatClick={() => {
                                         video?.actions?.setRepeat(!video?.repeat());
-                                    }} onIndexMoved={(index1, index2) => {
-                                        if (video?.index() === index1)
-                                            video?.actions.setIndex(index2);
-                                        else if (video?.index() === index2)
-                                            video?.actions.setIndex(index1);
-                                    }} onVideoRemoved={(index) => {
-                                        const v = video;
-                                        const i = v?.index();
-                                        const q = v?.queue();
-                                        if (!v || i === undefined || !q) {
-                                            return;
-                                        }
-
-                                        video?.actions.setQueue(i > index ? i - 1 : i, q.slice(0, index).concat(q.slice(index + 1)), video?.repeat(), video?.shuffle());
+                                    }} onSwap={(index1, index2) => video?.actions.swapInQueue(index1, index2)} onVideoRemoved={(index) => {
+                                        video?.actions.removeFromQueue(index);
                                     }} />
                             </Show>
 
@@ -2117,20 +2087,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                                             video?.actions?.setShuffle(!video?.shuffle());
                                         }} onRepeatClick={() => {
                                             video?.actions?.setRepeat(!video?.repeat());
-                                        }} onIndexMoved={(index1, index2) => {
-                                            if (video?.index() === index1)
-                                                video?.actions.setIndex(index2);
-                                            else if (video?.index() === index2)
-                                                video?.actions.setIndex(index1);
-                                        }} onVideoRemoved={(index) => {
-                                            const v = video;
-                                            const i = v?.index();
-                                            const q = v?.queue();
-                                            if (!v || i === undefined || !q) {
-                                                return;
-                                            }
-    
-                                            video?.actions.setQueue(i > index ? i - 1 : i, q.slice(0, index).concat(q.slice(index + 1)), video?.repeat(), video?.shuffle());
+                                        }} onSwap={(index1, index2) => video?.actions.swapInQueue(index1, index2)} onVideoRemoved={(index) => {
+                                            video?.actions.removeFromQueue(index);
                                         }} />
                                 </Show>
 
