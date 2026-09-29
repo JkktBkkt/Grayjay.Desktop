@@ -9,7 +9,7 @@ import iconLoopInactive from '../../assets/icons/icon_loop_inactive.svg';
 import iconShuffleInactive from '../../assets/icons/icon_shuffle_inactive.svg';
 import iconClear from '../../assets/icons/close_FILL0_wght300_GRAD0_opsz24.svg';
 import ScrollContainer from '../containers/ScrollContainer';
-import { proxyImage, swap } from '../../utility';
+import { proxyImage } from '../../utility';
 import VirtualDragDropList, { DragSession } from '../containers/VirtualDragDropList';
 import iconDrag from '../../assets/icons/icon_drag.svg';
 import iconPlay from '../../assets/icons/icon24_play.svg';
@@ -28,7 +28,7 @@ interface PlaybackQueueProps {
     onVideoRemoved?: (index: number) => void;
     onShuffleClick?: () => void;
     onRepeatClick?: () => void;
-    onIndexMoved?: (oldIndex: number, newIndex: number) => void;
+    onSwap?: (index1: number, index2: number) => void;
 }
 
 const PlaybackQueue: Component<PlaybackQueueProps> = (props) => {
@@ -62,11 +62,7 @@ const PlaybackQueue: Component<PlaybackQueueProps> = (props) => {
             <ScrollContainer scrollToTopButton={false} ref={scrollContainerRef} wrapperStyle={{ "max-height": "700px" }}>
                     <VirtualDragDropList items={props.videos}
                         itemHeight={88}
-                        onSwap={(index1, index2) => {
-                            if (props.index === index1 || props.index === index2)
-                                props.onIndexMoved?.(index1, index2);
-                            swap(props.videos, index1, index2);
-                        }}
+                        onSwap={(index1, index2) => props.onSwap?.(index1, index2)}
                         builder={(index, item, containerRef, dragControls) => {
                             const video = createMemo(() => item() as IPlatformVideo | undefined);
                             const bestThumbnail = createMemo(() => {

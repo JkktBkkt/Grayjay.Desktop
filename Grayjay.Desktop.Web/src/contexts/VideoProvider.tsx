@@ -1,11 +1,13 @@
 import { createContext, useContext, JSX, ParentComponent, createSignal, Accessor, batch, createMemo, onMount } from "solid-js";
-import { range, shuffleArray } from "../utility";
+import { shuffleArray, swap } from "../utility";
+import { insertRandomlyAfter, shuffleAroundIndex } from "./queueShuffle";
 import { IOrderedPlatformVideo, WatchLaterBackend } from "../backend/WatchLaterBackend";
 import { IPlatformVideo } from "../backend/models/content/IPlatformVideo";
 import { Duration } from "luxon";
 import { SettingsBackend } from "../backend/SettingsBackend";
 import StateWebsocket from "../state/StateWebsocket";
 import { DetailsBackend } from "../backend/DetailsBackend";
+import UIOverlay from "../state/UIOverlay";
 
 export enum VideoState {
     Closed = 0,
@@ -43,6 +45,8 @@ export interface VideoContextValue {
         openVideoByUrl: (url: string, time?: Duration, videoState?: VideoState) => void;
         setQueue: (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffle?: boolean, videoState?: VideoState) => void;
         addToQueue: (v: IPlatformVideo) => void;
+        removeFromQueue: (position: number) => void;
+        swapInQueue: (index1: number, index2: number) => void;
         setIndex: (index: number) => void;
         setRepeat: (value: boolean) => void;
         setShuffle: (value: boolean) => void;
@@ -62,15 +66,17 @@ export interface VideoContextProps {
 };
 
 export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
-    const [queue, setQueue] = createSignal<IPlatformVideo[] | undefined>();
+    const [baseQueue, setBaseQueue] = createSignal<IPlatformVideo[] | undefined>();
+    const [shuffledQueue, setShuffledQueue] = createSignal<IPlatformVideo[] | undefined>();
     const [index, setIndex] = createSignal<number | undefined>();
     const [startTime, setStartTime] = createSignal<Duration | undefined>();
     const [state, setState] = createSignal<VideoState>(VideoState.Closed);
     const [repeat, setRepeat] = createSignal<boolean>(false);
-    const [shuffle, setShuffle] = createSignal<boolean>(false);
     const [desiredMode, setDesiredModeInternal] = createSignal<VideoMode>(VideoMode.Theatre);
     const [theatrePinned, setTheatrePinnedInternal] = createSignal<boolean>(true);
     const [volume, setVolumeInternal] = createSignal<number>(1);
+    const shuffle = () => shuffledQueue() !== undefined;
+    const queue = createMemo(() => shuffledQueue() ?? baseQueue());
     const video = createMemo(() => {
         const q = queue();
         const i = index();
@@ -86,7 +92,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         batch(() => {
             setIndex(0);
             setStartTime(time);
-            setQueue([ v ]);
+            setBaseQueue([ v ]);
+            setShuffledQueue(undefined);
             if (state() !== desiredVideoState)
                 setState(desiredVideoState);
         });
@@ -99,42 +106,129 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         batch(() => {
             setIndex(0);
             setStartTime(time);
-            setQueue([ videoLoadResult.video ]);
+            setBaseQueue([ videoLoadResult.video ]);
+            setShuffledQueue(undefined);
 
         });
     };
-    const sq = (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffle?: boolean, videoState?: VideoState) => { 
+    const sq = (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffleRequested?: boolean, videoState?: VideoState) => { 
         if (index < 0 || index >= queue.length) {
             console.error("index not valid for queue", {index, queue});
             return;
         }
 
         const desiredVideoState = videoState ?? VideoState.Maximized;
+        const videos = [ ...queue ];
         batch(() => {
-            setIndex(index);
-            setQueue(queue);
+            setBaseQueue(videos);
+            if (shuffleRequested === true) {
+                setShuffledQueue(shuffleArray([ ...videos ]));
+                setIndex(0);
+            } else {
+                setShuffledQueue(undefined);
+                setIndex(index);
+            }
+
             setStartTime(undefined);
             if (repeat !== undefined)
                 setRepeat(repeat);
-            if (shuffle !== undefined)
-                setShuffle(shuffle);
             if (state() !== desiredVideoState)
                 setState(desiredVideoState);
         });
     };
     const addToQueue = (video: IPlatformVideo) => { 
-        if (index() === undefined) {
+        const currentIndex = index();
+        if (currentIndex === undefined) {
             openVideo(video);
             return;
         }
 
-        setQueue([ ... (queue() ?? []), video ]);
+        const base = baseQueue() ?? [];
+        if (base.some(item => item.url === video.url)) {
+            UIOverlay.toast("Already queued");
+            return;
+        }
+
+        batch(() => {
+            setBaseQueue([ ...base, video ]);
+            const shuffled = shuffledQueue();
+            if (shuffled) {
+                setShuffledQueue(insertRandomlyAfter(shuffled, currentIndex, video));
+            }
+        });
+
+        const name = video.name.length > 20 ? video.name.substring(0, 20) + "..." : video.name;
+        UIOverlay.toast("Queued [" + name + "]");
+    };
+    const removeFromQueue = (position: number) => {
+        const currentIndex = index();
+        const activeQueue = queue();
+        if (currentIndex === undefined || !activeQueue || position < 0 || position >= activeQueue.length) {
+            return;
+        }
+
+        const removedVideo = activeQueue[position];
+        const remaining = activeQueue.slice(0, position).concat(activeQueue.slice(position + 1));
+        batch(() => {
+            if (shuffledQueue()) {
+                const base = baseQueue() ?? [];
+                const basePosition = base.indexOf(removedVideo);
+                setShuffledQueue(remaining);
+                setBaseQueue(base.slice(0, basePosition).concat(base.slice(basePosition + 1)));
+            } else {
+                setBaseQueue(remaining);
+            }
+
+            const newIndex = currentIndex > position ? currentIndex - 1 : currentIndex;
+            setIndex(Math.min(newIndex, remaining.length - 1));
+            if (position === currentIndex) {
+                setStartTime(undefined);
+            }
+        });
+    };
+    const swapInQueue = (index1: number, index2: number) => {
+        const activeQueue = queue();
+        if (!activeQueue || index1 < 0 || index2 < 0 || index1 >= activeQueue.length || index2 >= activeQueue.length) {
+            return;
+        }
+
+        batch(() => {
+            if (shuffledQueue()) {
+                setBaseQueue(activeQueue);
+                setShuffledQueue(undefined);
+            }
+
+            // Swapped in place on purpose: VirtualDragDropList tracks rows by index mid-drag,
+            // and a new array reference would make it remap them before applying the swap.
+            swap(activeQueue, index1, index2);
+
+            const currentIndex = index();
+            if (currentIndex === index1) {
+                setIndex(index2);
+            } else if (currentIndex === index2) {
+                setIndex(index1);
+            }
+        });
+    };
+    const setShuffle = (value: boolean) => {
+        const base = baseQueue();
+        const currentVideo = video();
+        if (!base || !currentVideo) {
+            return;
+        }
+
+        const baseIndex = base.indexOf(currentVideo);
+        batch(() => {
+            setShuffledQueue(value ? shuffleAroundIndex(base, baseIndex) : undefined);
+            setIndex(baseIndex);
+        });
     };
     const closeVideo = () => {
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);
-            setQueue(undefined);
+            setBaseQueue(undefined);
+            setShuffledQueue(undefined);
             setStartTime(undefined);
             setState(VideoState.Closed);
         });
@@ -194,6 +288,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
             setQueue: sq,
             closeVideo,
             addToQueue,
+            removeFromQueue,
+            swapInQueue,
             setState: (videoState: VideoState) => {
                 console.info("VIDEO STATE CHANGED", videoState);
                 setState(videoState);
