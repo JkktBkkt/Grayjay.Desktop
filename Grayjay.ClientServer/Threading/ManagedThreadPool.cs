@@ -40,6 +40,8 @@ namespace Grayjay.ClientServer.Threading
                     {
                         if (t.IsCompletedSuccessfully)
                             result.SetResult();
+                        else if (t.IsCanceled)
+                            result.SetCanceled();
                         else
                             result.SetException(t.Exception);
                     });

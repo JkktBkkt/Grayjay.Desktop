@@ -36,7 +36,7 @@ namespace Grayjay.ClientServer.Sabr
         }
 
         public static async Task<Result> DownloadTrackAsync(SabrStreamSpec spec, int role, UMPFormat format, long durationSec, string targetFile, int concurrency,
-            Action<long, long, long> onProgress, Func<bool> isCancelled, CancellationToken cancellationToken = default)
+            Action<long, long, long> onProgress, CancellationToken cancellationToken = default)
         {
             if (spec.IsLive)
                 throw new InvalidOperationException("Live streams cannot be downloaded");
@@ -98,7 +98,7 @@ namespace Grayjay.ClientServer.Sabr
                     SabrSegment? init = null;
                     while (init == null)
                     {
-                        CheckState(session, isCancelled, linked.Token);
+                        CheckState(session, linked.Token);
                         init = await buffer.AwaitInitAsync(POLL, linked.Token);
                         if (init == null && DateTime.UtcNow > deadline)
                             throw new SabrException($"UMP init segment for itag {format.Itag} never arrived");
@@ -113,7 +113,7 @@ namespace Grayjay.ClientServer.Sabr
                 var lastProgress = DateTime.UtcNow;
                 while (true)
                 {
-                    CheckState(session, isCancelled, linked.Token);
+                    CheckState(session, linked.Token);
 
                     var segment = nextSeq < 0
                         ? await buffer.AwaitCoveringAsync(startUs, POLL, linked.Token)
@@ -221,9 +221,8 @@ namespace Grayjay.ClientServer.Sabr
             }
         }
 
-        private static void CheckState(SabrSession session, Func<bool> isCancelled, CancellationToken cancellationToken)
+        private static void CheckState(SabrSession session, CancellationToken cancellationToken)
         {
-            if (isCancelled()) throw new OperationCanceledException("Download got cancelled");
             cancellationToken.ThrowIfCancellationRequested();
             var fatal = session.FatalError;
             if (fatal != null) throw fatal;
