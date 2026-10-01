@@ -288,7 +288,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptCaptchaRequiredException captchaEx)
             {
-                throw new NotImplementedException("Captcha");
+                throw CreateCaptchaDialogException("post", captchaEx);
             }
             catch(Exception ex)
             {
@@ -353,7 +353,7 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptCaptchaRequiredException captchaEx)
             {
-                throw new NotImplementedException("Captcha");
+                throw CreateCaptchaDialogException("video", captchaEx);
             }
             catch(Exception ex)
             {
@@ -1208,6 +1208,19 @@ namespace Grayjay.ClientServer.Controllers
             playback.SubtitleUrl = subtitleUrl;
             details.UmpPlaybackId = playback.Id;
             return new SourceDescriptor($"/Ump/Info?id={playback.Id}", UMPSource.CONTAINER, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
+        }
+
+        private static DialogException CreateCaptchaDialogException(string contentKind, ScriptCaptchaRequiredException captchaException)
+        {
+            _ = StateApp.HandleCaptchaException(captchaException.Config, captchaException);
+            return new DialogException(new ExceptionModel()
+            {
+                Type = ExceptionModel.EXCEPTION_SCRIPT,
+                Title = "Captcha required",
+                Message = $"The source requires a captcha to be solved before this {contentKind} can load. Solve the captcha in the window that opened, then retry.",
+                CanRetry = true,
+                TypeName = nameof(ScriptCaptchaRequiredException)
+            }, captchaException);
         }
 
         private static readonly Regex _repIdRegex = new Regex("Representation\\s+id=\"(\\d+)\"", RegexOptions.Compiled);

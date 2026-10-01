@@ -350,12 +350,22 @@ namespace Grayjay.ClientServer.States
             if (_hasCaptchaDialog)
                 return;
             _hasCaptchaDialog = true;
-            await StateUI.ShowCaptchaWindow(config, ex, (success) =>
+            try
             {
+                await StateUI.ShowCaptchaWindow(config, ex, (success) =>
+                {
+                    _hasCaptchaDialog = false;
+                    Logger.Info(nameof(StateApp), "Captcha result: " + success.ToString());
+                    StatePlatform.UpdateAvailableClients(true);
+                });
+            }
+            catch (Exception showException)
+            {
+                //The window never opened, so its close callback will never reset the flag.
+                //Reset it here, otherwise no captcha window can open again until restart.
                 _hasCaptchaDialog = false;
-                Logger.Info(nameof(StateApp), "Captcha result: " + success.ToString());
-                StatePlatform.UpdateAvailableClients(true);
-            });
+                Logger.e(nameof(StateApp), $"[{config.Name}] Failed to show captcha window: " + showException.Message, showException);
+            }
         }
     }
 }
