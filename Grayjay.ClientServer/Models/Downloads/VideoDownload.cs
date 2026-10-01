@@ -553,8 +553,7 @@ namespace Grayjay.ClientServer.Models.Downloads
             bool wasSuccesful = false;
             try
             {
-                foreach (var task in downloadTasks)
-                    await task;
+                await Task.WhenAll(downloadTasks);
                 cancel.ThrowIfCancellationRequested();
                 wasSuccesful = true;
             }

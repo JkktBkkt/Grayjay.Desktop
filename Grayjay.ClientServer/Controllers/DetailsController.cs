@@ -1,3 +1,4 @@
+using GrayjayPlugin = Grayjay.Engine.GrayjayPlugin;
 ﻿using Grayjay.ClientServer.Browser;
 using Grayjay.ClientServer.Database.Indexes;
 using Grayjay.ClientServer.Exceptions;
@@ -91,7 +92,8 @@ namespace Grayjay.ClientServer.Controllers
                 lock (_cachedDashLockObject)
                 {
                     CachedDashAudioIndex = -1;
-                    CachedDashVideoIndex = 1;
+                    CachedDashVideoIndex = -1;
+                    CachedDashSubtitleIndex = -1;
                     CachedDashTask = null;
                     CachedDashProxySettings = null;
                 }
@@ -564,6 +566,9 @@ namespace Grayjay.ClientServer.Controllers
         public async Task<IActionResult> SourceDash(int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, bool isLoopback = true, string? tag = null)
         {
             var state = this.State();
+            var underlying = state.DetailsState.VideoLoaded?.GetUnderlyingObject();
+            if (!videoIsLocal && !audioIsLocal && underlying != null && GrayjayPlugin.GetEnginePlugin(underlying.Engine) == null)
+                VideoLoad(state.DetailsState.VideoLoaded.Url);
             try
             {
                 (var taskGenerateSourceDash, var promiseMetadata) = GenerateSourceDash(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(isLoopback));
@@ -577,7 +582,7 @@ namespace Grayjay.ClientServer.Controllers
             {
                 await StatePlatform.HandleReloadRequired(reloadEx);
                 this.VideoLoad(state.DetailsState.VideoLoaded.Url);
-                return await SourceDash(videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, isLoopback);
+                return await SourceDash(videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, isLoopback, tag);
             }
             catch (Exception ex)
             {

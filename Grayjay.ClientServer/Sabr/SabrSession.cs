@@ -103,7 +103,6 @@ namespace Grayjay.ClientServer.Sabr
         private readonly string? _poTokenRaw;
         private readonly bool _ownsHttpClient;
         private readonly IRequestModifier? _requestModifier;
-        private readonly Func<bool, string?>? _poTokenRefresher;
 
         public string VideoId { get; }
         public bool IsLive { get; }
@@ -139,7 +138,6 @@ namespace Grayjay.ClientServer.Sabr
         private volatile string _streamingUrl;
         private ByteString? _poTokenDecoded;
         private volatile bool _poTokenResolved = false;
-        private volatile bool _poTokenRefreshed = false;
         private ByteString? _playbackCookie;
         private long _backoffUntilMs = 0;
         private long _serverBackoffUntilMs = 0;
@@ -204,7 +202,7 @@ namespace Grayjay.ClientServer.Sabr
         private long? _seekPendingUs = null;
 
         public SabrSession(HttpClient httpClient, string serverAbrStreamingUrl, byte[] ustreamerConfig, string videoId, ClientInfo clientInfo,
-            string? poTokenRaw, bool isLive, long durationUs, bool ownsHttpClient = false, IRequestModifier? requestModifier = null, Func<bool, string?>? poTokenRefresher = null)
+            string? poTokenRaw, bool isLive, long durationUs, bool ownsHttpClient = false, IRequestModifier? requestModifier = null)
         {
             _httpClient = httpClient;
             _streamingUrl = serverAbrStreamingUrl;
@@ -216,7 +214,6 @@ namespace Grayjay.ClientServer.Sabr
             DurationUs = durationUs;
             _ownsHttpClient = ownsHttpClient;
             _requestModifier = requestModifier;
-            _poTokenRefresher = poTokenRefresher;
 
             var live = Interlocked.Increment(ref _liveSessions);
             SabrLog($"Session created for {videoId} (live sessions: {live})");
@@ -543,30 +540,6 @@ namespace Grayjay.ClientServer.Sabr
                     }
                     Logger.e(TAG, "SABR request failed", ex);
 
-                    if (ex is SabrBlockedException && !_poTokenRefreshed && _poTokenRefresher != null)
-                    {
-                        _poTokenRefreshed = true;
-                        try
-                        {
-                            var fresh = _poTokenRefresher(true);
-                            if (!string.IsNullOrEmpty(fresh))
-                            {
-                                var decoded = SabrStreamSpec.DecodeBase64Lenient(fresh);
-                                if (decoded != null)
-                                {
-                                    _poTokenDecoded = ByteString.CopyFrom(decoded);
-                                    _poTokenResolved = true;
-                                    SabrLog($"poToken refreshed after block ({decoded.Length} bytes); retrying");
-                                    continue;
-                                }
-                            }
-                        }
-                        catch (Exception refreshEx)
-                        {
-                            Logger.w(TAG, "Failed to refresh po token", refreshEx);
-                        }
-                    }
-
                     if (ex is SabrBlockedException)
                     {
                         SabrLog($"BLOCKED: {ex.Message}. surfacing for reload.");
@@ -857,8 +830,13 @@ namespace Grayjay.ClientServer.Sabr
                     if (Released) return;
                     if (!response.IsSuccessStatusCode)
                     {
-                        if (response.StatusCode == HttpStatusCode.Forbidden)
-                            throw new SabrBlockedException("SABR request returned HTTP 403");
+                        SabrLog($"HTTP {(int)response.StatusCode} rn={rn} host={HostOf(url)} " +
+                            $"finalHost={HostOf(response.RequestMessage?.RequestUri?.ToString() ?? url)} " +
+                            $"method={response.RequestMessage?.Method ?? request.Method} firstOfSession={rn == 1} " +
+                            $"v={video?.Itag} a={audio?.Itag} poTokenBytes={ResolvePoToken()?.Length ?? 0} " +
+                            $"cookie={_playbackCookie?.Length ?? 0}b sentContexts=[{string.Join(",", _activeSabrContexts.Keys.OrderBy(x => x))}]");
+                        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                            throw new SabrBlockedException($"SABR request returned HTTP {(int)response.StatusCode}");
                         throw new SabrException($"SABR request returned HTTP {(int)response.StatusCode}");
                     }
 

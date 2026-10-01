@@ -1,4 +1,5 @@
 using Grayjay.ClientServer.Sabr;
+using Grayjay.ClientServer.Settings;
 using Grayjay.Engine.Models.Video.Sources;
 using Microsoft.AspNetCore.Mvc;
 
@@ -69,6 +70,7 @@ namespace Grayjay.ClientServer.Controllers
             public string? ActiveVideoKey { get; set; }
             public string? ActiveAudioKey { get; set; }
             public string? SubtitleUrl { get; set; }
+            public int PreferredVideoHeight { get; set; }
         }
 
         public class ConfigureRequest
@@ -134,7 +136,9 @@ namespace Grayjay.ClientServer.Controllers
                 AudioFormats = playback.AudioFormats.Select(FormatInfo.From).ToList(),
                 ActiveVideoKey = playback.Session.ActiveFormat(SabrSession.ROLE_VIDEO) is { } av ? UmpPlayback.KeyOf(av) : null,
                 ActiveAudioKey = playback.Session.ActiveFormat(SabrSession.ROLE_AUDIO) is { } aa ? UmpPlayback.KeyOf(aa) : null,
-                SubtitleUrl = playback.SubtitleUrl
+                SubtitleUrl = playback.SubtitleUrl,
+                PreferredVideoHeight = GrayjaySettings.Instance.Playback.PreferredQuality > 0
+                    ? GrayjaySettings.Instance.Playback.GetPreferredQualityHeight() : -1
             });
         }
 

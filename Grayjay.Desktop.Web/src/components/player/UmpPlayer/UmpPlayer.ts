@@ -33,12 +33,14 @@ export interface UmpInfo {
     activeVideoKey?: string;
     activeAudioKey?: string;
     subtitleUrl?: string;
+    preferredVideoHeight?: number;
 }
 
 export type UmpErrorKind = "reload" | "blocked" | "substituted" | "unsupported" | "error";
 
 export interface UmpPlayerCallbacks {
     onError?: (message: string, fatal: boolean, kind: UmpErrorKind) => void;
+    onInitialVideoFormat?: (format: UmpFormatInfo) => void;
     onFormatsChanged?: (video: UmpFormatInfo[], audio: UmpFormatInfo[]) => void;
     onActiveFormatChanged?: (role: "video" | "audio", format: UmpFormatInfo) => void;
     onCueEnter?: (id: string, text: string) => void;
@@ -463,6 +465,16 @@ export class UmpPlayer {
             if (this.videoFormats.length === 0 && this.audioFormats.length === 0)
                 throw new UmpFatalError("None of the stream formats can be decoded by this player", "unsupported");
             this.callbacks.onFormatsChanged?.(this.videoFormats, this.audioFormats);
+            if (!this.selectedVideoKey && (info.preferredVideoHeight ?? -1) > 0) {
+                const preferred = [...this.videoFormats].sort((a, b) =>
+                    Math.abs(a.height - info.preferredVideoHeight!) - Math.abs(b.height - info.preferredVideoHeight!) ||
+                    b.fps - a.fps || b.bitrate - a.bitrate)[0];
+                if (preferred) {
+                    this.selectedVideoKey = preferred.key;
+                    this.callbacks.onInitialVideoFormat?.(preferred);
+                }
+            }
+
 
             await this.configure(this.isLive ? 0 : startS);
             if (this.destroyed) return;

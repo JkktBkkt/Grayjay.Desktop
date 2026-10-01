@@ -16,7 +16,6 @@ namespace Grayjay.ClientServer.Sabr
         public required UMPFormat[] VideoFormats { get; init; }
         public required UMPFormat[] AudioFormats { get; init; }
         public string? PoToken { get; init; }
-        public Func<bool, string?>? PoTokenRefresher { get; init; }
         public IRequestModifier? RequestModifier { get; init; }
         public int ClientName { get; init; } = 1;
         public string ClientVersion { get; init; } = "";
@@ -41,8 +40,7 @@ namespace Grayjay.ClientServer.Sabr
             IsLive,
             DurationUs,
             OwnsHttpClient,
-            RequestModifier,
-            PoTokenRefresher);
+            RequestModifier);
 
         public static HttpClient CreateDefaultHttpClient()
         {
@@ -75,7 +73,6 @@ namespace Grayjay.ClientServer.Sabr
                 VideoFormats = videoFormats ?? source.VideoFormats,
                 AudioFormats = audioFormats ?? source.AudioFormats,
                 PoToken = source.PoToken,
-                PoTokenRefresher = source.HasGetPoToken ? source.GetPoToken : null,
                 RequestModifier = source.HasRequestModifier ? source.GetRequestModifier() : null,
                 ClientName = source.ClientName,
                 ClientVersion = source.ClientVersion,

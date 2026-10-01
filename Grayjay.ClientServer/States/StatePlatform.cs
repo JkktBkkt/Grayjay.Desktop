@@ -828,8 +828,6 @@ namespace Grayjay.Desktop.POC.Port.States
                 await ReEnableClientWithData(id, reloadRequiredException.ReloadData, afterReload);
             else
                 await ReEnableClient(id, afterReload);
-            if (afterReload != null)
-                afterReload();
         }
 
         public static Task SelectClients(Action<string, Exception> onEx, params string[] ids)

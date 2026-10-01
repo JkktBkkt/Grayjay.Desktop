@@ -1673,6 +1673,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             onPlayerQualityChanged={(number)=>{setPlayerQuality(number)}}
                             umpVideoKey={umpVideoKey$()}
                             umpAudioKey={umpAudioKey$()}
+                            onUmpInitialVideoFormat={(format) => setUmpVideoKey(format.key)}
                             onUmpFormats={(video, audio) => { setUmpVideoFormats(video); setUmpAudioFormats(audio); }}
                             onUmpActiveFormat={(role, format) => role == "video" ? setUmpActiveVideo(format) : setUmpActiveAudio(format)}
                             onSettingsDialog={(ev) => onShowSettings()} 

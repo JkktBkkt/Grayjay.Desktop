@@ -177,6 +177,7 @@ namespace Grayjay.ClientServer.Settings
             [SettingsField("Preferred Quality", SettingsField.DROPDOWN, "Default quality for watching a video", 2)]
             [SettingsDropdownOptions("Automatic (1080p)", "2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p")]
             public int PreferredQuality { get; set; } = 0;
+            public int GetPreferredQualityHeight() => QualityIndexToHeight(PreferredQuality);
             public int GetPreferredQualityPixelCount()
             {
                 int height = QualityIndexToHeight(PreferredQuality);

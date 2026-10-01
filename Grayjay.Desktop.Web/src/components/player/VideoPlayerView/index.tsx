@@ -31,6 +31,7 @@ interface VideoProps {
     onPlayerQualityChanged?: (level: number) => void;
     umpVideoKey?: string;
     umpAudioKey?: string;
+    onUmpInitialVideoFormat?: (format: UmpFormatInfo) => void;
     onUmpFormats?: (video: UmpFormatInfo[], audio: UmpFormatInfo[]) => void;
     onUmpActiveFormat?: (role: "video" | "audio", format: UmpFormatInfo) => void;
     onSettingsDialog?: (event: HTMLElement|undefined) => void;
@@ -1099,6 +1100,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                                 subtitle.remove();
                             }
                         },
+                        onInitialVideoFormat: (format) => props.onUmpInitialVideoFormat?.(format),
                         onFormatsChanged: (video, audio) => props.onUmpFormats?.(video, audio),
                         onActiveFormatChanged: (role, format) => props.onUmpActiveFormat?.(role, format)
                     });
