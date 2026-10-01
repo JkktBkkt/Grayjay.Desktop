@@ -16,11 +16,13 @@ namespace Grayjay.ClientServer.Proxy
         public HttpProxy(IPEndPoint localEndPoint)
         {
             _listener = new TcpListener(localEndPoint.Address, localEndPoint.Port);
+            if (localEndPoint.Address.Equals(IPAddress.IPv6Any))
+                _listener.Server.DualMode = true;
         }
 
         public string Add(HttpProxyRegistryEntry entry, IPAddress? localAddress = null)
         {
-            if (LocalEndPoint.Address == IPAddress.Any && localAddress == null)
+            if ((LocalEndPoint.Address.Equals(IPAddress.Any) || LocalEndPoint.Address.Equals(IPAddress.IPv6Any)) && localAddress == null)
                 throw new ArgumentException("When adding a proxy on any, you must specify the local address.");
 
             var id = Guid.NewGuid();
@@ -103,7 +105,7 @@ namespace Grayjay.ClientServer.Proxy
                 {
                     if (_httpProxy == null)
                     {
-                        _httpProxy = new HttpProxy(new IPEndPoint(IPAddress.Any, 0));
+                        _httpProxy = new HttpProxy(new IPEndPoint(Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any, 0));
                         _httpProxy.Start();
                     }
                     return _httpProxy;

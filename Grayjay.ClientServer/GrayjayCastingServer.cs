@@ -59,7 +59,7 @@ namespace Grayjay.ClientServer
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.ConfigureKestrel(serverOptions =>
             {
-                serverOptions.Listen(IPAddress.Any, 0);
+                serverOptions.ListenAnyIP(0);
             });
 
             _app = builder.Build();

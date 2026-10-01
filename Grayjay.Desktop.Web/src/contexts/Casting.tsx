@@ -1,4 +1,4 @@
-import { createContext, useContext, JSX, ParentComponent, createSignal, Accessor, onMount, onCleanup } from "solid-js";
+import { batch, createContext, useContext, JSX, ParentComponent, createSignal, Accessor, onMount, onCleanup } from "solid-js";
 import StateWebsocket from "../state/StateWebsocket";
 import { CastingBackend } from "../backend/CastingBackend";
 import { Duration } from "luxon";
@@ -95,15 +95,23 @@ export const CastingProvider: ParentComponent<CastingContextProps> = (props) => 
         if (!device) {
             return;
         }
+        if (activeDevice()?.id === id && state() !== CastConnectionState.Disconnected)
+            return;
 
-        setActiveDevice(device);
-        setDialogState(CastingDialogState.ActiveDevice);
+        batch(() => {
+            setState(CastConnectionState.Connecting);
+            setActiveDevice(device);
+            setDialogState(CastingDialogState.ActiveDevice);
+        });
 
         await CastingBackend.connect(id);
     };
     const disconnect = async () => {
-        setActiveDevice(undefined);
-        setDialogState(CastingDialogState.Closed);
+        batch(() => {
+            setState(CastConnectionState.Disconnected);
+            setActiveDevice(undefined);
+            setDialogState(CastingDialogState.Closed);
+        });
 
         await CastingBackend.disconnect();
     };
@@ -156,7 +164,11 @@ export const CastingProvider: ParentComponent<CastingContextProps> = (props) => 
 
         console.info("Registered required websocket handlers.");
 
-        StateWebsocket.registerHandlerNew("activeDeviceChanged", (packet) => setActiveDevice(packet.payload), this);
+        StateWebsocket.registerHandlerNew("activeDeviceChanged", (packet) => batch(() => {
+            if (!packet.payload)
+                setState(CastConnectionState.Disconnected);
+            setActiveDevice(packet.payload);
+        }), this);
         StateWebsocket.registerHandlerNew("activeDeviceIsPlayingChanged", (packet) => setIsPlaying(packet.payload), this);
         StateWebsocket.registerHandlerNew("activeDeviceDurationChanged", (packet) => setDuration(Duration.fromMillis(packet.payload * 1000)), this);
         StateWebsocket.registerHandlerNew("activeDeviceTimeChanged", (packet) => setTime(Duration.fromMillis(packet.payload * 1000)), this);
