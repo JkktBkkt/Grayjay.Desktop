@@ -310,7 +310,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
             {
                 try
                 {
-                    (subtitleBytes, subtitleContentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal);
+                    (subtitleBytes, subtitleContentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, localMediaId: subtitleIsLocal ? DetailsController.RegisterLocalSubtitle(state, subtitleIndex) : null);
                     subtitleContentType = subtitleContentType?.Split(';')[0].Trim();
                 }
                 catch (Exception ex)
@@ -457,7 +457,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
             {
                 try
                 {
-                    var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal);
+                    var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, localMediaId: subtitleIsLocal ? DetailsController.RegisterLocalSubtitle(state, subtitleIndex) : null);
                     cast.SubtitleBytes = bytes;
                     cast.SubtitleContentType = contentType;
                 }

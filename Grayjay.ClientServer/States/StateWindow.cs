@@ -18,6 +18,7 @@ public class WindowState : IDisposable
     public HistoryController.HistoryState HistoryState { get; set; } = new HistoryController.HistoryState();
     public ChannelController.ChannelState ChannelState { get; set; } = new ChannelController.ChannelState();
     public DetailsController.DetailsState DetailsState { get; set; } = new DetailsController.DetailsState();
+    public LocalMediaRegistry LocalMedia { get; } = new();
     public PlaylistController.PlaylistState PlaylistState { get; set; } = new PlaylistController.PlaylistState();
     public SearchController.SearchState SearchState { get; set; } = new SearchController.SearchState();
     public SubscriptionsController.SubscriptionsState SubscriptionsState { get; set; } = new SubscriptionsController.SubscriptionsState();
@@ -30,6 +31,7 @@ public class WindowState : IDisposable
     public void Dispose()
     {
         DetailsState.Dispose();
+        LocalMedia.Dispose();
     }
 }
 

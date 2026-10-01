@@ -464,7 +464,15 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
 
         let tryFetchSourceAuto = async ()=>{
             await UIOverlay.catchDialogExceptions(async ()=>{
-                    let sourceAuto = await DetailsBackend.sourceAuto(videoObj?.url)
+                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                    let sourceAuto;
+                    try {
+                        sourceAuto = await DetailsBackend.sourceAuto(videoObj.url);
+                    } catch (error) {
+                        if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                        throw error;
+                    }
+                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
                     console.info("source auto", sourceAuto);
                     setVideoSource({
                         url: videoObj?.url,

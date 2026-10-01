@@ -246,6 +246,15 @@ namespace Grayjay.ClientServer.Controllers
             => state.DetailsState.PostLoaded ?? throw new BadHttpRequestException("No post loaded");
         public static PlatformVideoDetails EnsureVideo(WindowState state)
             => state.DetailsState.VideoLoaded ?? throw new BadHttpRequestException("No video loaded");
+        public static PlatformVideoDetails EnsureVideoSelection(WindowState state, string? url)
+        {
+            var video = EnsureVideo(state);
+            var local = state.DetailsState.VideoLocal;
+            if ((url != null && !string.Equals(url, video.Url, StringComparison.Ordinal)) ||
+                (local != null && !string.Equals(local.Url, video.Url, StringComparison.Ordinal)))
+                throw new BadHttpRequestException("Source selection is obsolete", StatusCodes.Status409Conflict);
+            return video;
+        }
         public static VideoLocal EnsureLocal(WindowState state) => state.DetailsState.VideoLocal ?? throw new BadHttpRequestException("No offline video loaded");
         private RefPager<PlatformComment> EnsureComments()
             => this.State().DetailsState.CommentPager ?? throw new BadHttpRequestException("No comments loaded");
@@ -591,7 +600,7 @@ namespace Grayjay.ClientServer.Controllers
         }
         public static (Task<string>, V8PromiseMetadata?) GenerateSourceDash(WindowState state, int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, ProxySettings? proxySettings = null)
         {
-            var cachedDashTask = state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, subtitleIndex, proxySettings);
+            var cachedDashTask = videoIsLocal || audioIsLocal || subtitleIsLocal ? null : state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, subtitleIndex, proxySettings);
             if (cachedDashTask != null)
             {
                 Logger.w<DetailsController>("Using cached DASH.");
@@ -631,9 +640,9 @@ namespace Grayjay.ClientServer.Controllers
             if (videoIsLocal)
             {
                 if (proxySettings != null && proxySettings.Value.ExposeLocalAsAny && proxySettings.Value.ProxyAddress != null && sourceVideo != null)
-                    videoUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}/Details/StreamLocalVideoSource?index={videoIndex}&windowId={state.WindowID}";
+                    videoUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}{LocalSourceUrl(state, "Video", ((LocalVideoSource)sourceVideo).FilePath, sourceVideo.Container)}";
                 else if (sourceVideo != null)
-                    videoUrl = $"{GrayjayServer.Instance.BaseUrl}/Details/StreamLocalVideoSource?index={videoIndex}&windowId={state.WindowID}";
+                    videoUrl = $"{GrayjayServer.Instance.BaseUrl}{LocalSourceUrl(state, "Video", ((LocalVideoSource)sourceVideo).FilePath, sourceVideo.Container)}";
                 else
                     videoUrl = null;
             }
@@ -660,9 +669,9 @@ namespace Grayjay.ClientServer.Controllers
             if (audioIsLocal)
             {
                 if (proxySettings != null && proxySettings.Value.ExposeLocalAsAny && proxySettings.Value.ProxyAddress != null && sourceAudio != null)
-                    audioUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}/Details/StreamLocalAudioSource?index={audioIndex}&windowId={state.WindowID}";
+                    audioUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}{LocalSourceUrl(state, "Audio", ((LocalAudioSource)sourceAudio).FilePath, sourceAudio.Container)}";
                 else if (sourceAudio != null)
-                    audioUrl = $"{GrayjayServer.Instance.BaseUrl}/Details/StreamLocalAudioSource?index={audioIndex}&windowId={state.WindowID}";
+                    audioUrl = $"{GrayjayServer.Instance.BaseUrl}{LocalSourceUrl(state, "Audio", ((LocalAudioSource)sourceAudio).FilePath, sourceAudio.Container)}";
                 else
                     audioUrl = null;
             }
@@ -689,9 +698,9 @@ namespace Grayjay.ClientServer.Controllers
                 if (subtitleIsLocal)
                 {
                     if (proxySettings != null && proxySettings.Value.ExposeLocalAsAny && proxySettings.Value.ProxyAddress != null && sourceSubtitle != null)
-                        subtitleUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}/Details/StreamLocalSubtitleSource?index={subtitleIndex}&windowId={state.WindowID}";
+                        subtitleUrl = $"http://{proxySettings.Value.ProxyAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}{LocalSourceUrl(state, "Subtitle", ((LocalSubtitleSource)sourceSubtitle).FilePath, sourceSubtitle.Format ?? "text/vtt")}";
                     else
-                        subtitleUrl = $"{GrayjayServer.Instance.BaseUrl}/Details/StreamLocalSubtitleSource?index={subtitleIndex}&windowId={state.WindowID}";
+                        subtitleUrl = $"{GrayjayServer.Instance.BaseUrl}{LocalSourceUrl(state, "Subtitle", ((LocalSubtitleSource)sourceSubtitle).FilePath, sourceSubtitle.Format ?? "text/vtt")}";
                 }
                 else
                 {
@@ -729,7 +738,8 @@ namespace Grayjay.ClientServer.Controllers
 
             var dash = DashBuilder.GenerateOnDemandDash(sourceVideo, videoUrl, sourceAudio, audioUrl, sourceSubtitle, subtitleUrl);
             var dashTask = Task.FromResult(dash);
-            state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, dashTask);
+            if (!videoIsLocal && !audioIsLocal && !subtitleIsLocal)
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, dashTask);
             return (dashTask, null);
         }
 
@@ -1011,16 +1021,18 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> SourceAuto()
+        public async Task<IActionResult> SourceAuto(string? url = null)
         {
-            var state = this.State().DetailsState;
+            var window = this.State();
+            EnsureVideoSelection(window, url);
+            var state = window.DetailsState;
             if(state.VideoLocal != null)
             {
                 var local = EnsureLocal(this.State());
                 var bestVideoSourceIndex = VideoHelper.SelectBestVideoSourceIndex(local.VideoSources.Cast<IVideoSource>().ToList(), 9999*9999, new List<string>() { "video/mp4" });
                 var bestAudioSourceIndex = VideoHelper.SelectBestAudioSourceIndex(local.AudioSources.Cast<IAudioSource>().ToList(), new List<string>() { "audio/mp4" }, GrayjaySettings.Instance.Playback.GetPrimaryLanguage(), 9999 * 9999);
                 var bestSubtitleSourceIndex = local.SubtitleSources.Count > 0 ? 0 : -1;
-                return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, bestSubtitleSourceIndex, true, true, true);
+                return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, bestSubtitleSourceIndex, true, true, true, url: url);
             }
             else
             {
@@ -1039,7 +1051,7 @@ namespace Grayjay.ClientServer.Controllers
                     });
 
                 if (bestVideoSourceIndex == -1 && bestAudioSourceIndex == -1 && video.Live != null)
-                    return await SourceProxy(-999, -1, -1, false, false, false);
+                    return await SourceProxy(-999, -1, -1, false, false, false, url: url);
 
                 if (bestVideoSourceIndex >= 0 && bestAudioSourceIndex >= 0)
                 {
@@ -1047,20 +1059,26 @@ namespace Grayjay.ClientServer.Controllers
 
                     if(videoSources is DashManifestRawSource && audioSource is DashManifestRawAudioSource)
                     {
-                        return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false);
+                        return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false, url: url);
                     }
                     else if (!(videoSources is IStreamMetaDataSource) || !(audioSource is IStreamMetaDataSource))
                         throw DialogException.FromException("Cannot play this source",
                             new Exception("Unmuxed sources require IStreamMetaDataSource info to translate to dash"));
                 }
-                return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false);
+                return await SourceProxy(bestVideoSourceIndex, bestAudioSourceIndex, -1, false, false, false, url: url);
             }
         }
 
         [HttpGet]
-        public async Task<IActionResult> SourceProxy(int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, string? tag = null)
+        public async Task<IActionResult> SourceProxy(int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, string? tag = null, string? url = null)
         {
-            return Ok(await GenerateSourceProxy(this.State(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, null, tag));
+            var state = this.State();
+            var video = EnsureVideoSelection(state, url);
+            var local = state.DetailsState.VideoLocal;
+            var descriptor = await GenerateSourceProxy(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, null, tag);
+            if (!ReferenceEquals(video, state.DetailsState.VideoLoaded) || !ReferenceEquals(local, state.DetailsState.VideoLocal))
+                throw new BadHttpRequestException("Source selection is obsolete", StatusCodes.Status409Conflict);
+            return Ok(descriptor);
         }
         public static async Task<SourceDescriptor> GenerateSourceProxy(WindowState state, int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, ProxySettings? proxySettings = null, string? tag = null, bool forceReady = false)
         {
@@ -1101,6 +1119,14 @@ namespace Grayjay.ClientServer.Controllers
             if (subtitleIndex >= 0 && sourceAudio is HLSManifestAudioSource)
                 return DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
                 
+            if (sourceVideo is LocalVideoSource && (sourceAudio is LocalAudioSource || sourceSubtitle != null))
+            {
+                var (manifestTask, _) = GenerateSourceDash(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, proxySettings);
+                var id = state.LocalMedia.RegisterManifest(await manifestTask);
+                return new SourceDescriptor($"/Details/LocalDash?id={id}&windowId={Uri.EscapeDataString(state.WindowID)}", "application/dash+xml",
+                    videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
+            }
+
             if (sourceVideo != null && (sourceAudio != null || sourceSubtitle != null))
             {
                 if (sourceAudio != null && !(sourceVideo is DashManifestRawSource && sourceAudio is DashManifestRawAudioSource) && (!(sourceVideo is IStreamMetaDataSource) || !(sourceAudio is IStreamMetaDataSource)))
@@ -1172,14 +1198,14 @@ namespace Grayjay.ClientServer.Controllers
         public static SourceDescriptor UmpSourceDescriptor(WindowState state, UMPSource source, int videoIndex, int subtitleIndex, bool subtitleIsLocal, string? tag)
         {
             var details = state.DetailsState;
+            var subtitleUrl = subtitleIndex >= 0 ? BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, null) : null;
             var previous = details.UmpPlaybackId != null ? UmpPlaybackRegistry.Get(details.UmpPlaybackId) : null;
             var continued = previous != null && previous.Source.VideoId == source.VideoId && previous.Source.Url == source.Url && previous.Session.FatalError == null && !previous.Session.IsReleased
                 ? previous.Session.ExportTransferable() : null;
             details.ReleaseUmpPlayback();
             var playback = UmpPlaybackRegistry.Create(state.WindowID, source, continued == null ? Sabr.Cast.UmpCasting.TakeHandBackState(source.VideoId ?? "") : null, continued);
             playback.Tag = tag;
-            if (subtitleIndex >= 0)
-                playback.SubtitleUrl = $"/details/Subtitle?subtitleIndex={subtitleIndex}&subtitleIsLocal={subtitleIsLocal}&windowId={state.WindowID}";
+            playback.SubtitleUrl = subtitleUrl;
             details.UmpPlaybackId = playback.Id;
             return new SourceDescriptor($"/Ump/Info?id={playback.Id}", UMPSource.CONTAINER, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
         }
@@ -1227,26 +1253,19 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public IActionResult StreamLocalVideoSource(int index)
-        {
-            var local = EnsureLocal(this.State());
-            var source = local.VideoSources[index];
-            return File(new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read), source.Container, true);
-        }
+        public IActionResult StreamLocalVideoSource(string id) => StreamLocalSource(id);
         [HttpGet]
-        public IActionResult StreamLocalAudioSource(int index)
-        {
-            var local = EnsureLocal(this.State());
-            var source = local.AudioSources[index];
-            return File(new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read), source.Container, true);
-        }
+        public IActionResult StreamLocalAudioSource(string id) => StreamLocalSource(id);
         [HttpGet]
-        public IActionResult StreamLocalSubtitleSource(int index)
+        public IActionResult StreamLocalSubtitleSource(string id) => StreamLocalSource(id);
+        [HttpGet]
+        public IActionResult LocalDash(string id)
+            => Content(this.State().LocalMedia.GetManifest(id), "application/dash+xml");
+
+        private IActionResult StreamLocalSource(string id)
         {
-            var local = EnsureLocal(this.State());
-            var source = local.SubtitleSources[index];
-            var stream = new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return File(stream, source.Format!, enableRangeProcessing: true);
+            var (stream, contentType) = this.State().LocalMedia.Open(id);
+            return File(stream, contentType, true);
         }
         [HttpGet]
         public IActionResult StreamSubtitleFile(int index)
@@ -1267,17 +1286,23 @@ namespace Grayjay.ClientServer.Controllers
             return new SourceDescriptor(url, "application/dash+xml", vindex, -1, -1, false, false, false);
         }
 
+        private static string LocalSourceUrl(WindowState state, string kind, string path, string contentType)
+        {
+            var id = state.LocalMedia.RegisterFile(path, contentType);
+            return $"/Details/StreamLocal{kind}Source?id={id}&windowId={Uri.EscapeDataString(state.WindowID)}";
+        }
+
         private static SourceDescriptor LocalVideoSource(WindowState state, LocalVideoSource sourceVideo)
         {
             var local = EnsureLocal(state);
             int index = local.VideoSources.IndexOf(sourceVideo);
-            return new SourceDescriptor($"/Details/StreamLocalVideoSource?index={index}&windowId={state.WindowID}", sourceVideo.Container, index, -1, -1, true, true, false);
+            return new SourceDescriptor(LocalSourceUrl(state, "Video", sourceVideo.FilePath, sourceVideo.Container), sourceVideo.Container, index, -1, -1, true, true, false);
         }
         private static SourceDescriptor LocalAudioSource(WindowState state, LocalAudioSource sourceAudio)
         {
             var local = EnsureLocal(state);
             int index = local.AudioSources.IndexOf(sourceAudio);
-            return new SourceDescriptor($"/Details/StreamLocalAudioSource?index={index}&windowId={state.WindowID}", sourceAudio.Container, -1, index, -1, true, true, false);
+            return new SourceDescriptor(LocalSourceUrl(state, "Audio", sourceAudio.FilePath, sourceAudio.Container), sourceAudio.Container, -1, index, -1, true, true, false);
         }
         private static SourceDescriptor DirectVideoUrlSource(VideoUrlSource sourceVideo, int index, bool isLocal, ProxySettings? proxySettings = null)
         {
@@ -1458,27 +1483,42 @@ namespace Grayjay.ClientServer.Controllers
                 + $"&subtitleIsLocal={subtitleIsLocal}"
                 + $"&windowId={state.WindowID}";
 
+            if (subtitleIsLocal)
+            {
+                url += $"&localMediaId={RegisterLocalSubtitle(state, subtitleIndex)}";
+            }
+
             if (!string.IsNullOrEmpty(modifierId))
                 url += $"&modifierId={Uri.EscapeDataString(modifierId)}";
 
             return url;
         }
 
-        public static async Task<(byte[] Bytes, string ContentType)> GetSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId = null)
+        public static string RegisterLocalSubtitle(WindowState state, int index)
         {
-            var (bytes, contentType) = await GetRawSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, modifierId);
+            var source = EnsureLocal(state).SubtitleSources[index];
+            return state.LocalMedia.RegisterFile(source.FilePath, string.IsNullOrWhiteSpace(source.Format) ? "text/vtt" : source.Format);
+        }
+
+        public static async Task<(byte[] Bytes, string ContentType)> GetSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId = null, string? localMediaId = null)
+        {
+            var (bytes, contentType) = await GetRawSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
             return (VttHelper.IsVtt(contentType, bytes) ? VttHelper.StripUnsupportedTags(bytes) : bytes, contentType);
         }
 
-        private static async Task<(byte[] Bytes, string ContentType)> GetRawSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId)
+        private static async Task<(byte[] Bytes, string ContentType)> GetRawSubtitleBytesAsync(WindowState state, int subtitleIndex, bool subtitleIsLocal, string? modifierId, string? localMediaId)
         {
             if (subtitleIsLocal)
             {
-                var local = EnsureLocal(state);
-                var src = local.SubtitleSources[subtitleIndex];
-                var ct = string.IsNullOrWhiteSpace(src.Format) ? "text/vtt" : src.Format!;
-                var bytes = await System.IO.File.ReadAllBytesAsync(src.FilePath);
-                return (bytes, ct);
+                if (localMediaId == null)
+                    throw new BadHttpRequestException("Local subtitle identity is required", StatusCodes.Status404NotFound);
+                var (stream, localContentType) = state.LocalMedia.Open(localMediaId);
+                using (stream)
+                using (var output = new MemoryStream())
+                {
+                    await stream.CopyToAsync(output);
+                    return (output.ToArray(), localContentType);
+                }
             }
 
             var video = EnsureVideo(state);
@@ -1572,12 +1612,12 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> Subtitle(int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null)
+        public async Task<IActionResult> Subtitle(int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null)
         {
             Response.Headers["Access-Control-Allow-Origin"] = "*";
 
             var state = this.State();
-            var (bytes, ct) = await GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, modifierId);
+            var (bytes, ct) = await GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
             return File(bytes, ct);
         }
 

@@ -241,74 +241,30 @@ namespace Grayjay.ClientServer
             });
 
 
-            AddCorsHandler("/details/StreamLocalVideoSource", [ "GET", "HEAD", "OPTIONS" ]);
-            _app.MapMethods("/details/StreamLocalVideoSource", [ "HEAD" ], (HttpContext context, int index) =>
+            foreach (var kind in new[] { "Video", "Audio", "Subtitle" })
             {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.VideoSources[index];
-                var contentLength = new FileInfo(source.FilePath).Length;
-
-                context.Response.Headers["Content-Length"] = contentLength.ToString();
-                context.Response.Headers["Content-Type"] = source.Container;
-                return Results.StatusCode(200);
-            });
-            _app.MapGet("/details/StreamLocalVideoSource", (HttpContext context, int index) =>
-            {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.VideoSources[index];
-                var stream = new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return Results.File(stream, source.Container, enableRangeProcessing: true);
-            });
-
-            AddCorsHandler("/details/StreamLocalAudioSource", [ "GET", "HEAD", "OPTIONS" ]);
-            _app.MapMethods("/details/StreamLocalAudioSource", [ "HEAD" ], (HttpContext context, int index) =>
-            {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.AudioSources[index];
-                var contentLength = new FileInfo(source.FilePath).Length;
-                
-                context.Response.Headers["Content-Length"] = contentLength.ToString();
-                context.Response.Headers["Content-Type"] = source.Container;
-                return Results.StatusCode(200);
-            });
-            _app.MapGet("/details/StreamLocalAudioSource", (HttpContext context, int index) =>
-            {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.AudioSources[index];
-                var stream = new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return Results.File(stream, source.Container, enableRangeProcessing: true);
-            });
-
-            AddCorsHandler("/details/StreamLocalSubtitleSource", [ "GET", "HEAD", "OPTIONS" ]);
-            _app.MapMethods("/details/StreamLocalSubtitleSource", [ "HEAD" ], (HttpContext context, int index) =>
-            {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.SubtitleSources[index];
-                var contentLength = new FileInfo(source.FilePath).Length;
-
-                context.Response.Headers["Content-Length"] = contentLength.ToString();
-                context.Response.Headers["Content-Type"] = source.Format;
-                return Results.StatusCode(200);
-            });
-            _app.MapGet("/details/StreamLocalSubtitleSource", (HttpContext context, int index) =>
-            {
-                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-
-                var local = DetailsController.EnsureLocal(context.GetState());
-                var source = local.SubtitleSources[index];
-                var stream = new FileStream(source.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return Results.File(stream, source.Format, enableRangeProcessing: true);
-            });
+                var route = $"/details/StreamLocal{kind}Source";
+                AddCorsHandler(route, [ "GET", "HEAD", "OPTIONS" ]);
+                _app.MapMethods(route, [ "HEAD" ], (HttpContext context, string id) =>
+                {
+                    context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                    var (stream, contentType) = context.GetState().LocalMedia.Open(id);
+                    using (stream)
+                    {
+                        context.Response.Headers["Content-Length"] = stream.Length.ToString();
+                        context.Response.Headers["Content-Type"] = contentType;
+                    }
+                    return Results.StatusCode(200);
+                });
+                _app.MapGet(route, (HttpContext context, string id) =>
+                {
+                    context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                    var (stream, contentType) = context.GetState().LocalMedia.Open(id);
+                    return Results.File(stream, contentType, enableRangeProcessing: true);
+                });
+            }
+            AddCorsHandler("/details/LocalDash", [ "GET", "HEAD", "OPTIONS" ]);
+            MapLocalDashEndpoint(_app);
 
             AddCorsHandler("/details/StreamSubtitleFile", [ "GET", "HEAD", "OPTIONS" ]);
             _app.MapMethods("/details/StreamSubtitleFile", [ "HEAD" ], (HttpContext context, int index) =>
@@ -340,21 +296,21 @@ namespace Grayjay.ClientServer
 
             AddCorsHandler("/details/Subtitle", [ "GET", "HEAD", "OPTIONS" ]);
 
-            _app.MapMethods("/details/Subtitle", [ "HEAD" ], async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null) =>
+            _app.MapMethods("/details/Subtitle", [ "HEAD" ], async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null) =>
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId);
+                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
                 context.Response.Headers["Content-Length"] = bytes.Length.ToString();
                 context.Response.Headers["Content-Type"] = contentType;
                 return Results.StatusCode(200);
             });
 
-            _app.MapGet("/details/Subtitle", async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null) =>
+            _app.MapGet("/details/Subtitle", async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null) =>
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId);
+                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
                 return Results.File(bytes, contentType);
             });
 
@@ -406,6 +362,11 @@ namespace Grayjay.ClientServer
             var url = $"{baseUri}/Details/Subtitle?subtitleIndex={subtitleIndex}" +
                     $"&subtitleIsLocal={subtitleIsLocal}" +
                     $"&windowId={state.WindowID}";
+
+            if (subtitleIsLocal)
+            {
+                url += $"&localMediaId={RegisterLocalSubtitle(state, subtitleIndex)}";
+            }
 
             if (!string.IsNullOrEmpty(modifierId))
                 url += $"&modifierId={Uri.EscapeDataString(modifierId)}";
@@ -464,6 +425,15 @@ namespace Grayjay.ClientServer
                 $"#EXTINF:{dur},\n" +
                 subtitleUrl + "\n" +
                 "#EXT-X-ENDLIST\n";
+        }
+
+        public static void MapLocalDashEndpoint(IEndpointRouteBuilder routes)
+        {
+            routes.MapMethods("/details/LocalDash", [ "GET", "HEAD" ], (HttpContext context, string id) =>
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                return Results.Content(context.GetState().LocalMedia.GetManifest(id), "application/dash+xml");
+            });
         }
 
         private void AddCorsHandler(string url, string[] methods)

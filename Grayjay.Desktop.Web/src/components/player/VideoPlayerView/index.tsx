@@ -299,7 +299,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     };
 
     const changeSourceToSetSource = async (source: SourceSelected | undefined) => {
-        currentTag = uuidv4();
+        const selectionTag = uuidv4();
+        currentTag = selectionTag;
         setLoaderGameVisible(undefined);
 
         console.info("source", source);
@@ -317,7 +318,14 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             return;
         }
 
-        const descriptor = await DetailsBackend.sourceProxy(source.url, source.video, source.videoIsLocal, source.audio, source.audioIsLocal, source.subtitle, source.subtitleIsLocal, currentTag);
+        let descriptor;
+        try {
+            descriptor = await DetailsBackend.sourceProxy(source.url, source.video, source.videoIsLocal, source.audio, source.audioIsLocal, source.subtitle, source.subtitleIsLocal, selectionTag);
+        } catch (error) {
+            if (currentTag !== selectionTag) return;
+            throw error;
+        }
+        if (currentTag !== selectionTag) return;
         console.log("Direct url", descriptor.url, descriptor.type);
 
         if (untrack(isCasting)) {
@@ -1206,6 +1214,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     });
 
     onCleanup(async () => {
+        currentTag = uuidv4();
         changeSource(undefined, undefined, undefined);
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
         stopHideControls();
