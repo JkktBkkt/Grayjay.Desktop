@@ -785,10 +785,6 @@ namespace Grayjay.ClientServer.Sabr
 
             (int Seq, long End)? videoBefore = video != null ? (BufferFor(video).HighestSequence, BufferFor(video).BufferedEndUs(DemandFromUs(video))) : null;
             (int Seq, long End)? audioBefore = audio != null ? (BufferFor(audio).HighestSequence, BufferFor(audio).BufferedEndUs(DemandFromUs(audio))) : null;
-            var videoCountBefore = video != null ? BufferFor(video).SegmentCount : 0;
-            var audioCountBefore = audio != null ? BufferFor(audio).SegmentCount : 0;
-            var videoInitBefore = video != null ? BufferFor(video).InitSegment : null;
-            var audioInitBefore = audio != null ? BufferFor(audio).InitSegment : null;
 
             Interlocked.Exchange(ref _lastRequestMs, NowMs());
             var rn = Volatile.Read(ref _requestNumber);
@@ -850,12 +846,13 @@ namespace Grayjay.ClientServer.Sabr
                         .Select(x => x.Key).ToHashSet();
 
                     bool redirected;
+                    bool advanced;
                     var bytesBefore = Interlocked.Read(ref _mediaBytes);
                     var mediaUsBefore = Interlocked.Read(ref _mediaUsDelivered);
                     try
                     {
                         using var stream = new BufferedStream(await response.Content.ReadAsStreamAsync(cts.Token), 64 * 1024);
-                        redirected = await ConsumeAsync(new UmpReader(stream), positionUs, acceptedKeys, cts.Token);
+                        (redirected, advanced) = await ConsumeAsync(new UmpReader(stream), positionUs, acceptedKeys, cts.Token);
                     }
                     finally
                     {
@@ -874,11 +871,6 @@ namespace Grayjay.ClientServer.Sabr
                         _emptyResponses = 0;
                         return;
                     }
-
-                    var advanced = (video != null && BufferFor(video).SegmentCount > videoCountBefore) ||
-                        (audio != null && BufferFor(audio).SegmentCount > audioCountBefore) ||
-                        (video != null && videoInitBefore == null && BufferFor(video).InitSegment != null) ||
-                        (audio != null && audioInitBefore == null && BufferFor(audio).InitSegment != null);
 
                     ClearSeekIfLanded(advanced);
 
@@ -1073,8 +1065,9 @@ namespace Grayjay.ClientServer.Sabr
             }
         }
 
-        private async Task<bool> ConsumeAsync(UmpReader reader, long requestedPositionUs, HashSet<UMPFormatKey> requestedKeys, CancellationToken cancellationToken)
+        private async Task<(bool Redirected, bool Advanced)> ConsumeAsync(UmpReader reader, long requestedPositionUs, HashSet<UMPFormatKey> requestedKeys, CancellationToken cancellationToken)
         {
+            var advanced = false;
             var pending = new Dictionary<int, SabrSegment>();
             string? redirect = null;
             long? seekToUs = null;
@@ -1117,6 +1110,9 @@ namespace Grayjay.ClientServer.Sabr
                                     }
                                     else
                                     {
+                                        var buffer = BufferFor(segment.FormatKey);
+                                        var tracked = ReferenceEquals(segment.IsInit ? buffer.InitSegment : buffer.Get(segment.SequenceNumber), segment);
+                                        if (tracked && segment.Size > 0 && requestedKeys.Contains(segment.FormatKey)) advanced = true;
                                         segment.MarkComplete();
                                         BufferFor(segment.FormatKey).NotifyChanged();
                                         OnSegmentsChanged?.Invoke();
@@ -1258,11 +1254,11 @@ namespace Grayjay.ClientServer.Sabr
                     throw new SabrException($"SABR redirected {_consecutiveRedirects} times without delivering media");
                 Interlocked.Exchange(ref _backoffUntilMs, Interlocked.Read(ref _serverBackoffUntilMs));
                 lock (_pumpLock) _resumePositionUs = requestedPositionUs;
-                return true;
+                return (true, advanced);
             }
 
             if (seekToUs != null) ApplySabrSeek(seekToUs.Value, requestedPositionUs);
-            return false;
+            return (false, advanced);
         }
 
         private void OnMediaHeader(MediaHeader header, Dictionary<int, SabrSegment> pending, HashSet<UMPFormatKey> requestedKeys)

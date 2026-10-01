@@ -457,11 +457,15 @@ namespace Grayjay.ClientServer.Models.Downloads
                     DownloadSpeedVideo = 0;
                 }));
             }
+            var nativeVideoDownload = VideoSourceToUse is UMPVideoFormatSource ? downloadTasks.FirstOrDefault() : null;
             if (AudioSourceToUse != null)
             {
                 Logger.i(nameof(VideoDownload), "Started downloading audio");
                 downloadTasks.Add(StateApp.ThreadPoolDownload.Run(async () =>
                 {
+                    if (AudioSourceToUse is UMPAudioFormatSource && nativeVideoDownload != null)
+                        await nativeVideoDownload;
+
                     var progressCallback = (long length, long totalRead, long speed) =>
                     {
                         lock (progressLock)

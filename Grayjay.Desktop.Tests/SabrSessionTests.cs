@@ -63,4 +63,68 @@ public class SabrSessionTests
         Assert.AreEqual("redirected.test", handler.Requests[1].Uri.Host);
         Assert.AreEqual(HttpMethod.Post, handler.Requests[1].Method);
     }
+    [TestMethod]
+    public async Task ConsumedMediaStillCountsAsProgress()
+    {
+        SabrSession? session = null;
+        var format = new UMPFormat { Itag = 251, MimeType = "audio/webm", Codecs = "opus" };
+        var count = 0;
+        var emptyCounts = new List<int>();
+        using var handler = new Handler(_ =>
+        {
+            emptyCounts.Add((int)typeof(SabrSession).GetField("_emptyResponses",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(session)!);
+            if (++count > 10) return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            var header = new MediaHeader
+            {
+                HeaderId = 1, Itag = 251, SequenceNumber = count,
+                StartMs = (count - 1) * 1000, DurationMs = 1000, ContentLength = 1
+            }.ToByteArray();
+            Assert.IsTrue(header.Length < 128);
+            var body = new byte[] { UmpPartType.MEDIA_HEADER, (byte)header.Length }.Concat(header)
+                .Concat(new byte[] { UmpPartType.MEDIA, 2, 1, 42, UmpPartType.MEDIA_END, 1, 1 }).ToArray();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+        });
+        using var client = new HttpClient(handler);
+        using var active = CreateSession(client);
+        session = active;
+        active.SetSegmentsChangedListener(() => active.BufferFor(format).EvictBeforeSequence(int.MaxValue));
+        await AwaitFailure(active);
+        Assert.AreEqual(11, handler.Requests.Count);
+        Assert.IsTrue(emptyCounts.All(x => x == 0), "Delivered and consumed media was classified as empty");
+    }
+
+    [DataTestMethod]
+    [DataRow("duplicate")]
+    [DataRow("foreign")]
+    [DataRow("truncated")]
+    public async Task UnusableMediaDoesNotCountAsProgress(string kind)
+    {
+        SabrSession? session = null;
+        var count = 0;
+        var emptyCounts = new List<int>();
+        using var handler = new Handler(_ =>
+        {
+            emptyCounts.Add((int)typeof(SabrSession).GetField("_emptyResponses",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(session)!);
+            if (++count > 2) return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            var header = new MediaHeader
+            {
+                HeaderId = 1, Itag = count == 2 && kind == "foreign" ? 140 : 251,
+                SequenceNumber = kind == "duplicate" ? 1 : count,
+                StartMs = kind == "duplicate" ? 0 : (count - 1) * 1000,
+                DurationMs = 1000, ContentLength = count == 2 && kind == "truncated" ? 2 : 1
+            }.ToByteArray();
+            Assert.IsTrue(header.Length < 128);
+            var body = new byte[] { UmpPartType.MEDIA_HEADER, (byte)header.Length }.Concat(header)
+                .Concat(new byte[] { UmpPartType.MEDIA, 2, 1, 42, UmpPartType.MEDIA_END, 1, 1 }).ToArray();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+        });
+        using var client = new HttpClient(handler);
+        using var active = CreateSession(client);
+        session = active;
+        await AwaitFailure(active);
+        CollectionAssert.AreEqual(new[] { 0, 0, 1 }, emptyCounts);
+    }
+
 }
