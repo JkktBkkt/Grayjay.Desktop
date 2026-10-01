@@ -295,7 +295,7 @@ namespace Grayjay.ClientServer.Controllers
 
             var descriptor = (config.ID == StateDeveloper.DEV_ID) ? StatePlatform.GetDevClient()?.Descriptor : StatePlugins.GetPlugin(config.ID);
             var pluginConfig = descriptor.Config;
-            var captchaConfig = pluginConfig.GetPlatformCaptcha();
+            var captchaConfig = pluginConfig.GetPlatformCaptcha() ?? throw new InvalidOperationException("Plugin has no captcha support");
 
             bool urlFound = string.IsNullOrEmpty(captchaConfig.CompletionUrl);
             Dictionary<string, Dictionary<string, string>> cookiesFoundMap = new Dictionary<string, Dictionary<string, string>>();
