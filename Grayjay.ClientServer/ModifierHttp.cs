@@ -15,6 +15,7 @@ namespace Grayjay.ClientServer
         public readonly record struct StreamResult(string FinalUrl, int Code, long ContentLength, Stream Stream)
         {
             public bool IsOk => Code >= 200 && Code < 300;
+            public HttpHeaders? Headers { get; init; }
         }
 
         private static List<KeyValuePair<string, string>> ToHeaderList(HttpHeaders headers)
@@ -92,14 +93,14 @@ namespace Grayjay.ClientServer
 
                 var bytes = res.BodyBytes ?? Array.Empty<byte>();
                 var code = Convert.ToInt32(res.Status);
-                return new StreamResult(finalUrl, code, bytes.LongLength, new MemoryStream(bytes, writable: false));
+                return new StreamResult(finalUrl, code, bytes.LongLength, new MemoryStream(bytes, writable: false)) { Headers = new HttpHeaders(res.Headers) };
             }
 
             var resp = client.GET(finalUrl, finalHeaders);
             if (resp.Body == null)
                 return new StreamResult(finalUrl, resp.Code, resp.ContentLength, Stream.Null);
 
-            return new StreamResult(finalUrl, resp.Code, resp.ContentLength, resp.Body.AsStream());
+            return new StreamResult(finalUrl, resp.Code, resp.ContentLength, resp.Body.AsStream()) { Headers = resp.Headers };
         }
     }
 }

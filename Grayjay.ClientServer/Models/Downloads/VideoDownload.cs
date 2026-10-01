@@ -689,46 +689,93 @@ namespace Grayjay.ClientServer.Models.Downloads
 
             SpeedMonitor speedMonitor = new SpeedMonitor(TimeSpan.FromSeconds(5));
 
-            long lastSpeed = 0;
-            var res = ModifierHttp.GetStream(client, url, modifier);
-            if (!res.IsOk)
-                throw new InvalidDataException($"Failed to download source. Web[{res.Code}] Error");
-            if (res.Stream == Stream.Null)
-                throw new InvalidDataException($"Failed to download source. Web[{res.Code}] No response");
+            long totalRead = 0;
+            long sourceLength = 0;
+            long fileStart = fileStream.CanSeek ? fileStream.Position : 0;
+            byte[] buffer = new byte[4096];
+            const int maxRetries = 5;
 
-            var sourceLength = res.ContentLength;
-            using (var sourceStream = res.Stream)
+            for (int attempt = 0; ; attempt++)
             {
-                long totalRead = 0;
-                int read = 0;
-                byte[] buffer = new byte[4096];
+                cancel.ThrowIfCancellationRequested();
+                var headers = new Engine.Models.HttpHeaders();
+                if (totalRead > 0)
+                    headers["Range"] = $"bytes={totalRead}-";
 
-                do
+                try
                 {
-                    read = sourceStream.Read(buffer);
-                    if (read <= 0)
-                        break;
-                    fileStream.Write(buffer, 0, read);
+                    var res = ModifierHttp.GetStream(client, url, modifier, headers);
+                    using var sourceStream = res.Stream;
+                    if (!res.IsOk)
+                        throw new InvalidDataException($"Failed to download source. Web[{res.Code}] Error");
+                    if (sourceStream == Stream.Null)
+                        throw new InvalidDataException($"Failed to download source. Web[{res.Code}] No response");
 
-
-                    totalRead += read;
-                    speedMonitor.Activity(read);
-                    if (DateTime.Now.Subtract(lastProgressNotify).TotalMilliseconds > progressNotifyInterval)
+                    if (res.Code == 206)
                     {
-                        lastProgressNotify = DateTime.Now;
-                        lastSpeed = speedMonitor.GetCurrentSpeed();
-                        onProgress?.Invoke(sourceLength, totalRead, lastSpeed);
+                        if (!System.Net.Http.Headers.ContentRangeHeaderValue.TryParse(res.Headers?["Content-Range"], out var range)
+                            || !string.Equals(range.Unit, "bytes", StringComparison.OrdinalIgnoreCase)
+                            || !range.HasRange || !range.HasLength || range.From != totalRead
+                            || range.To != range.Length - 1
+                            || (sourceLength > 0 && sourceLength != range.Length))
+                            throw new InvalidDataException("Invalid Content-Range when resuming download");
+                        sourceLength = range.Length.Value;
+                    }
+                    else
+                    {
+                        // A server may ignore Range. Start this source again instead of appending duplicate bytes.
+                        if (totalRead > 0)
+                        {
+                            fileStream.Position = fileStart;
+                            fileStream.SetLength(fileStart);
+                            totalRead = 0;
+                        }
+                        sourceLength = res.ContentLength;
                     }
 
-                    cancel.ThrowIfCancellationRequested();
+                    while (true)
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        int read;
+                        try
+                        {
+                            read = sourceStream.Read(buffer);
+                        }
+                        catch (IOException ex)
+                        {
+                            throw new HttpRequestException("Source response interrupted", ex);
+                        }
+                        if (read == 0)
+                            break;
+                        if (sourceLength > 0 && totalRead + read > sourceLength)
+                            throw new InvalidDataException("Source response exceeds its declared length");
+                        fileStream.Write(buffer, 0, read);
+                        totalRead += read;
+                        speedMonitor.Activity(read);
+                        if (DateTime.Now.Subtract(lastProgressNotify).TotalMilliseconds > progressNotifyInterval)
+                        {
+                            lastProgressNotify = DateTime.Now;
+                            onProgress?.Invoke(sourceLength, totalRead, speedMonitor.GetCurrentSpeed());
+                        }
+                    }
+                    if (sourceLength > 0 && totalRead != sourceLength)
+                        throw new HttpRequestException($"Source response ended prematurely ({totalRead}/{sourceLength} bytes)");
+                    onProgress?.Invoke(totalRead, totalRead, speedMonitor.GetCurrentSpeed());
+                    return totalRead;
                 }
-                while (read > 0);
-
-                lastSpeed = 0;
-                onProgress?.Invoke(sourceLength, totalRead, speedMonitor.GetCurrentSpeed());
+                catch (Exception ex) when (ex is HttpRequestException ||
+                    (ex is AggregateException aggregate && aggregate.Flatten().InnerExceptions.All(e => e is HttpRequestException)))
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    if (attempt >= maxRetries || !fileStream.CanSeek)
+                        throw;
+                    Logger.w(nameof(VideoDownload), $"Source response interrupted; retry {attempt + 1}/{maxRetries} from byte {totalRead}");
+                    if (cancel.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(200 * (attempt + 1))))
+                        cancel.ThrowIfCancellationRequested();
+                }
             }
-            return sourceLength;
         }
+
         private async Task DownloadSourceRanges(ManagedHttpClient client, IRequestModifier? modifier, Stream fileStream, string url, long sourceLength, int rangeSize, int concurrency, Action<long, long, long> onProgress, CancellationToken cancel = default)
         {
             DateTime lastProgressNotify = DateTime.Now;
