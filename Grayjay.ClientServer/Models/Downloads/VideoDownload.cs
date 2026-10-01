@@ -388,7 +388,56 @@ namespace Grayjay.ClientServer.Models.Downloads
 
             List<Task> downloadTasks = new List<Task>();
 
-            if (VideoSourceToUse != null)
+            var combinedUmp = VideoSourceToUse is UMPVideoFormatSource && AudioSourceToUse is UMPAudioFormatSource;
+            if (combinedUmp)
+            {
+                var video = (UMPVideoFormatSource)VideoSourceToUse;
+                var audio = (UMPAudioFormatSource)AudioSourceToUse;
+                lastVideoLength = (long)video.Format.Bitrate / 8 * video.Parent.Duration;
+                lastAudioLength = (long)audio.Format.Bitrate / 8 * audio.Parent.Duration;
+                downloadTasks.Add(StateApp.ThreadPoolDownload.Run(async () =>
+                {
+                    var result = await UmpDownloader.DownloadAsync(SabrStreamSpec.FromSource(video.Parent),
+                        video.Format, VideoFilePath, audio.Format, AudioFilePath, video.Parent.Duration,
+                        GrayjaySettings.Instance.Downloads.GetByteRangeThreadCount(), (role, length, read, speed) =>
+                        {
+                            lock (progressLock)
+                            {
+                                if (role == SabrSession.ROLE_VIDEO)
+                                {
+                                    lastVideoLength = length;
+                                    lastVideoRead = read;
+                                    DownloadSpeedVideo = speed;
+                                    VideoFileSize = length;
+                                }
+                                else
+                                {
+                                    lastAudioLength = length;
+                                    lastAudioRead = read;
+                                    DownloadSpeedAudio = speed;
+                                    AudioFileSize = length;
+                                }
+                                var totalLength = lastVideoLength + lastAudioLength;
+                                if (totalLength > 0)
+                                {
+                                    Progress = (lastVideoRead + lastAudioRead) / (double)totalLength;
+                                    onProgress?.Invoke(Progress);
+                                    OnProgressChanged?.Invoke(this, Progress);
+                                    StateDownloads.NotifyDownload(this);
+                                }
+                            }
+                        }, cancel);
+                    VideoFileSize = result.Video!.Length;
+                    VideoSourceMetaDataOverride = result.Video.ToStreamMetaData();
+                    VideoSourceMimeTypeOverride = video.Format.ContainerMimeType;
+                    AudioFileSize = result.Audio!.Length;
+                    AudioSourceMetaDataOverride = result.Audio.ToStreamMetaData();
+                    AudioSourceMimeTypeOverride = audio.Format.ContainerMimeType;
+                    DownloadSpeedVideo = 0;
+                    DownloadSpeedAudio = 0;
+                }));
+            }
+            else if (VideoSourceToUse != null)
             {
                 Logger.i(nameof(VideoDownload), "Started downloading video");
                 downloadTasks.Add(StateApp.ThreadPoolDownload.Run(async () =>
@@ -457,15 +506,11 @@ namespace Grayjay.ClientServer.Models.Downloads
                     DownloadSpeedVideo = 0;
                 }));
             }
-            var nativeVideoDownload = VideoSourceToUse is UMPVideoFormatSource ? downloadTasks.FirstOrDefault() : null;
-            if (AudioSourceToUse != null)
+            if (AudioSourceToUse != null && !combinedUmp)
             {
                 Logger.i(nameof(VideoDownload), "Started downloading audio");
                 downloadTasks.Add(StateApp.ThreadPoolDownload.Run(async () =>
                 {
-                    if (AudioSourceToUse is UMPAudioFormatSource && nativeVideoDownload != null)
-                        await nativeVideoDownload;
-
                     var progressCallback = (long length, long totalRead, long speed) =>
                     {
                         lock (progressLock)
