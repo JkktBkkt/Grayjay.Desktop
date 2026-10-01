@@ -93,9 +93,9 @@ namespace Grayjay.ClientServer.Transcoding
             process.WaitForExit();
             return process.ExitCode;
         }
-        public static int ExecuteSafe(string[] args, bool print = true)
+        public static int ExecuteSafe(string[] args, bool print = true, Action<string, bool> onLog = null)
         {
-            var process = ExecuteProcessSafe(args, print);
+            using var process = ExecuteProcessSafe(args, print, onLog);
             process.WaitForExit();
             return process.ExitCode;
         }

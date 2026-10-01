@@ -364,6 +364,12 @@ namespace Grayjay.ClientServer.Controllers
 
 
 
+                    var subtitleCodec = Path.GetExtension(outputFile).ToLowerInvariant() switch
+                    {
+                        ".webm" => "webvtt",
+                        ".mkv" => "srt",
+                        _ => "mov_text"
+                    };
                     StringBuilder ffmpegQuery = new StringBuilder();
                     ffmpegQuery.Append($" -i \"{videoSource.FilePath}\"");
                     ffmpegQuery.Append($" -i \"{audioSource.FilePath}\"");
@@ -376,7 +382,7 @@ namespace Grayjay.ClientServer.Controllers
                     ffmpegQuery.Append(" -c:v copy");
                     ffmpegQuery.Append(" -c:a copy");
                     if (subtitle != null)
-                        ffmpegQuery.Append(" -c:s mov_text");
+                        ffmpegQuery.Append($" -c:s {subtitleCodec}");
                     ffmpegQuery.Append(" -y");
                     ffmpegQuery.Append($" \"{outputFile}\"");
 
@@ -410,17 +416,26 @@ namespace Grayjay.ClientServer.Controllers
                     if(subtitle != null)
                         args.AddRange(new string[]
                         {
-                            "-c:s", "mov_text"
+                            "-c:s", subtitleCodec
                         });
                     args.Add("-y");
                     args.Add(outputFile);
 
 
                     Logger.i(nameof(DownloadController), "Exporting with FFMPEG:\n" + query);
-                    if (FFMPEG.ExecuteSafe(args.ToArray()) == 0)
+                    var errors = new Queue<string>();
+                    var exitCode = FFMPEG.ExecuteSafe(args.ToArray(), onLog: (line, isError) =>
+                    {
+                        if (!isError || string.IsNullOrWhiteSpace(line)) return;
+                        errors.Enqueue(line);
+                        while (errors.Count > 12) errors.Dequeue();
+                    });
+                    if (exitCode == 0)
                         return ExportFinished(download, outputFile);
-                    else
-                        throw DialogException.FromException("Failed to transcode export files", new InvalidDataException());
+
+                    var message = $"FFmpeg exited with code {exitCode}.";
+                    if (errors.Count > 0) message += "\n" + string.Join("\n", errors);
+                    throw DialogException.FromException("Failed to export files", new InvalidOperationException(message));
                 }
             }
             else
