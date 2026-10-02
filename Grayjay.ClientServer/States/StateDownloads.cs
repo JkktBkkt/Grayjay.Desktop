@@ -169,6 +169,11 @@ namespace Grayjay.ClientServer.States
         {
             if(local == null)
                 return;
+            foreach (var source in local.VideoSources)
+            {
+                try { Transcoding.LocalDash.DeleteDownloadCache(source.FilePath); }
+                catch (Exception ex) { Logger.w(nameof(StateDownloads), "Failed to delete downloaded DASH cache", ex); }
+            }
             local.DeleteFiles();
             if (_downloaded.Delete(local))
                 OnDownloadsChanged?.Invoke();
@@ -356,6 +361,15 @@ namespace Grayjay.ClientServer.States
                 .Concat(x.SubtitleSources.Select(z => Path.GetFileName(z.FilePath)))
             ));
             List<FileInfo> toDelete = new List<FileInfo>();
+            foreach (var cache in dir.GetDirectories("*.dash"))
+            {
+                var videoName = cache.Name[..^5];
+                if (!knownFiles.Contains(videoName))
+                {
+                    try { Transcoding.LocalDash.DeleteDownloadCache(Path.Combine(dirPath, videoName)); }
+                    catch (Exception ex) { Logger.w(nameof(StateDownloads), "Failed to delete unused DASH cache", ex); }
+                }
+            }
             foreach(var file in dir.GetFiles())
             {
                 if (!knownFiles.Contains(file.Name))

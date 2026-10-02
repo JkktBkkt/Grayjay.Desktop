@@ -50,6 +50,10 @@ export abstract class CastingBackend {
         await Backend.GET(`/casting/SetUmpCastQuality?height=${height}`);
     }
 
+    static async changeSubtitle(subtitleIndex: number, subtitleIsLocal: boolean): Promise<boolean> {
+        return await Backend.GET(`/casting/ChangeSubtitle?subtitleIndex=${subtitleIndex}&subtitleIsLocal=${subtitleIsLocal}`) as boolean;
+    }
+
     static async mediaResume(): Promise<void> {
         await Backend.GET("/casting/MediaResume");
     }

@@ -241,6 +241,141 @@ public class LocalPlaybackTests
         finally { typeof(GrayjayServer).GetProperty(nameof(GrayjayServer.Instance))!.SetValue(null, previousServer); }
     }
 
+    [DataTestMethod]
+    [DataRow("127.0.0.1")]
+    [DataRow("::1")]
+    [DoNotParallelize]
+    public async Task ProgressiveDownloadProducesCastDashWithAudioAndSubtitles(string address)
+    {
+        var previousServer = GrayjayServer.Instance;
+        var previousDirectory = Environment.CurrentDirectory;
+        Environment.CurrentDirectory = _directory;
+        _ = new GrayjayServer();
+        var context = Context(Guid.NewGuid().ToString());
+        using var state = context.GetState();
+        try
+        {
+            var local = Download("https://platform.test/progressive");
+            local.AudioSources.Clear();
+            var video = local.VideoSources[0];
+            Assert.AreEqual(0, Grayjay.ClientServer.Transcoding.FFMPEG.ExecuteSafe(new[] {
+                "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=size=160x90:rate=25",
+                "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", "libx264", "-c:a", "aac",
+                "-f", "mp4", video.FilePath }));
+            state.DetailsState.VideoLocal = local;
+            state.DetailsState.VideoLoaded = local;
+            var castServer = GrayjayCastingServer.Instance;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (castServer.BaseUri == null) await Task.Delay(20, timeout.Token);
+            var settings = new Grayjay.ClientServer.Proxy.ProxySettings(false, true, System.Net.IPAddress.Parse(address), true);
+            var descriptor = await DetailsController.GenerateSourceProxy(state, 0, -1, 0, true, true, true, settings, forceReady: true);
+            Assert.AreEqual("application/dash+xml", descriptor.Type);
+            var id = QueryHelpers.ParseQuery(new Uri("http://test" + descriptor.Url).Query)["id"].ToString();
+            var manifest = state.LocalMedia.GetManifest(id);
+            var document = System.Xml.Linq.XDocument.Parse(manifest);
+            System.Xml.Linq.XNamespace ns = "urn:mpeg:dash:schema:mpd:2011";
+            Assert.IsTrue(document.Descendants(ns + "AdaptationSet").Any(x => (string?)x.Attribute("contentType") == "audio"));
+            Assert.AreEqual(2, document.Descendants(ns + "SegmentBase").Count());
+            Assert.IsTrue(document.Descendants(ns + "SegmentBase").All(x => x.Attribute("indexRange") != null));
+            var urls = document.Descendants(ns + "BaseURL").Select(x => x.Value).ToArray();
+            Assert.AreEqual(3, urls.Length);
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false });
+            var host = address == "::1" ? "[::1]" : address;
+            var castBase = $"http://{host}:{castServer.BaseUri.Port}";
+            var reused = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+                Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(state.LocalMedia, video, null, castBase, state.WindowID, urls.Last(), "text/vtt", local.SubtitleSources[0].Name)));
+            foreach (var cached in reused) Assert.AreSame(manifest, cached);
+            Assert.AreEqual(manifest, await client.GetStringAsync(castBase + descriptor.Url));
+            foreach (var url in urls.Take(2))
+            {
+                StringAssert.StartsWith(url, castBase);
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 99);
+                using var response = await client.SendAsync(request);
+                Assert.AreEqual(System.Net.HttpStatusCode.PartialContent, response.StatusCode);
+                Assert.AreEqual(100, (await response.Content.ReadAsByteArrayAsync()).Length);
+            }
+            var subtitleQuery = QueryHelpers.ParseQuery(new Uri(new Uri("http://test"), urls.Last()).Query);
+            var subtitleId = subtitleQuery["localMediaId"].ToString();
+            state.DetailsState.VideoLocal = Download("https://platform.test/next");
+            StringAssert.Contains(await client.GetStringAsync(urls.Last()), "progressive");
+            Assert.AreEqual(manifest, state.LocalMedia.GetManifest(id));
+            using (var stream = state.LocalMedia.Open(subtitleId).Stream)
+            using (var reader = new StreamReader(stream))
+                StringAssert.Contains(await reader.ReadToEndAsync(), "progressive");
+            foreach (var url in urls.Take(2))
+            {
+                var mediaId = QueryHelpers.ParseQuery(new Uri(new Uri("http://test"), url).Query)["id"].ToString();
+                using var stream = state.LocalMedia.Open(mediaId).Stream;
+                Assert.IsTrue(stream.Length > 100);
+            }
+            var again = await Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(state.LocalMedia, video, null, "http://[::1]:1234", state.WindowID, null, null, null);
+            StringAssert.Contains(again, "http://[::1]:1234/Details/StreamLocalVideoSource?");
+            var cachedUrls = System.Xml.Linq.XDocument.Parse(again).Descendants(ns + "BaseURL").Select(x => x.Value).ToArray();
+            Assert.AreEqual(2, cachedUrls.Length);
+            for (var index = 0; index < 2; index++)
+                Assert.AreEqual(QueryHelpers.ParseQuery(new Uri(new Uri("http://test"), urls[index]).Query)["id"].ToString(),
+                    QueryHelpers.ParseQuery(new Uri(cachedUrls[index]).Query)["id"].ToString());
+            File.SetLastWriteTimeUtc(video.FilePath, File.GetLastWriteTimeUtc(video.FilePath).AddMinutes(1));
+            var replaced = await Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(state.LocalMedia, video, null, "http://[::1]:1234", state.WindowID, null, null, null);
+            var replacedUrl = System.Xml.Linq.XDocument.Parse(replaced).Descendants(ns + "BaseURL").First().Value;
+            Assert.AreNotEqual(cachedUrls[0], replacedUrl);
+        }
+        finally
+        {
+            await GrayjayCastingServer.StopAsync();
+            Environment.CurrentDirectory = previousDirectory;
+            typeof(GrayjayServer).GetProperty(nameof(GrayjayServer.Instance))!.SetValue(null, previousServer);
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PreparedDashSurvivesWindowCloseAndRepairsMissingArtifacts()
+    {
+        var previousDirectory = Environment.CurrentDirectory;
+        Environment.CurrentDirectory = _directory;
+        try
+        {
+            var video = new LocalVideoSource { FilePath = Path.Combine(_directory, "download.mp4"), Container = "video/mp4" };
+            Assert.AreEqual(0, Grayjay.ClientServer.Transcoding.FFMPEG.ExecuteSafe(new[] {
+                "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=size=160x90:rate=25",
+                "-t", "1", "-c:v", "libx264", video.FilePath }));
+            var prepared = Grayjay.ClientServer.Transcoding.LocalDash.PrepareDownload(video, null);
+            var preparedTime = File.GetLastWriteTimeUtc(prepared);
+            var baseXml = System.Xml.Linq.XDocument.Load(prepared);
+            System.Xml.Linq.XNamespace ns = "urn:mpeg:dash:schema:mpd:2011";
+            Assert.IsFalse(baseXml.Descendants(ns + "AdaptationSet").Any(x => (string?)x.Attribute("contentType") == "text"));
+            var mediaName = baseXml.Descendants(ns + "BaseURL").First().Value;
+            Assert.AreEqual(Path.GetFileName(mediaName), mediaName);
+            var mediaPath = Path.Combine(Path.GetDirectoryName(prepared)!, mediaName);
+            var mediaTime = File.GetLastWriteTimeUtc(mediaPath);
+            using (var first = new LocalMediaRegistry())
+                await Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(first, video, null, "http://first", "first", "http://first/english.vtt", "text/vtt", "English");
+            Assert.IsTrue(File.Exists(prepared));
+            using (var second = new LocalMediaRegistry())
+            {
+                var manifest = await Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(second, video, null, "http://second", "second", "http://second/french.vtt", "text/vtt", "French");
+                StringAssert.Contains(manifest, "http://second/french.vtt");
+                Assert.AreEqual(preparedTime, File.GetLastWriteTimeUtc(prepared));
+                Assert.AreEqual(mediaTime, File.GetLastWriteTimeUtc(mediaPath));
+            }
+            File.Delete(mediaPath);
+            using (var repaired = new LocalMediaRegistry())
+                await Grayjay.ClientServer.Transcoding.LocalDash.GenerateAsync(repaired, video, null, "http://third", "third", null, null, null);
+            Assert.IsTrue(File.Exists(mediaPath));
+            Assert.AreEqual(prepared, Grayjay.ClientServer.Transcoding.LocalDash.PrepareDownload(video, null));
+            File.SetLastWriteTimeUtc(video.FilePath, File.GetLastWriteTimeUtc(video.FilePath).AddMinutes(1));
+            var changed = Grayjay.ClientServer.Transcoding.LocalDash.PrepareDownload(video, null);
+            Assert.AreNotEqual(prepared, changed);
+            Assert.IsTrue(File.Exists(prepared));
+            Grayjay.ClientServer.Transcoding.LocalDash.DeleteDownloadCache(video.FilePath);
+            Assert.IsFalse(Directory.Exists(video.FilePath + ".dash"));
+            Assert.IsTrue(File.Exists(video.FilePath));
+        }
+        finally { Environment.CurrentDirectory = previousDirectory; }
+    }
+
     [TestMethod]
     public void ReselectingAnOlderFileKeepsItsBindingAvailable()
     {

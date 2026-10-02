@@ -260,6 +260,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
     const [pendingCastLoad, setPendingCastLoad] = createSignal<CastLoadRequest | null>(null);
     let lastLoadedCastKey: string | undefined;
+    const [castUpdateInFlight, setCastUpdateInFlight] = createSignal(false);
+    let loadedCast: { deviceId: string, source: SourceSelected } | undefined;
     let lastLocalPositionBeforeCast = Duration.fromMillis(0);
 
     const computeResumeForCast = (source: SourceSelected) => {
@@ -271,28 +273,6 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         return source.time ?? Duration.fromMillis(0);
     };
 
-
-    const startCastingIfApplicable = async (castConnectionState?: CastConnectionState, shouldResume?: boolean, startTime?: Duration, tag?: string) => {
-        if (castConnectionState === CastConnectionState.Connected) {
-            if (!props.source)
-                return;
-
-            console.log("start casting", switchPosition);
-            try {
-                await CastingBackend.mediaLoad({
-                    streamType: props.source.isLive ? "LIVE" : "BUFFERED",
-                    resumePosition: getResumePosition(shouldResume, startTime),
-                    duration: untrack(duration),
-                    sourceSelected: props.source,
-                    speed: await getDefaultPlaybackSpeed(),
-                    tag,
-                    title: props.video?.name
-                });
-            } catch (e) {
-                console.info("failed to start casting", e);
-            }
-        }
-    };
 
     const stopCastingIfApplicable = async () => {
         await CastingBackend.mediaStop();
@@ -307,6 +287,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         if (!source || (source.video == -1 && source.audio == -1)) {
             if (untrack(isCasting)) {
                 await CastingBackend.mediaStop();
+                loadedCast = undefined;
+                lastLoadedCastKey = undefined;
             } else {
                 try {
                     changeSource();
@@ -315,6 +297,19 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 }
             }
             console.warn("source null or video and audio unset", source);
+            return;
+        }
+
+        if (untrack(isCasting)) {
+            console.info("start casting because changeSourceToSetSource call and casting");
+            const resumePosition = computeResumeForCast(source);
+            setPendingCastLoad({
+                tag: currentTag,
+                source,
+                resumePosition,
+                duration: untrack(duration),
+                title: props.video?.name
+            });
             return;
         }
 
@@ -328,25 +323,11 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         if (currentTag !== selectionTag) return;
         console.log("Direct url", descriptor.url, descriptor.type);
 
-        if (untrack(isCasting)) {
-            console.info("start casting because changeSourceToSetSource call and casting");
-            const resumePosition = computeResumeForCast(source);
-            setPendingCastLoad({
-                tag: currentTag,
-                source,
-                resumePosition,
-                duration: untrack(duration),
-                title: props.video?.name
-            });
-        } else {
-            console.info("change source because changeSourceToSetSource call");
-
-            try {
-                changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time);
-            }
-            catch(ex) {
-                console.error("Failed to load source", ex);
-            }
+        console.info("change source because changeSourceToSetSource call");
+        try {
+            changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time);
+        } catch (ex) {
+            console.error("Failed to load source", ex);
         }
     };
 
@@ -371,6 +352,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             //TODO: playWhenReady = casting?.activeDevice.device()?.isPlaying() ?? false
             setPendingCastLoad(null);
             lastLoadedCastKey = undefined;
+            loadedCast = undefined;
             await changeSourceToSetSource(props.source ? { ... props.source, shouldResume: true } : undefined);
             await stopCastingIfApplicable();
             startHideControls();
@@ -1359,29 +1341,48 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     });
 
     createEffect(on(
-        () => [isCasting(), casting.activeDevice.state(), pendingCastLoad()] as const,
-        async ([castingNow, state, req]) => {
+        () => [isCasting(), casting.activeDevice.state(), pendingCastLoad(), castUpdateInFlight()] as const,
+        async ([castingNow, state, req, inFlight]) => {
+            if (inFlight) return;
             if (!castingNow) return;
             if (state !== CastConnectionState.Connected) return;
             if (!req) return;
 
             const key = `${req.tag}|${req.source.url}|${req.source.video}|${req.source.audio}|${req.source.subtitle}|${req.resumePosition.toMillis()}`;
             if (key === lastLoadedCastKey) return;
-            lastLoadedCastKey = key;
-
             casting.actions.close();
+            const deviceId = casting.activeDevice.device()?.id;
+            const previous = loadedCast && loadedCast.deviceId === deviceId ? loadedCast.source : undefined;
+            const source = req.source;
+            const subtitleOnly = previous && source.shouldResume
+                && previous.url === source.url && previous.video === source.video && previous.audio === source.audio
+                && previous.videoIsLocal === source.videoIsLocal && previous.audioIsLocal === source.audioIsLocal
+                && (previous.subtitle !== source.subtitle || previous.subtitleIsLocal !== source.subtitleIsLocal);
 
-            await CastingBackend.mediaLoad({
-                streamType: req.source.isLive ? "LIVE" : "BUFFERED",
-                resumePosition: req.resumePosition,
-                duration: req.duration,
-                sourceSelected: req.source,
-                speed: await getDefaultPlaybackSpeed(),
-                tag: req.tag,
-                title: req.title
-            });
-
-            setPendingCastLoad(null);
+            setCastUpdateInFlight(true);
+            try {
+                const changedSubtitle = subtitleOnly && await CastingBackend.changeSubtitle(source.subtitle, source.subtitleIsLocal);
+                if (!changedSubtitle) {
+                    await CastingBackend.mediaLoad({
+                        streamType: source.isLive ? "LIVE" : "BUFFERED",
+                        resumePosition: req.resumePosition,
+                        duration: req.duration,
+                        sourceSelected: source,
+                        speed: await getDefaultPlaybackSpeed(),
+                        tag: req.tag,
+                        title: req.title
+                    });
+                }
+                if (casting.activeDevice.device()?.id !== deviceId) return;
+                loadedCast = deviceId ? { deviceId, source: { ...source } } : undefined;
+                lastLoadedCastKey = key;
+            } catch (error) {
+                console.error("Failed to update cast playback", error);
+                onError(`Casting failed: ${error instanceof Error ? error.message : String(error)}`, true, true);
+            } finally {
+                if (pendingCastLoad() === req) setPendingCastLoad(null);
+                setCastUpdateInFlight(false);
+            }
         },
         { defer: true }
     ));

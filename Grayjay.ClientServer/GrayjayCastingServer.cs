@@ -145,7 +145,7 @@ namespace Grayjay.ClientServer
                     return Results.BadRequest("No active casting device.");
 
                 //TODO: Make sure this does not get recalled every HEAD/GET call
-                (var task, var metadata) = DetailsController.GenerateSourceDash(context.GetState(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address));
+                (var task, var metadata) = DetailsController.GenerateSourceDash(context.GetState(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress));
                 var contentLength = (await task).Length;
                 context.Response.Headers["Content-Length"] = contentLength.ToString();
                 context.Response.Headers["Content-Type"] = "application/dash+xml";
@@ -159,7 +159,7 @@ namespace Grayjay.ClientServer
                 if (activeDevice == null)
                     return Results.BadRequest("No active casting device.");
 
-                (var task, var metadata) = DetailsController.GenerateSourceDash(context.GetState(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
+                (var task, var metadata) = DetailsController.GenerateSourceDash(context.GetState(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress, exposeLocalAsAny: true));
                 return Results.Content(await task, "application/dash+xml");
             });
 
@@ -173,7 +173,7 @@ namespace Grayjay.ClientServer
                 if (activeDevice == null)
                     return Results.BadRequest("No active casting device.");
 
-                var content = await DetailsController.GenerateSourceHLS(context.GetState(), videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address), modifierId);
+                var content = await DetailsController.GenerateSourceHLS(context.GetState(), videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress), modifierId);
                 context.Response.Headers["Content-Length"] = content.Length.ToString();
                 context.Response.Headers["Content-Type"] = "application/x-mpegurl";
                 return Results.StatusCode(200);
@@ -187,7 +187,7 @@ namespace Grayjay.ClientServer
                 if (activeDevice == null)
                     return Results.BadRequest("No active casting device.");
 
-                var content = await DetailsController.GenerateSourceHLS(context.GetState(), videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true), modifierId);
+                var content = await DetailsController.GenerateSourceHLS(context.GetState(), videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress, exposeLocalAsAny: true), modifierId);
                 return Results.Content(content, "application/x-mpegurl");
             });
             
@@ -296,21 +296,21 @@ namespace Grayjay.ClientServer
 
             AddCorsHandler("/details/Subtitle", [ "GET", "HEAD", "OPTIONS" ]);
 
-            _app.MapMethods("/details/Subtitle", [ "HEAD" ], async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null) =>
+            _app.MapMethods("/details/Subtitle", [ "HEAD" ], async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null, bool asVtt = false) =>
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
+                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId, asVtt);
                 context.Response.Headers["Content-Length"] = bytes.Length.ToString();
                 context.Response.Headers["Content-Type"] = contentType;
                 return Results.StatusCode(200);
             });
 
-            _app.MapGet("/details/Subtitle", async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null) =>
+            _app.MapGet("/details/Subtitle", async (HttpContext context, int subtitleIndex, bool subtitleIsLocal = false, string? modifierId = null, string? localMediaId = null, bool asVtt = false) =>
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId);
+                var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(context.GetState(), subtitleIndex, subtitleIsLocal, modifierId, localMediaId, asVtt);
                 return Results.File(bytes, contentType);
             });
 
@@ -326,7 +326,7 @@ namespace Grayjay.ClientServer
 
                 var state = context.GetState();
                 var baseUri = $"{context.Request.Scheme}://{context.Request.Host.Value}";
-                var subtitleUrl = BuildSubtitleUrl(baseUri, state, subtitleIndex, subtitleIsLocal, modifierId);
+                var subtitleUrl = BuildSubtitleUrl(baseUri, state, subtitleIndex, subtitleIsLocal, modifierId) + "&asVtt=true";
 
                 var dur = GetVideoDurationSecondsOrFallback(state);
                 var m3u8 = GenerateSingleSegmentSubtitlePlaylist(subtitleUrl, dur);
@@ -346,7 +346,7 @@ namespace Grayjay.ClientServer
 
                 var state = context.GetState();
                 var baseUri = $"{context.Request.Scheme}://{context.Request.Host.Value}";
-                var subtitleUrl = BuildSubtitleUrl(baseUri, state, subtitleIndex, subtitleIsLocal, modifierId);
+                var subtitleUrl = BuildSubtitleUrl(baseUri, state, subtitleIndex, subtitleIsLocal, modifierId) + "&asVtt=true";
 
                 var dur = GetVideoDurationSecondsOrFallback(state);
                 var m3u8 = GenerateSingleSegmentSubtitlePlaylist(subtitleUrl, dur);

@@ -1388,6 +1388,16 @@ namespace Grayjay.ClientServer.Models.Downloads
             //TODO: Save stream metadata video?
             //TODO: Save stream metadata audio?
 
+            if (localVideoSource != null && (localVideoSource.Container == "video/mp4" || localVideoSource.Container == "video/webm")
+                && (localVideoSource.MetaData == null || localAudioSource is { MetaData: null }))
+            {
+                try { LocalDash.PrepareDownload(localVideoSource, localAudioSource); }
+                catch (Exception ex)
+                {
+                    Logger.w(nameof(VideoDownload), "Could not prepare the downloaded DASH cache", ex);
+                }
+            }
+
             if (existing != null)
             {
                 existing.VideoDetails = VideoDetails;

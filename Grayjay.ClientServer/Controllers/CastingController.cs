@@ -110,8 +110,6 @@ namespace Grayjay.ClientServer.Controllers
             if (activeDevice == null)
                 return BadRequest("No active device.");
 
-            //TODO: Uncomment
-            //var proxyInnerSources = activeDevice is FCastCastingDevice ? false : true;
             (var castVideo, _, _) = DetailsController.GetSources(this.State(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
             if (castVideo is UMPSource umpSource)
             {
@@ -122,19 +120,87 @@ namespace Grayjay.ClientServer.Controllers
             }
 
             UmpCasting.Stop();
-            var shouldProxy =
-                (activeDevice is FCastCastingDevice || (activeDevice is CastingDeviceExperimentalWrapper expDevice && expDevice.inner.CastingProtocol() == FCast.SenderSDK.ProtocolType.FCast))
-                ? false : true;
-            var sourceDescriptor = await DetailsController.GenerateSourceProxy(this.State(), videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(false, shouldProxy, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true), tag, forceReady: true);
-            if (sourceDescriptor.Url.StartsWith("/")) {
-                sourceDescriptor.Url = $"http://{activeDevice.LocalEndPoint?.Address.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}" + sourceDescriptor.Url;
+            await LoadSourceAsync(this.State(), activeDevice, streamType, resumePosition, duration,
+                new SourceSelection(videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal),
+                title, thumbnailUrl, speed, cancellationToken, tag);
+            return Ok();
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<bool>> ChangeSubtitle(int subtitleIndex, bool subtitleIsLocal = false)
+        {
+            var device = StateCasting.Instance.ActiveDevice;
+            if (device == null || device.ConnectionState.State != CastConnectionState.Connected)
+                return BadRequest("No connected device.");
+            return await ChangeSubtitleAsync(this.State(), device, subtitleIndex, subtitleIsLocal);
+        }
+
+        public static async Task<bool> ChangeSubtitleAsync(WindowState state, CastingDevice device, int subtitleIndex, bool subtitleIsLocal)
+        {
+            if (!device.SupportsExternalSubtitles) return false;
+            if (subtitleIndex < 0) return await device.DisableSubtitlesAsync();
+            var (_, _, subtitle) = DetailsController.GetSources(state, -1, -1, subtitleIndex, false, false, subtitleIsLocal);
+            if (subtitle == null) return false;
+            var settings = new ProxySettings(false, device.DeviceInfo.Type != CastProtocolType.FCast,
+                proxyAddress: device.MediaAddress, exposeLocalAsAny: true);
+            var url = DetailsController.BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, settings);
+            return await device.AddSubtitleUrlAsync(url, subtitle.Name);
+        }
+
+        public readonly record struct SourceSelection(int VideoIndex, int AudioIndex, int SubtitleIndex, bool VideoIsLocal, bool AudioIsLocal, bool SubtitleIsLocal);
+
+        public static async Task LoadSourceAsync(WindowState state, CastingDevice activeDevice, string streamType, double resumePosition, double duration,
+            SourceSelection selection, string? title, string thumbnailUrl, double? speed = null, CancellationToken cancellationToken = default, string? tag = null)
+        {
+            var (videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal) = selection;
+            var shouldProxy = activeDevice.DeviceInfo.Type != CastProtocolType.FCast;
+            var mediaAddress = activeDevice.MediaAddress;
+            var settings = new ProxySettings(false, shouldProxy, proxyAddress: mediaAddress, exposeLocalAsAny: true);
+            var (video, audio, subtitle) = DetailsController.GetSources(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
+            var progressive = (video is LocalVideoSource || video is VideoUrlSource)
+                && (video.Container == "video/mp4" || video.Container == "video/webm");
+            var castBase = $"http://{mediaAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}";
+
+            async Task Load(DetailsController.SourceDescriptor descriptor)
+            {
+                var url = descriptor.Url.StartsWith("/") ? castBase + descriptor.Url : descriptor.Url;
+                cancellationToken.ThrowIfCancellationRequested();
+                Logger.i(nameof(CastingController), $"Started casting '{url}' with content type '{descriptor.Type}'.");
+                await activeDevice.MediaLoadAsync(streamType, descriptor.Type, url, TimeSpan.FromSeconds(resumePosition), TimeSpan.FromSeconds(duration), title, thumbnailUrl, speed, cancellationToken);
             }
 
-            Logger.i(nameof(CastingController), $"Started casting '{sourceDescriptor.Url}' with content type '{sourceDescriptor.Type}'.");
-            Task? task = StateCasting.Instance.ActiveDevice?.MediaLoadAsync(streamType, sourceDescriptor.Type, sourceDescriptor.Url, TimeSpan.FromSeconds(resumePosition), TimeSpan.FromSeconds(duration), title, thumbnailUrl, speed, cancellationToken);
-            if (task != null)
-                await task;
-            return Ok();
+            var subtitleUrl = subtitle != null ? DetailsController.BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, settings) : null;
+            async Task<DetailsController.SourceDescriptor> Prepare(int captions)
+            {
+                var missingIndex = video is not IStreamMetaDataSource { MetaData: not null }
+                    || (audio != null && audio is not IStreamMetaDataSource { MetaData: not null });
+                var allLocal = video is LocalVideoSource && (audio == null || audio is LocalAudioSource);
+                if (progressive && missingIndex && (audio != null || captions >= 0) && !allLocal)
+                {
+                    string VideoInput() => video is LocalVideoSource local ? local.FilePath
+                        : DetailsController.DirectVideoUrlSource((VideoUrlSource)video!, videoIndex, false, new ProxySettings(true, true)).Url;
+                    string? AudioInput() => audio switch {
+                        LocalAudioSource local => local.FilePath,
+                        AudioUrlSource remote => DetailsController.DirectAudioUrlSource(remote, audioIndex, false, new ProxySettings(true, true)).Url,
+                        null => null,
+                        _ => throw new NotSupportedException("Cannot combine progressive video with a non-progressive audio source.")
+                    };
+                    var key = video is LocalVideoSource lv ? state.LocalMedia.RegisterFile(lv.FilePath, lv.Container) : ((VideoUrlSource)video!).Url;
+                    key += "\n" + (audio is LocalAudioSource la ? state.LocalMedia.RegisterFile(la.FilePath, la.Container) : (audio as AudioUrlSource)?.Url);
+                    var manifest = await Transcoding.LocalDash.GenerateUnindexedAsync(state.LocalMedia, key, () => (VideoInput(), AudioInput()),
+                        castBase, state.WindowID, captions >= 0 ? subtitleUrl : null, subtitle?.Format, subtitle?.Name, subtitle?.Language);
+                    var id = state.LocalMedia.RegisterManifest(manifest);
+                    return new DetailsController.SourceDescriptor($"/Details/LocalDash?id={id}&windowId={Uri.EscapeDataString(state.WindowID)}", "application/dash+xml");
+                }
+                return await DetailsController.GenerateSourceProxy(state, videoIndex, audioIndex, captions, videoIsLocal, audioIsLocal, captions >= 0 && subtitleIsLocal, settings, tag, forceReady: true);
+            }
+            if (subtitle != null && activeDevice.SupportsExternalSubtitles)
+            {
+                await Load(await Prepare(-1));
+                if (await activeDevice.AddSubtitleUrlAsync(subtitleUrl!, subtitle.Name)) return;
+                Logger.w(nameof(CastingController), "Receiver rejected external subtitles; falling back to manifest subtitles.");
+            }
+            await Load(await Prepare(subtitleIndex));
         }
 
         [HttpGet]

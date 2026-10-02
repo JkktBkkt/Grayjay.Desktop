@@ -1,12 +1,23 @@
+using System.Net;
 using Grayjay.ClientServer.Casting;
 using Grayjay.ClientServer.Store;
+using Grayjay.ClientServer.Sabr.Cast;
 
 namespace Grayjay.ClientServer.States;
 
 using Logger = Desktop.POC.Logger;
 
-abstract public class StateCasting : IDisposable
+public class StateCasting : IDisposable
 {
+    private readonly FCast.SenderSDK.CastContext _context = new();
+    private readonly HashSet<CastingDevice> _ownedDevices = new();
+    private bool _started;
+    private bool _disposed;
+    private static readonly Lazy<bool> SdkLogging = new(() =>
+    {
+        FCast.SenderSDK.FcastSenderSdkMethods.InitCustomLogger(new CastLogger());
+        return true;
+    });
     protected readonly object _castingDeviceLock = new object();
     protected readonly Dictionary<string, CastingDevice> _castingDevices = new Dictionary<string, CastingDevice>();
 
@@ -16,7 +27,7 @@ abstract public class StateCasting : IDisposable
         .WithBackup();
 
     public List<CastingDeviceInfo> PinnedDevices => _pinnedDevices.GetObjects()
-        .Where(dev => !(Grayjay.ClientServer.Settings.GrayjaySettings.Instance.Casting.Experimental && dev.Type == CastProtocolType.Airplay))
+        .Where(dev => dev.Type is CastProtocolType.Chromecast or CastProtocolType.FCast)
         .ToList();
     public List<CastingDevice> DiscoveredDevices
     {
@@ -49,7 +60,7 @@ abstract public class StateCasting : IDisposable
     public event Action<double>? SpeedChanged;
     public event Action<CastConnectionState>? StateChanged;
     protected readonly Debouncer _broadcastDevicesDebouncer;
-    private CancellationTokenSource? _updateTimeCts;
+    private Action<CastConnectionState>? _activeStateHandler;
 
     private List<CastingDeviceInfo> _lastUpdate = new List<CastingDeviceInfo>();
 
@@ -77,6 +88,8 @@ abstract public class StateCasting : IDisposable
     {
         try
         {
+            lock (_castingDeviceLock)
+                if (_disposed) return;
             var current = DiscoveredDevices.Select(v => v.DeviceInfo).ToList();
             if (force || HasUpdatedChanged(current))
             {
@@ -89,33 +102,12 @@ abstract public class StateCasting : IDisposable
             Logger.i(nameof(StateCasting), $"Broadcast discovered devices failed '{e.Message}': {e.StackTrace}");
         }
     }
-    abstract protected bool HasUpdatedChanged(List<CastingDeviceInfo> current);
+    private bool HasUpdatedChanged(List<CastingDeviceInfo> current)
+        => current.Count != _lastUpdate.Count || current.Any(info => !Equals(_lastUpdate.FirstOrDefault(previous => previous.Id == info.Id), info));
 
-    public abstract void Start();
 
-    public abstract void Dispose();
 
-    private async Task UpdateTimeLoop(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            CastingDevice? device;
-            lock (_castingDeviceLock)
-            {
-                device = _activeDevice;
-                if (device == null)
-                    return;
-            }
 
-            await Task.Delay(1000, ct);
-
-            if (!device.PlaybackState.IsPlaying)
-                continue;
-
-            var expectedCurrentTime = device.PlaybackState.ExpectedCurrentTime;
-            device.PlaybackState.SetTime(expectedCurrentTime);
-        }
-    }
 
     public void AddPinnedDevice(CastingDeviceInfo castingDeviceInfo)
     {
@@ -127,26 +119,7 @@ abstract public class StateCasting : IDisposable
         _pinnedDevices.Delete(castingDeviceInfo);
     }
 
-    abstract public void Connect(CastingDevice castingDevice);
 
-    protected void StartTimeLoop()
-    {
-        StopTimeLoop();
-        _updateTimeCts = new CancellationTokenSource();
-        _ = Task.Run(async () => await UpdateTimeLoop(_updateTimeCts.Token));
-    }
-
-    protected void StopTimeLoop()
-    {
-        if (_updateTimeCts != null)
-        {
-            _updateTimeCts.Cancel();
-            _updateTimeCts.Dispose();
-            _updateTimeCts = null;
-        }
-    }
-
-    abstract public void Disconnect();
 
     protected void BindEvents(CastingDevice castingDevice)
     {
@@ -156,7 +129,8 @@ abstract public class StateCasting : IDisposable
         castingDevice.PlaybackState.VolumeChanged += HandleVolumeChanged;
         castingDevice.PlaybackState.SpeedChanged += HandleSpeedChanged;
         castingDevice.PlaybackState.MediaItemEnded += HandleMediaItemEnded;
-        castingDevice.ConnectionState.StateChanged += HandleStateChanged;
+        _activeStateHandler = state => HandleStateChanged(castingDevice, state);
+        castingDevice.ConnectionState.StateChanged += _activeStateHandler;
     }
 
     protected void UnbindEvents(CastingDevice castingDevice)
@@ -167,21 +141,13 @@ abstract public class StateCasting : IDisposable
         castingDevice.PlaybackState.VolumeChanged -= HandleVolumeChanged;
         castingDevice.PlaybackState.SpeedChanged -= HandleSpeedChanged;
         castingDevice.PlaybackState.MediaItemEnded -= HandleMediaItemEnded;
-        castingDevice.ConnectionState.StateChanged -= HandleStateChanged;
+        castingDevice.ConnectionState.StateChanged -= _activeStateHandler;
+        _activeStateHandler = null;
     }
 
     private async void HandleIsPlayingChanged(bool isPlaying)
     {
         IsPlayingChanged?.Invoke(isPlaying);
-
-        var activeDevice = _activeDevice;
-        if (activeDevice != null && (activeDevice.DeviceInfo.Type == CastProtocolType.Airplay || activeDevice.DeviceInfo.Type == CastProtocolType.Chromecast))
-        {
-            if (isPlaying)
-                StartTimeLoop();
-            else
-                StopTimeLoop();
-        }
 
         try
         {
@@ -261,13 +227,15 @@ abstract public class StateCasting : IDisposable
         }
     }
 
-    private async void HandleStateChanged(CastConnectionState state)
+    private async void HandleStateChanged(CastingDevice device, CastConnectionState state)
     {
-        StateChanged?.Invoke(state);
-
-        if (state == CastConnectionState.Connected) {
-            ActiveDevice?.DidConnect();
+        lock (_castingDeviceLock)
+        {
+            if (_activeDevice != device || _disposed) return;
+            if (state == CastConnectionState.Disconnected)
+                Disconnect();
         }
+        StateChanged?.Invoke(state);
 
         try
         {
@@ -279,7 +247,7 @@ abstract public class StateCasting : IDisposable
         }
     }
 
-    public abstract CastingDevice CreateDevice(CastingDeviceInfo info);
+
 
     private static object _lockObject = new object();
     private static StateCasting? _instance = null;
@@ -289,20 +257,226 @@ abstract public class StateCasting : IDisposable
         {
             lock (_lockObject)
             {
-                if (_instance == null) {
-                    if (Grayjay.ClientServer.Settings.GrayjaySettings.Instance.Casting.Experimental) {
-                        try {
-                            _instance = new StateCastingExperimental();
-                        } catch (Exception e) {
-                            Logger.i(nameof(StateCasting), $"Failed to initialize StateCastingExperimental. Using legacy backend. '{e.Message}': {e.StackTrace}");
-                            _instance = new StateCastingLegacy();
-                        }
-                    } else {
-                        _instance = new StateCastingLegacy();
-                    }
-                }
+                _instance ??= new StateCasting();
                 return _instance;
             }
         }
+    }
+
+    public void Connect(CastingDevice castingDevice)
+    {
+        if (ActiveDevice == castingDevice)
+            return;
+
+        try
+        {
+            _ = _pinnedDevices.SaveAsync(castingDevice.DeviceInfo);
+        }
+        catch (Exception e)
+        {
+            Logger.w(nameof(StateCasting), "Failed to save pinned device.", e);
+        }
+
+        lock (_castingDeviceLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var oldActiveDevice = ActiveDevice;
+            if (oldActiveDevice != null)
+                UnbindEvents(oldActiveDevice);
+
+            BindEvents(castingDevice);
+            _ownedDevices.Add(castingDevice);
+            _activeDevice = castingDevice;
+            oldActiveDevice?.Stop();
+            try { castingDevice.Start(); }
+            catch
+            {
+                Disconnect();
+                throw;
+            }
+            if (_activeDevice != castingDevice) return;
+        }
+
+        ActiveDeviceChanged?.Invoke(castingDevice);
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await GrayjayServer.Instance.WebSocket.Broadcast(castingDevice.DeviceInfo, "activeDeviceChanged");
+            }
+            catch (Exception e)
+            {
+                Logger.e(nameof(StateCasting), "Failed to notify active device changed.", e);
+            }
+        });
+    }
+
+    public void Disconnect()
+    {
+        lock (_castingDeviceLock)
+        {
+            var oldActiveDevice = ActiveDevice;
+            if (oldActiveDevice != null)
+                UnbindEvents(oldActiveDevice);
+
+            _activeDevice = null;
+            oldActiveDevice?.Stop();
+        }
+
+        UmpCasting.Stop();
+        ActiveDeviceChanged?.Invoke(null);
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await GrayjayServer.Instance.WebSocket.Broadcast(null, "activeDeviceChanged");
+            }
+            catch (Exception e)
+            {
+                Logger.e(nameof(StateCasting), "Failed to notify active device changed.", e);
+            }
+        });
+    }
+
+    private String FormatDeviceInfo(FCast.SenderSDK.DeviceInfo devInfo) {
+        return $"{{ name = {devInfo.Name}, protocol = {devInfo.Protocol}, addresses = [{String.Join(", ", devInfo.Addresses.Select(addr => FCast.SenderSDK.FcastSenderSdkMethods.UrlFormatIpAddr(addr)))}], port = {devInfo.Port} }}";
+    }
+
+    public void Start()
+    {
+        lock (_castingDeviceLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_started) return;
+            if (!Grayjay.ClientServer.Settings.GrayjaySettings.Instance.Casting.Enabled) return;
+            _ = SdkLogging.Value;
+            var handler = new DiscoveryEventHandler();
+            handler.OnAvailable += UpdateDiscoveredDevice;
+            handler.OnChanged += UpdateDiscoveredDevice;
+            handler.OnRemoved += name =>
+            {
+                lock (_castingDeviceLock)
+                {
+                    if (_disposed) return;
+                    _castingDevices.Remove(name);
+                }
+                _broadcastDevicesDebouncer.Call();
+            };
+            _context.StartDiscovery(handler);
+            _started = true;
+        }
+    }
+
+    private void UpdateDiscoveredDevice(FCast.SenderSDK.DeviceInfo info)
+    {
+        lock (_castingDeviceLock)
+        {
+            if (_disposed) return;
+            Logger.d(nameof(StateCasting), $"Device discovered: {FormatDeviceInfo(info)}");
+            if (_castingDevices.TryGetValue(info.Name, out var existing))
+                existing.UpdateInfo(info);
+            else
+            {
+                var device = new CastingDevice(_context.CreateDeviceFromInfo(info), CastingDeviceInfo.FromRsInfo(info));
+                _castingDevices[info.Name] = device;
+                _ownedDevices.Add(device);
+            }
+        }
+        _broadcastDevicesDebouncer.Call();
+    }
+
+    public void Dispose()
+    {
+        CastingDevice[] devices;
+        lock (_castingDeviceLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_activeDevice != null) UnbindEvents(_activeDevice);
+            _activeDevice = null;
+            devices = _ownedDevices.ToArray();
+            _ownedDevices.Clear();
+            _castingDevices.Clear();
+        }
+        try
+        {
+            foreach (var device in devices) device.Dispose();
+        }
+        finally { _context.Dispose(); }
+    }
+
+    private FCast.SenderSDK.IpAddr IPAddressToRsIpAddr(IPAddress a) {
+        byte[] bytes = a.GetAddressBytes();
+        if (bytes.Length == 4)
+        {
+            return new FCast.SenderSDK.IpAddr.V4(bytes[0], bytes[1], bytes[2], bytes[3]);
+        }
+        else if (bytes.Length == 16)
+        {
+            return new FCast.SenderSDK.IpAddr.V6(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15], (uint)a.ScopeId);
+        }
+        else
+        {
+            throw new Exception($"Ip address of length {bytes.Length} is invalid");
+        }
+    }
+
+    public CastingDevice CreateDevice(CastingDeviceInfo info) {
+        FCast.SenderSDK.ProtocolType protoType = info.Type switch
+        {
+            CastProtocolType.Chromecast => FCast.SenderSDK.ProtocolType.Chromecast,
+            CastProtocolType.FCast => FCast.SenderSDK.ProtocolType.FCast,
+            _ => throw new Exception($"Invalid cast protocol type {info.Type}")
+        };
+
+        FCast.SenderSDK.DeviceInfo rsDeviceInfo = new FCast.SenderSDK.DeviceInfo(
+            info.Name,
+            protoType,
+            info.IPAddresses.Select(a => IPAddressToRsIpAddr(a)).ToArray(),
+            checked((ushort)info.Port),
+            info.TxtRecords ?? new Dictionary<string, string>()
+        );
+
+        lock (_castingDeviceLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var device = new CastingDevice(_context.CreateDeviceFromInfo(rsDeviceInfo), info);
+            _ownedDevices.Add(device);
+            return device;
+        }
+    }
+
+
+
+}
+
+class DiscoveryEventHandler : FCast.SenderSDK.DeviceDiscovererEventHandler
+{
+    public event Action<FCast.SenderSDK.DeviceInfo>? OnAvailable;
+    public event Action<FCast.SenderSDK.DeviceInfo>? OnChanged;
+    public event Action<string>? OnRemoved;
+
+    public void DeviceAvailable(FCast.SenderSDK.DeviceInfo deviceInfo) => OnAvailable?.Invoke(deviceInfo);
+
+    public void DeviceChanged(FCast.SenderSDK.DeviceInfo deviceInfo) => OnChanged?.Invoke(deviceInfo);
+
+    public void DeviceRemoved(string deviceName) => OnRemoved?.Invoke(deviceName);
+}
+
+class CastLogger: FCast.SenderSDK.LogHandler {
+    public void Log(FCast.SenderSDK.LogLevel level, String tag, String message) {
+        Logger.l(
+            level switch {
+                FCast.SenderSDK.LogLevel.Error => Desktop.POC.LogLevel.Error,
+                FCast.SenderSDK.LogLevel.Warn => Desktop.POC.LogLevel.Warning,
+                FCast.SenderSDK.LogLevel.Info => Desktop.POC.LogLevel.Info,
+                FCast.SenderSDK.LogLevel.Debug => Desktop.POC.LogLevel.Verbose,
+                _ => Desktop.POC.LogLevel.Debug,
+            },
+            tag,
+            message
+        );
     }
 }

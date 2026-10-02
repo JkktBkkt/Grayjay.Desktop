@@ -16,6 +16,16 @@ namespace Grayjay.ClientServer.Helpers
             return bytes.Length - offset >= 6 && Encoding.ASCII.GetString(bytes, offset, 6) == "WEBVTT";
         }
 
+        public static byte[] ToWebVtt(string? contentType, byte[] bytes)
+        {
+            if (IsVtt(contentType, bytes)) return StripUnsupportedTags(bytes);
+            var text = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF').Replace("\r\n", "\n");
+            if (!Regex.IsMatch(text, @"\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}"))
+                throw new NotSupportedException("HLS subtitles require WebVTT or SubRip captions.");
+            text = Regex.Replace(text, @"(\d{2}:\d{2}:\d{2}),(\d{3})", "$1.$2");
+            return StripUnsupportedTags(Encoding.UTF8.GetBytes("WEBVTT\n\n" + text));
+        }
+
         public static byte[] StripUnsupportedTags(byte[] bytes)
         {
             var text = Encoding.UTF8.GetString(bytes);

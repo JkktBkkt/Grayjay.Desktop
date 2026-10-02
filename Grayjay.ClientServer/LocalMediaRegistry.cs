@@ -8,6 +8,7 @@ public sealed class LocalMediaRegistry : IDisposable
     private sealed record Artifact(string Path, string ContentType, long Length, DateTime Modified);
     private readonly object _lock = new();
     private readonly Dictionary<string, object> _entries = new();
+    private readonly List<string> _temporaryDirectories = new();
     private bool _disposed;
 
     private string Register(object entry, string identity)
@@ -30,6 +31,18 @@ public sealed class LocalMediaRegistry : IDisposable
     }
 
     public string RegisterManifest(string manifest) => Register(manifest, "manifest\n" + manifest);
+
+    public string CreateTemporaryDirectory()
+    {
+        lock (_lock)
+        {
+            if (_disposed) throw Missing();
+            var path = Path.Combine(Path.GetTempPath(), "grayjay-local-dash-" + Guid.NewGuid());
+            Directory.CreateDirectory(path);
+            _temporaryDirectories.Add(path);
+            return path;
+        }
+    }
 
     private T Get<T>(string id)
     {
@@ -65,6 +78,13 @@ public sealed class LocalMediaRegistry : IDisposable
         {
             _disposed = true;
             _entries.Clear();
+            foreach (var directory in _temporaryDirectories)
+            {
+                try { Directory.Delete(directory, true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            _temporaryDirectories.Clear();
         }
     }
 

@@ -8,6 +8,7 @@ using Grayjay.ClientServer.Controllers;
 using Grayjay.ClientServer.States;
 using Grayjay.Desktop.POC;
 using Grayjay.Engine.Models.Video.Sources;
+using Grayjay.Engine.Models.Subtitles;
 
 namespace Grayjay.ClientServer.Sabr.Cast
 {
@@ -29,6 +30,8 @@ namespace Grayjay.ClientServer.Sabr.Cast
             public string? Title { get; set; }
             public string? ThumbnailUrl { get; set; }
             public string? SubtitleContentType { get; set; }
+            public string? SubtitleLanguage { get; set; }
+            public string? SubtitleName { get; set; }
             public byte[]? SubtitleBytes { get; set; }
             public string? Manifest { get; set; }
             public string BaseUrl { get; set; } = "";
@@ -171,9 +174,11 @@ namespace Grayjay.ClientServer.Sabr.Cast
 
         private static string InjectSubtitleAdaptationSet(string mpd, string subtitleUrl, string mimeType, string lang, string label)
         {
+            lang = SubtitleLanguage.Resolve(lang, label);
             var adaptation =
                 $"<AdaptationSet contentType=\"text\" mimeType=\"{EscapeXml(mimeType)}\" lang=\"{EscapeXml(lang)}\" default=\"true\">\n" +
                 "  <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"subtitle\"/>\n" +
+                "  <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"main\"/>\n" +
                 $"  <Label>{EscapeXml(label)}</Label>\n" +
                 $"  <Representation id=\"caption_0\" mimeType=\"{EscapeXml(mimeType)}\" lang=\"{EscapeXml(lang)}\" default=\"true\" bandwidth=\"1000\">\n" +
                 $"    <BaseURL>{EscapeXml(subtitleUrl)}</BaseURL>\n" +
@@ -193,7 +198,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 $"{b}/ump/cast/init?id={cast.Id}&amp;role=audio", $"{b}/ump/cast/seg?id={cast.Id}&amp;role=audio", $"{b}/ump/cast/time?id={cast.Id}");
             if (manifest == null) return cast.Manifest ?? "";
             if (cast.SubtitleBytes != null && !cast.Proxy.IsLive)
-                manifest = InjectSubtitleAdaptationSet(manifest, $"{b}/ump/cast/sub?id={cast.Id}", (cast.SubtitleContentType ?? "text/vtt").Split(';')[0].Trim(), "und", "Subtitles");
+                manifest = InjectSubtitleAdaptationSet(manifest, $"{b}/ump/cast/sub?id={cast.Id}", (cast.SubtitleContentType ?? "text/vtt").Split(';')[0].Trim(), cast.SubtitleLanguage ?? "und", cast.SubtitleName ?? "Subtitles");
             cast.Manifest = manifest;
             return manifest;
         }
@@ -252,10 +257,18 @@ namespace Grayjay.ClientServer.Sabr.Cast
         public static async Task LoadAsync(CastingDevice device, Result result, string? title, string thumbnailUrl, double? speed, CancellationToken cancellationToken = default)
         {
             await device.MediaLoadAsync(result.StreamType, result.ContentType, result.Url, TimeSpan.FromSeconds(result.StartPosition), TimeSpan.FromSeconds(result.Duration), title, thumbnailUrl, speed, cancellationToken);
-            if (result.NativeSubtitleBytes != null)
+            ActiveCast? active;
+            lock (_lock) active = _active;
+            if (active?.Device == device && active.Proxy == null && active.SubtitleIndex >= 0)
             {
-                if (!await device.AddSubtitleAsync(result.NativeSubtitleBytes, result.NativeSubtitleContentType ?? "text/vtt", null))
-                    Logger.w(TAG, "Receiver did not accept the subtitle track for the SABR cast");
+                var attached = result.NativeSubtitleBytes != null && await device.AddSubtitleAsync(result.NativeSubtitleBytes, result.NativeSubtitleContentType ?? "text/vtt", null);
+                if (!attached)
+                {
+                    Logger.w(TAG, "Receiver rejected native subtitles; falling back to proxied DASH");
+                    var fallback = await PrepareAsync(active.State, active.Source, device, result.StartPosition, active.SubtitleIndex,
+                        active.SubtitleIsLocal, active.PreferredHeight, title, thumbnailUrl, forceProxy: true);
+                    await LoadAsync(device, fallback, title, thumbnailUrl, speed, cancellationToken);
+                }
             }
         }
 
@@ -353,8 +366,10 @@ namespace Grayjay.ClientServer.Sabr.Cast
             };
         }
 
-        public static async Task<Result> PrepareAsync(WindowState state, UMPSource source, CastingDevice device, double resumePosition, int subtitleIndex, bool subtitleIsLocal, int preferredHeight = -1, string? title = null, string? thumbnailUrl = null)
+        public static async Task<Result> PrepareAsync(WindowState state, UMPSource source, CastingDevice device, double resumePosition, int subtitleIndex, bool subtitleIsLocal, int preferredHeight = -1, string? title = null, string? thumbnailUrl = null, bool forceProxy = false)
         {
+            if (source.IsLive && subtitleIndex >= 0)
+                throw new NotSupportedException("External live SABR captions require a timed subtitle stream; static caption files are not supported.");
             ActiveCast? previous;
             lock (_lock) previous = _active;
             var continued = previous?.Proxy != null && previous.Source.VideoId == source.VideoId && previous.Source.Url == source.Url
@@ -370,7 +385,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
             if (source.AudioFormats.Length > 0 && audio == null)
                 throw new InvalidOperationException("This video has no audio format the receiver can decode");
 
-            if (device.IsSabrSupported)
+            if (!forceProxy && device.IsSabrSupported && (subtitleIndex < 0 || (!source.IsLive && device.SupportsExternalSubtitles)))
                 return await PrepareNativeAsync(state, source, device, castId, video, audio, resumePosition, subtitleIndex, subtitleIsLocal, preferredHeight, title, thumbnailUrl);
 
             var session = SabrStreamSpec.FromSource(source).CreateSession();
@@ -409,8 +424,9 @@ namespace Grayjay.ClientServer.Sabr.Cast
                     _ => "Casting stopped: " + (error.Message ?? "stream failed")
                 };
                 StateUI.Toast(message);
-                _ = device.MediaStopAsync();
-                Stop();
+                try { _ = device.MediaStopAsync(); }
+                catch (Exception ex) { Logger.w(TAG, "Failed to stop failed cast", ex); }
+                finally { Stop(); }
             };
             proxy.OnReceiverLost = () =>
             {
@@ -418,7 +434,8 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 var target = proxy.ServableStartSeconds();
                 if (target == null) return;
                 Logger.i(TAG, $"Receiver drifted out of the servable window; seeking it to {target}s");
-                _ = device.MediaSeekAsync(TimeSpan.FromSeconds(target.Value));
+                try { _ = device.MediaSeekAsync(TimeSpan.FromSeconds(target.Value)); }
+                catch (Exception ex) { Logger.w(TAG, "Failed to recover receiver position", ex); }
             };
 
             bool prepared;
@@ -437,7 +454,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 throw new InvalidOperationException("Failed to prepare SABR cast stream");
             }
 
-            var baseUrl = $"http://{device.LocalEndPoint?.Address.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}";
+            var baseUrl = $"http://{device.MediaAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}";
             var cast = new ActiveCast()
             {
                 Id = proxy.Id,
@@ -458,12 +475,17 @@ namespace Grayjay.ClientServer.Sabr.Cast
                 try
                 {
                     var (bytes, contentType) = await DetailsController.GetSubtitleBytesAsync(state, subtitleIndex, subtitleIsLocal, localMediaId: subtitleIsLocal ? DetailsController.RegisterLocalSubtitle(state, subtitleIndex) : null);
+                    var (_, _, subtitle) = DetailsController.GetSources(state, -1, -1, subtitleIndex, false, false, subtitleIsLocal);
+                    cast.SubtitleLanguage = subtitle?.Language;
+                    cast.SubtitleName = subtitle?.Name;
                     cast.SubtitleBytes = bytes;
                     cast.SubtitleContentType = contentType;
                 }
                 catch (Exception ex)
                 {
                     Logger.w(TAG, "Failed to load subtitles for the UMP cast", ex);
+                    proxy.Release();
+                    throw;
                 }
             }
 
@@ -485,7 +507,7 @@ namespace Grayjay.ClientServer.Sabr.Cast
             }
 
             var startPosition = proxy.IsLive ? (proxy.ServableStartSeconds() ?? 0.0)
-                : (resumePosition == 0.0 && device is ChromecastCastingDevice ? 0.1 : resumePosition);
+                : resumePosition;
             var duration = !proxy.IsLive && proxy.DurationSeconds > 0 ? proxy.DurationSeconds : source.Duration;
 
             Logger.i(TAG, $"UMP cast ready id={cast.Id} live={proxy.IsLive} video={video?.Itag} audio={audio?.Itag} start={startPosition}");
