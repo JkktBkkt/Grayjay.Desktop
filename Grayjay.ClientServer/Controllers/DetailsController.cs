@@ -1032,7 +1032,7 @@ namespace Grayjay.ClientServer.Controllers
 
             var mpd = document.ToString(SaveOptions.DisableFormatting);
             if (sourceSubtitle != null)
-                mpd = InjectDashSubtitle(mpd, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings));
+                mpd = InjectDashSubtitle(mpd, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings), SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
             return (mpd, isDynamic);
         }
 
