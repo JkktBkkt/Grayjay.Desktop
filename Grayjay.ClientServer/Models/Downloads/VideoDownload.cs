@@ -261,6 +261,10 @@ namespace Grayjay.ClientServer.Models.Downloads
                                 if (res.IsOk)
                                 {
                                     var sources = HLS.ParseToVideoSources(source, Encoding.UTF8.GetString(res.Bytes), res.FinalUrl);
+                                    if (sources.Count == 0)
+                                    {
+                                        Logger.i(nameof(VideoDownload), $"HLS manifest has no variants to download, skipping source: {hlsManifestSource.Url}");
+                                    }
                                     foreach (var subSource in sources)
                                         if (subSource != null)
                                             subSource.Modifier = modifier;
@@ -1167,26 +1171,25 @@ namespace Grayjay.ClientServer.Models.Downloads
 
             string vpContent = Encoding.UTF8.GetString(vp.Bytes);
             var variantPlaylist = HLS.ParseVariantPlaylist(vpContent, vp.FinalUrl);
-            var decryption = variantPlaylist.Decryption;
-            bool useDecryption = decryption != null && decryption.IsEncrypted;
-            byte[]? keyBytes = null;
-            byte[]? staticIvBytes = null;
+            var unsupportedKey = variantPlaylist.FindUnsupportedKey();
+            if (unsupportedKey != null)
+                throw new NotSupportedException($"HLS decryption method '{unsupportedKey.Method}' with KEYFORMAT '{unsupportedKey.KeyFormat ?? "identity"}' is not supported.");
 
-            if (useDecryption)
+            var keyCache = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            byte[] GetKeyBytes(HLS.DecryptionInfo key)
             {
-                if (!string.Equals(decryption!.Method, "AES-128", StringComparison.OrdinalIgnoreCase))
-                    throw new NotSupportedException($"HLS decryption method '{decryption.Method}' is not supported.");
-
-                if (string.IsNullOrEmpty(decryption.KeyUrl))
+                if (string.IsNullOrEmpty(key.KeyUrl))
                     throw new InvalidDataException("Encrypted HLS playlist without key URI is not supported.");
 
-                var key = ModifierHttp.GetBytes(client, decryption.KeyUrl, modifier);
-                if (!key.IsOk)
-                    throw new InvalidDataException("Failed to download AES-128 key: " + key.Code);
+                if (keyCache.TryGetValue(key.KeyUrl, out var cachedKeyBytes))
+                    return cachedKeyBytes;
 
-                keyBytes = key.Bytes;
-                if (!string.IsNullOrEmpty(decryption.IV))
-                    staticIvBytes = HexToBytes(decryption.IV);
+                var keyResponse = ModifierHttp.GetBytes(client, key.KeyUrl, modifier);
+                if (!keyResponse.IsOk)
+                    throw new InvalidDataException("Failed to download AES-128 key: " + keyResponse.Code);
+
+                keyCache[key.KeyUrl] = keyResponse.Bytes;
+                return keyResponse.Bytes;
             }
 
             long mediaSequence = variantPlaylist.MediaSequence ?? 0;
@@ -1226,15 +1229,13 @@ namespace Grayjay.ClientServer.Models.Downloads
 
                     byte[] mapBytes = DownloadBytes(client, variantPlaylist.MapUrl, mapRangeStart, mapRangeLength);
 
-                    if (useDecryption)
+                    var mapKey = variantPlaylist.GetMapDecryption();
+                    if (mapKey != null)
                     {
-                        if (keyBytes == null)
-                            throw new InvalidDataException("Decryption key bytes are missing.");
-
-                        if (staticIvBytes == null)
+                        if (string.IsNullOrEmpty(mapKey.IV))
                             throw new NotSupportedException("Encrypted EXT-X-MAP without explicit IV is not supported.");
 
-                        mapBytes = DecryptAes128Cbc(mapBytes, keyBytes, staticIvBytes);
+                        mapBytes = DecryptAes128Cbc(mapBytes, GetKeyBytes(mapKey), HexToBytes(mapKey.IV));
                     }
 
                     if (mapBytes.LongLength > int.MaxValue)
@@ -1281,23 +1282,14 @@ namespace Grayjay.ClientServer.Models.Downloads
                     }
 
                     byte[] segmentBytes = DownloadBytes(client, seg.Uri, rangeStart, rangeLength);
-                    if (useDecryption)
+                    var segmentKey = variantPlaylist.GetSegmentDecryption(seg);
+                    if (segmentKey != null)
                     {
-                        if (keyBytes == null)
-                            throw new InvalidDataException("Decryption key bytes are missing.");
+                        byte[] ivBytes = !string.IsNullOrEmpty(segmentKey.IV)
+                            ? HexToBytes(segmentKey.IV)
+                            : BuildSequenceIv(mediaSequence + mediaSegmentIndex);
 
-                        byte[] ivBytes;
-                        if (staticIvBytes != null)
-                        {
-                            ivBytes = staticIvBytes;
-                        }
-                        else
-                        {
-                            long sequenceNumber = mediaSequence + mediaSegmentIndex;
-                            ivBytes = BuildSequenceIv(sequenceNumber);
-                        }
-
-                        segmentBytes = DecryptAes128Cbc(segmentBytes, keyBytes, ivBytes);
+                        segmentBytes = DecryptAes128Cbc(segmentBytes, GetKeyBytes(segmentKey), ivBytes);
                     }
 
                     var segmentLength = segmentBytes.LongLength;
