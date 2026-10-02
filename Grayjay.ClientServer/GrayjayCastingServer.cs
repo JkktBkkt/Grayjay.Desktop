@@ -176,7 +176,7 @@ namespace Grayjay.ClientServer
                 string mpd;
                 try
                 {
-                    mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
+                    mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress, exposeLocalAsAny: true));
                 }
                 catch (DetailsController.SupersededDashRequestException)
                 {
@@ -196,7 +196,7 @@ namespace Grayjay.ClientServer
 
                 try
                 {
-                    var mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.LocalEndPoint?.Address, exposeLocalAsAny: true));
+                    var mpd = await DetailsController.GetOrGenerateSourceDashUrl(context.GetState(), videoIndex, subtitleIndex, subtitleIsLocal, new ProxySettings(false, proxyAddress: activeDevice.MediaAddress, exposeLocalAsAny: true));
                     return Results.Content(mpd, "application/dash+xml");
                 }
                 catch (DetailsController.SupersededDashRequestException)
