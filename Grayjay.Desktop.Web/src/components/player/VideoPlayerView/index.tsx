@@ -910,6 +910,11 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.CUE_ENTER, (e: any) => {
+                    // dash.js 5.1+ re-adds active cues when it refreshes its cue window, which fires enter again.
+                    // Changelog: https://github.com/Dash-Industry-Forum/dash.js/releases/tag/v5.1.0 (#4812)
+                    if (subtitleMap.has(e.cueID)) {
+                        return;
+                    }
                     const subtitle = document.createElement("div")
                     subtitle.textContent = cueText(e.text);
                     subtitleMap.set(e.cueID, subtitle);
@@ -1017,7 +1022,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     return chosenTrack ? [chosenTrack.mediaInfo] : tracks;
                 });
 
-                dashPlayer.initialize(videoElement, sourceUrl, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
+                // dash.js 5.2 CMCD parses every response URL with new URL(), which throws on a relative manifest URL.
+                dashPlayer.initialize(videoElement, new URL(sourceUrl, window.location.href).href, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
             } else if ((mediaType === 'application/vnd.apple.mpegurl' || mediaType === 'application/x-mpegURL') && Hls.isSupported()) {
                 videoElement.onerror = (event: Event | string, source?: string, lineno?: number, colno?: number, error?: Error) => {
                     console.error("Player error", {source, lineno, colno, error});
