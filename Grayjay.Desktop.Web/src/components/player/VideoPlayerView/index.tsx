@@ -22,6 +22,24 @@ import { focusable } from '../../../focusable'; void focusable;
 import { FocusableOptions, InputSource } from '../../../nav';
 import { SettingsBackend } from '../../../backend/SettingsBackend';
 
+// dash.js error payloads can reference themselves (a segment request carries its representation), which JSON.stringify rejects.
+const stringifyDashError = (error: unknown): string => {
+    const seen = new WeakSet<object>();
+    try {
+        return JSON.stringify(error, (_key, value: unknown) => {
+            if (typeof value === "object" && value !== null) {
+                if (seen.has(value)) {
+                    return "[Circular]";
+                }
+                seen.add(value);
+            }
+            return value;
+        });
+    } catch {
+        return String(error);
+    }
+};
+
 interface VideoProps {
     onVideoDimensionsChanged: (width: number, height: number) => void;
     children: JSX.Element;
@@ -882,13 +900,13 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (data) => {
                     console.error("DashJS ERROR", data);
                     const code = (data.error as any)?.code;
-                    onError(`DashJS Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    onError(`DashJS Error: ${stringifyDashError(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.PLAYBACK_ERROR, (data) => {
                     console.error("DashJS PLAYBACK_ERROR", data);
                     const code = (data.error as any)?.code;
-                    onError(`DashJS Playback Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    onError(`DashJS Playback Error: ${stringifyDashError(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
                 });
 
                 dashPlayer.initialize(videoElement, sourceUrl, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
