@@ -205,8 +205,6 @@ namespace Grayjay.ClientServer.Controllers
             try
             {
                 var masterPlaylist = Parsers.HLS.ParseMasterPlaylist(body, hlsUrl);
-                if (masterPlaylist.Unhandled.Any(x=>x.StartsWith("#EXTINF:")))
-                    throw new ArgumentException("Is a variant playlist");
                 masterPlaylist = ProxyHLSMasterPlaylist(baseUri, masterPlaylist, proxyMedia, modifierId, state?.WindowID);
                 return masterPlaylist;
             }
