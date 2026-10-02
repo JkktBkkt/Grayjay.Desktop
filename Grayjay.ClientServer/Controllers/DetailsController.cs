@@ -530,6 +530,8 @@ namespace Grayjay.ClientServer.Controllers
                 if (!hlsResponse.IsOk)
                     return new List<VideoQuality>();
                 string hlsContent = hlsResponse.Body.AsString();
+                if (Parsers.HLS.IsMediaPlaylist(hlsContent))
+                    return new List<VideoQuality>();
                 var hlsManifest = Parsers.HLS.ParseMasterPlaylist(hlsContent, hlsVideo.Url);
                 return hlsManifest.GetVideoSources().Select(x => new VideoQuality()
                 {
