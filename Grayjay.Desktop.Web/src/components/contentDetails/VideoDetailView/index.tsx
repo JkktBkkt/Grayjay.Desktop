@@ -83,7 +83,7 @@ import { useCasting } from "../../../contexts/Casting";
 import { SearchBackend } from "../../../backend/SearchBackend";
 import history from '../../../assets/icons/icon_nav_history.svg';
 import { UmpFormatInfo } from "../../player/UmpPlayer/UmpPlayer";
-import { DashAudioTrack, DashVideoRepresentation, formatAudioTrackName, primarySubtag } from "../../player/VideoPlayerView/dashTracks";
+import { DashAudioTrack, DashTrackSelection, DashVideoRepresentation, formatAudioTrackName, primarySubtag } from "../../player/VideoPlayerView/dashTracks";
 import { CastingBackend } from "../../../backend/CastingBackend";
 
 const SCOPE_ID = "video-detail-view";
@@ -215,12 +215,11 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
         refetchUmpCastQualities();
     };
-    const [dashRepresentations$, setDashRepresentations] = createSignal<DashVideoRepresentation[]>([]);
-    const [dashAudioTracks$, setDashAudioTracks] = createSignal<DashAudioTrack[]>([]);
+    // The tracks and selection the player resolved for the current Period, kept apart from the user's choices below.
+    const [dashTracks$, setDashTracks] = createSignal<DashTrackSelection>({ representations: [], audioTracks: [] });
     const [dashVideoRepresentationId$, setDashVideoRepresentationId] = createSignal<string>();
     const [dashAudioTrackKey$, setDashAudioTrackKey] = createSignal<string>();
     const [dashActiveRepresentationId$, setDashActiveRepresentationId] = createSignal<string>();
-    const [dashActiveAudioTrackKey$, setDashActiveAudioTrackKey] = createSignal<string>();
     const [preferredAudioLanguage$, setPreferredAudioLanguage] = createSignal<string | null>(null);
     const [preferOriginalAudio$, setPreferOriginalAudio] = createSignal<boolean>(true);
     const isCasting$ = createMemo(() => !!casting.activeDevice.device());
@@ -228,7 +227,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         if (!representation) {
             return "";
         }
-        const sharesHeight = dashRepresentations$().filter(x => x.height == representation.height).length > 1;
+        const sharesHeight = dashTracks$().representations.filter(x => x.height == representation.height).length > 1;
         return sharesHeight ? `${representation.height}p ${Math.round(representation.bandwidth / 1000)} kbps` : `${representation.height}p`;
     };
     const formatDashAudioTrackName = (track?: DashAudioTrack) => track ? formatAudioTrackName(track) : "";
@@ -240,12 +239,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         setUmpAudioKey(undefined);
         setUmpActiveVideo(undefined);
         setUmpActiveAudio(undefined);
-        setDashRepresentations([]);
-        setDashAudioTracks([]);
+        setDashTracks({ representations: [], audioTracks: [] });
         setDashVideoRepresentationId(undefined);
         setDashAudioTrackKey(undefined);
         setDashActiveRepresentationId(undefined);
-        setDashActiveAudioTrackKey(undefined);
     }, { defer: true }));
 
     // Read for every opened video, so a changed Primary Language applies without remounting this view.
@@ -1252,11 +1249,11 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                         } as IMenuItemOption)))
                     }
                 } as IMenuItemGroup : undefined,
-                (!isCasting$() && dashRepresentations$().length > 1) ? {
-                    key: "Video Quality (" + dashRepresentations$().length + ")",
-                    value: dashVideoRepresentationId$()
-                        ? formatDashRepresentationName(dashRepresentations$().find(x => x.id == dashVideoRepresentationId$()))
-                        : (dashActiveRepresentationId$() ? `Auto (${formatDashRepresentationName(dashRepresentations$().find(x => x.id == dashActiveRepresentationId$()))})` : "Auto"),
+                (!isCasting$() && dashTracks$().representations.length > 1) ? {
+                    key: "Video Quality (" + dashTracks$().representations.length + ")",
+                    value: dashTracks$().representationId
+                        ? formatDashRepresentationName(dashTracks$().representations.find(x => x.id == dashTracks$().representationId))
+                        : (dashActiveRepresentationId$() ? `Auto (${formatDashRepresentationName(dashTracks$().representations.find(x => x.id == dashActiveRepresentationId$()))})` : "Auto"),
                     type: "group",
                     subMenu: {
                         title: "Stream qualities",
@@ -1265,23 +1262,23 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             value: "Auto",
                             type: "option",
                             onSelected: () => setDashVideoRepresentationId(undefined),
-                            isSelected: !dashVideoRepresentationId$()
-                        } as IMenuItemOption].concat([...dashRepresentations$()].sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth).map(x => ({
+                            isSelected: !dashTracks$().representationId
+                        } as IMenuItemOption].concat([...dashTracks$().representations].sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth).map(x => ({
                             name: formatDashRepresentationName(x),
                             value: x.width + "x" + x.height,
                             type: "option",
                             onSelected: () => setDashVideoRepresentationId(x.id),
-                            isSelected: dashVideoRepresentationId$() == x.id
+                            isSelected: dashTracks$().representationId == x.id
                         } as IMenuItemOption)))
                     }
                 } as IMenuItemGroup : undefined,
-                (!isCasting$() && dashAudioTracks$().length > 1) ? {
-                    key: "Audio Tracks (" + dashAudioTracks$().length + ")",
-                    value: formatDashAudioTrackName(dashAudioTracks$().find(x => x.key == (dashAudioTrackKey$() ?? dashActiveAudioTrackKey$()))),
+                (!isCasting$() && dashTracks$().audioTracks.length > 1) ? {
+                    key: "Audio Tracks (" + dashTracks$().audioTracks.length + ")",
+                    value: formatDashAudioTrackName(dashTracks$().audioTracks.find(x => x.key == dashTracks$().audioTrackKey)),
                     type: "group",
                     subMenu: {
                         title: "Audio tracks",
-                        items: [...dashAudioTracks$()].sort((a, b) =>
+                        items: [...dashTracks$().audioTracks].sort((a, b) =>
                             Number(isPreferredAudioLanguage(b.language)) - Number(isPreferredAudioLanguage(a.language))
                             || formatAudioTrackName(a).localeCompare(formatAudioTrackName(b))
                             || Number(a.isVariant) - Number(b.isVariant)
@@ -1291,7 +1288,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             value: x.key,
                             type: "option",
                             onSelected: () => setDashAudioTrackKey(x.key),
-                            isSelected: (dashAudioTrackKey$() ?? dashActiveAudioTrackKey$()) == x.key
+                            isSelected: dashTracks$().audioTrackKey == x.key
                         } as IMenuItemOption))
                     }
                 } as IMenuItemGroup : undefined,
@@ -1769,10 +1766,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             dashAudioTrackKey={dashAudioTrackKey$()}
                             preferredAudioLanguage={preferredAudioLanguage$()}
                             preferOriginalAudio={preferOriginalAudio$()}
-                            onDashRepresentations={(representations) => setDashRepresentations(representations)}
-                            onDashAudioTracks={(tracks) => setDashAudioTracks(tracks)}
+                            onDashTracks={(tracks) => setDashTracks(tracks)}
                             onDashActiveRepresentation={(representationId) => setDashActiveRepresentationId(representationId)}
-                            onDashActiveAudioTrack={(key) => setDashActiveAudioTrackKey(key)}
                             onSettingsDialog={(ev) => onShowSettings()} 
                             lockOverlay={showSettings$()} 
                             volume={video?.volume()}

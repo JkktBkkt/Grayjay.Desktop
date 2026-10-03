@@ -35,6 +35,16 @@ export interface DashAudioTrack {
     mediaInfo: MediaInfo;
 }
 
+/**
+ * The tracks of the active DASH Period and the selection in effect for it. An undefined representation id means automatic quality.
+ */
+export interface DashTrackSelection {
+    representations: DashVideoRepresentation[];
+    audioTracks: DashAudioTrack[];
+    representationId?: string;
+    audioTrackKey?: string;
+}
+
 type BootstrapAwareMediaInfo = MediaInfo & { segmentSequenceProperties?: { isBootstrapConfiguration(): boolean }[] };
 
 export function primarySubtag(language: string): string {
