@@ -35,7 +35,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
@@ -1063,10 +1062,9 @@ namespace Grayjay.ClientServer.Controllers
             if (location != null)
                 state.DetailsState.SetDashManifestLocation(dashSource, location);
 
-            var mpd = document.ToString(SaveOptions.DisableFormatting);
             if (sourceSubtitle != null)
-                mpd = InjectDashSubtitle(mpd, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings), SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
-            return (mpd, isDynamic);
+                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings), SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
+            return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
         }
 
         private const string DashProxyProbeRoot = "http://proxy.invalid/root/";
@@ -1636,22 +1634,15 @@ namespace Grayjay.ClientServer.Controllers
             }, captchaException);
         }
 
-        private static readonly Regex _repIdRegex = new Regex("Representation\\s+id=\"(\\d+)\"", RegexOptions.Compiled);
-        private static int NextNumericRepresentationId(string mpd)
+        private static int NextNumericRepresentationId(XDocument document)
         {
             int max = 0;
-            foreach (Match m in _repIdRegex.Matches(mpd))
+            foreach (var representation in document.Descendants().Where(element => element.Name.LocalName == "Representation"))
             {
-                if (int.TryParse(m.Groups[1].Value, out var v) && v > max)
-                    max = v;
+                if (int.TryParse((string?)representation.Attribute("id"), out var id) && id > max)
+                    max = id;
             }
             return max + 1;
-        }
-
-        private static string XmlEscape(string s)
-        {
-            var raw = s.Replace("&amp;", "&").Trim();
-            return SecurityElement.Escape(raw) ?? raw;
         }
 
         private static string InjectDashSubtitle(string mpd, string subtitleUrl, string lang = "und", string? name = null)
@@ -1659,25 +1650,58 @@ namespace Grayjay.ClientServer.Controllers
             if (string.IsNullOrWhiteSpace(mpd) || string.IsNullOrWhiteSpace(subtitleUrl))
                 return mpd;
 
-            if (mpd.IndexOf("mimeType=\"text/vtt\"", StringComparison.OrdinalIgnoreCase) >= 0)
+            XDocument document;
+            try
+            {
+                // Plugin generated manifests may start with a BOM or whitespace, which the XML declaration does not allow.
+                document = XDocument.Parse(mpd.TrimStart('﻿', ' ', '\t', '\r', '\n'), LoadOptions.PreserveWhitespace);
+            }
+            catch (System.Xml.XmlException e)
+            {
+                Logger.w<DetailsController>($"Failed to parse the DASH manifest, the selected subtitle is not added: {e.Message}");
                 return mpd;
+            }
 
-            int repId = NextNumericRepresentationId(mpd);
-            string url = XmlEscape(subtitleUrl);
-            string block =
-                $"    <AdaptationSet mimeType=\"text/vtt\" lang=\"{XmlEscape(lang)}\">\n" +
-                "      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"main\"/>\n" +
-                $"      <Label>{XmlEscape(name ?? "Subtitles")}</Label>\n" +
-                $"      <Representation id=\"{repId}\" bandwidth=\"256\">\n" +
-                $"        <BaseURL>{url}</BaseURL>\n" +
-                $"      </Representation>\n" +
-                $"    </AdaptationSet>\n";
-
-            int insertAt = mpd.LastIndexOf("</Period>", StringComparison.OrdinalIgnoreCase);
-            if (insertAt < 0)
+            if (!InjectDashSubtitleIntoDocument(document, subtitleUrl, lang, name))
                 return mpd;
+            var declaration = document.Declaration != null ? document.Declaration + "\n" : "";
+            return declaration + document.ToString(SaveOptions.DisableFormatting);
+        }
 
-            return mpd.Insert(insertAt, block);
+        /// <summary>
+        /// Adds the selected subtitle as the first AdaptationSet of every Period, in the Period's namespace.
+        /// dash.js shows the first non-forced text AdaptationSet, so it goes before any embedded ones.
+        /// </summary>
+        private static bool InjectDashSubtitleIntoDocument(XDocument document, string subtitleUrl, string lang, string? name)
+        {
+            var periods = document.Root?.Elements().Where(element => element.Name.LocalName == "Period").ToList();
+            if (periods == null || periods.Count == 0)
+                return false;
+
+            static string Normalize(string value) => value.Replace("&amp;", "&").Trim();
+            int representationId = NextNumericRepresentationId(document);
+            foreach (var period in periods)
+            {
+                var periodNamespace = period.Name.Namespace;
+                var adaptationSet = new XElement(periodNamespace + "AdaptationSet",
+                    new XAttribute("mimeType", "text/vtt"),
+                    new XAttribute("lang", Normalize(lang)),
+                    new XElement(periodNamespace + "Role", new XAttribute("schemeIdUri", "urn:mpeg:dash:role:2011"), new XAttribute("value", "main")),
+                    new XElement(periodNamespace + "Label", Normalize(name ?? "Subtitles")),
+                    new XElement(periodNamespace + "Representation", new XAttribute("id", representationId), new XAttribute("bandwidth", 256),
+                        new XElement(periodNamespace + "BaseURL", Normalize(subtitleUrl))));
+
+                var firstAdaptationSet = period.Elements().FirstOrDefault(element => element.Name.LocalName == "AdaptationSet");
+                if (firstAdaptationSet != null)
+                {
+                    firstAdaptationSet.AddBeforeSelf(adaptationSet);
+                }
+                else
+                {
+                    period.Add(adaptationSet);
+                }
+            }
+            return true;
         }
 
         [HttpGet]

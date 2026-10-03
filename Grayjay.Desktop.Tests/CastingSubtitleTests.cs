@@ -57,6 +57,78 @@ public class CastingSubtitleTests
         Assert.AreEqual("Dutch", track.Element("Label")!.Value);
     }
 
+    [TestMethod]
+    public void SelectedSubtitleIsInjectedBeforeEmbeddedVtt()
+    {
+        var inject = typeof(DetailsController).GetMethod("InjectDashSubtitle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var input = """<MPD><Period><AdaptationSet mimeType="text/vtt" lang="en"><Representation id="1" bandwidth="1"><BaseURL>en.vtt</BaseURL></Representation></AdaptationSet></Period></MPD>""";
+        var manifest = (string)inject.Invoke(null, new object[] { input, "http://test/pt.vtt", "pt", "Portuguese" })!;
+        var adaptationSets = XDocument.Parse(manifest).Descendants("AdaptationSet").ToArray();
+        Assert.AreEqual(2, adaptationSets.Length);
+        Assert.AreEqual("pt", adaptationSets[0].Attribute("lang")!.Value);
+        Assert.AreEqual("http://test/pt.vtt", adaptationSets[0].Descendants("BaseURL").Single().Value);
+        Assert.AreEqual("en", adaptationSets[1].Attribute("lang")!.Value);
+    }
+
+    [TestMethod]
+    public void SelectedSubtitleIsInjectedFirstInEveryPeriod()
+    {
+        var inject = typeof(DetailsController).GetMethod("InjectDashSubtitle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var input = """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period id="0"><AdaptationSet contentType="video"><Representation id="2" bandwidth="1"/></AdaptationSet></Period><Period id="1"><AdaptationSet contentType="video"><Representation id="3" bandwidth="1"/></AdaptationSet></Period></MPD>""";
+        var manifest = (string)inject.Invoke(null, new object[] { input, "http://test/sub.vtt", "nl", "Dutch" })!;
+        XNamespace mpd = "urn:mpeg:dash:schema:mpd:2011";
+        var periods = XDocument.Parse(manifest).Descendants(mpd + "Period").ToArray();
+        Assert.AreEqual(2, periods.Length);
+        foreach (var period in periods)
+        {
+            var adaptationSets = period.Elements(mpd + "AdaptationSet").ToArray();
+            Assert.AreEqual(2, adaptationSets.Length);
+            Assert.AreEqual("text/vtt", adaptationSets[0].Attribute("mimeType")!.Value);
+            Assert.AreEqual("nl", adaptationSets[0].Attribute("lang")!.Value);
+            Assert.AreEqual("4", adaptationSets[0].Element(mpd + "Representation")!.Attribute("id")!.Value);
+            Assert.AreEqual("http://test/sub.vtt", adaptationSets[0].Descendants(mpd + "BaseURL").Single().Value);
+            Assert.AreEqual("video", adaptationSets[1].Attribute("contentType")!.Value);
+        }
+    }
+
+    [TestMethod]
+    public void SelectedSubtitleIsInjectedIntoPrefixedPeriods()
+    {
+        var inject = typeof(DetailsController).GetMethod("InjectDashSubtitle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var input = """<d:MPD xmlns:d="urn:mpeg:dash:schema:mpd:2011"><d:Period><d:AdaptationSet mimeType="text/vtt" lang="en"><d:Representation id="1" bandwidth="1"><d:BaseURL>en.vtt</d:BaseURL></d:Representation></d:AdaptationSet></d:Period></d:MPD>""";
+        var manifest = (string)inject.Invoke(null, new object[] { input, "http://test/pt.vtt", "pt", "Portuguese" })!;
+        XNamespace mpd = "urn:mpeg:dash:schema:mpd:2011";
+        var document = XDocument.Parse(manifest);
+        Assert.IsFalse(document.Descendants().Any(element => element.Name.Namespace == XNamespace.None));
+        var adaptationSets = document.Descendants(mpd + "AdaptationSet").ToArray();
+        Assert.AreEqual(2, adaptationSets.Length);
+        Assert.AreEqual("pt", adaptationSets[0].Attribute("lang")!.Value);
+        Assert.AreEqual("Portuguese", adaptationSets[0].Element(mpd + "Label")!.Value);
+        Assert.AreEqual("2", adaptationSets[0].Element(mpd + "Representation")!.Attribute("id")!.Value);
+        Assert.AreEqual("http://test/pt.vtt", adaptationSets[0].Descendants(mpd + "BaseURL").Single().Value);
+        Assert.AreEqual("en", adaptationSets[1].Attribute("lang")!.Value);
+    }
+
+    [TestMethod]
+    public void SelectedSubtitleKeepsDeclarationAndEscapesValues()
+    {
+        var inject = typeof(DetailsController).GetMethod("InjectDashSubtitle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var input = "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD><Period></Period></MPD>";
+        var manifest = (string)inject.Invoke(null, new object[] { input, "http://test/sub?a=1&amp;b=2", "nl", "Dutch & <captions>" })!;
+        StringAssert.StartsWith(manifest, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        var track = XDocument.Parse(manifest).Descendants("AdaptationSet").Single();
+        Assert.AreEqual("http://test/sub?a=1&b=2", track.Descendants("BaseURL").Single().Value);
+        Assert.AreEqual("Dutch & <captions>", track.Element("Label")!.Value);
+    }
+
+    [TestMethod]
+    public void UnparseableManifestIsReturnedUnchanged()
+    {
+        var inject = typeof(DetailsController).GetMethod("InjectDashSubtitle", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var input = "<MPD><Period></MPD>";
+        Assert.AreEqual(input, (string)inject.Invoke(null, new object[] { input, "http://test/sub.vtt", "nl", "Dutch" })!);
+    }
+
     [DataTestMethod]
     [DataRow(null, "English", "en")]
     [DataRow("df", "English (auto-generated)", "en")]
