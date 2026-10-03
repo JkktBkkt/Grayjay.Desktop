@@ -83,6 +83,10 @@ function regionalLanguage(language: string, audioTrackId: string): string {
     if (!language || !idLanguage || primarySubtag(idLanguage) !== primarySubtag(language)) {
         return language;
     }
+    // An explicit region in lang wins, and a bare prefix such as "en" adds nothing.
+    if (/[-_]/.test(language) || !/[-_]/.test(idLanguage)) {
+        return language;
+    }
     try {
         return Intl.getCanonicalLocales(idLanguage)[0] ?? language;
     } catch (e) {
