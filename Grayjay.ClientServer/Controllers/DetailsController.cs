@@ -35,7 +35,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
@@ -61,13 +60,74 @@ namespace Grayjay.ClientServer.Controllers
             public RequestExecutor _videoRequestExecutor = null;
             public RequestExecutor _audioRequestExecutor = null;
 
+            private readonly Dictionary<DashManifestSource, string> _dashManifestLocations = new Dictionary<DashManifestSource, string>(ReferenceEqualityComparer.Instance);
+
+            public string? GetDashManifestLocation(DashManifestSource source)
+            {
+                lock (_dashManifestLocations)
+                    return _dashManifestLocations.TryGetValue(source, out var location) ? location : null;
+            }
+
+            public void SetDashManifestLocation(DashManifestSource source, string location)
+            {
+                lock (_dashManifestLocations)
+                    _dashManifestLocations[source] = location;
+            }
+
+            public void ClearDashManifestLocations()
+            {
+                lock (_dashManifestLocations)
+                    _dashManifestLocations.Clear();
+            }
+
+            private readonly Dictionary<DashManifestSource, DashSourceSession> _dashSourceSessions = new Dictionary<DashManifestSource, DashSourceSession>(ReferenceEqualityComparer.Instance);
+
+            public DashSourceSession GetOrCreateDashSourceSession(DashManifestSource source)
+            {
+                lock (_dashSourceSessions)
+                {
+                    if (!_dashSourceSessions.TryGetValue(source, out var session))
+                    {
+                        session = new DashSourceSession();
+                        _dashSourceSessions[source] = session;
+                    }
+                    return session;
+                }
+            }
+
+            public void ClearDashSourceSessions()
+            {
+                lock (_dashSourceSessions)
+                    _dashSourceSessions.Clear();
+            }
+
+            private readonly List<string> _dashRelativeProxyTokens = new List<string>();
+
+            // A stale generation creates nothing, as its proxy key can match a token the next video already uses.
+            public string? TryCreateDashRelativeProxy(long generation, Func<string> createProxy)
+            {
+                lock (_dashRelativeProxyTokens)
+                {
+                    if (generation != CachedDashGeneration)
+                    {
+                        return null;
+                    }
+                    var token = createProxy();
+                    if (!string.IsNullOrEmpty(token) && !_dashRelativeProxyTokens.Contains(token))
+                        _dashRelativeProxyTokens.Add(token);
+                    return token;
+                }
+            }
+
             public long _lastWatchPosition = 0;
             public DateTime _lastWatchPositionChange = DateTime.MinValue;
             public LiveChatManager? LiveChatManager { get; set; }
             private object _cachedDashLockObject = new object();
+            private long _cachedDashGeneration = 0;
             public int CachedDashVideoIndex = -1;
             public int CachedDashAudioIndex = -1;
             public int CachedDashSubtitleIndex = -1;
+            public bool CachedDashSubtitleIsLocal = false;
             public ProxySettings? CachedDashProxySettings = null;
             public Task<string>? CachedDashTask = null;
 
@@ -87,37 +147,70 @@ namespace Grayjay.ClientServer.Controllers
                 return id;
             }
 
+            // Bumped by ClearCachedDash, so a request started before a video change cannot write into the next video's state.
+            public long CachedDashGeneration
+            {
+                get
+                {
+                    lock (_cachedDashLockObject)
+                    {
+                        return _cachedDashGeneration;
+                    }
+                }
+            }
+
+            // Holds the proxy token lock, so a proxy registered for the new generation is never removed here.
             public void ClearCachedDash()
             {
+                lock (_dashRelativeProxyTokens)
                 lock (_cachedDashLockObject)
                 {
+                    _cachedDashGeneration++;
+                    foreach (var token in _dashRelativeProxyTokens)
+                        ProxyController.RemoveDashRelativeProxy(token);
+                    _dashRelativeProxyTokens.Clear();
                     CachedDashAudioIndex = -1;
                     CachedDashVideoIndex = -1;
                     CachedDashSubtitleIndex = -1;
+                    CachedDashSubtitleIsLocal = false;
                     CachedDashTask = null;
                     CachedDashProxySettings = null;
                 }
             }
 
-            public Task<string>? GetCachedDashTask(int videoIndex, int audioIndex, int subtitleIndex, ProxySettings? proxySettings)
+            public Task<string>? GetCachedDashTask(int videoIndex, int audioIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings)
             {
                 lock (_cachedDashLockObject)
                 {
-                    if (CachedDashVideoIndex == videoIndex && CachedDashAudioIndex == audioIndex && CachedDashSubtitleIndex == subtitleIndex && Equals(CachedDashProxySettings, proxySettings))
+                    if (CachedDashVideoIndex == videoIndex && CachedDashAudioIndex == audioIndex && CachedDashSubtitleIndex == subtitleIndex && CachedDashSubtitleIsLocal == subtitleIsLocal && Equals(CachedDashProxySettings, proxySettings))
                         return CachedDashTask;
                     return null;
                 }
             }
 
-            public void SetCachedDash(int videoIndex, int audioIndex, int subtitleIndex, ProxySettings? proxySettings, Task<string> dash)
+            public void SetCachedDash(int videoIndex, int audioIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings, Task<string> dash)
             {
                 lock (_cachedDashLockObject)
                 {
                     CachedDashVideoIndex = videoIndex;
                     CachedDashAudioIndex = audioIndex;
                     CachedDashSubtitleIndex = subtitleIndex;
+                    CachedDashSubtitleIsLocal = subtitleIsLocal;
                     CachedDashTask = dash;
                     CachedDashProxySettings = proxySettings;
+                }
+            }
+
+            public bool TrySetCachedDash(long generation, int videoIndex, int audioIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings, Task<string> dash)
+            {
+                lock (_cachedDashLockObject)
+                {
+                    if (generation != _cachedDashGeneration)
+                    {
+                        return false;
+                    }
+                    SetCachedDash(videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings, dash);
+                    return true;
                 }
             }
 
@@ -134,7 +227,18 @@ namespace Grayjay.ClientServer.Controllers
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
+                // Bumps the generation too, so a manifest request still in flight cannot register proxies after this.
+                ClearCachedDash();
+                ClearDashManifestLocations();
+                ClearDashSourceSessions();
             }
+        }
+
+        // Shared by the manifest, xlink and DashRelative requests of one DASH source, so cookies carry over.
+        public sealed class DashSourceSession
+        {
+            public string Id { get; } = Guid.NewGuid().ToString("N");
+            public ManagedHttpClient Client { get; } = new ManagedHttpClient();
         }
 
         static ManagedHttpClient _qualityClient = new ManagedHttpClient();
@@ -143,11 +247,14 @@ namespace Grayjay.ClientServer.Controllers
         {
             var state = this.State().DetailsState;
             video = video ?? videoLocal;
+            // Assigned before the DASH generation bump, so a request that reads the new generation also reads the new video.
+            state.VideoLoaded = video;
+            state.VideoLocal = videoLocal;
             state.ClearCachedDash();
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
-            state.VideoLoaded = video;
-            state.VideoLocal = videoLocal;
+            state.ClearDashManifestLocations();
+            state.ClearDashSourceSessions();
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
             state.VideoPlaybackTracker?.onConcluded();
@@ -602,7 +709,7 @@ namespace Grayjay.ClientServer.Controllers
         }
         public static (Task<string>, V8PromiseMetadata?) GenerateSourceDash(WindowState state, int videoIndex, int audioIndex, int subtitleIndex, bool videoIsLocal = false, bool audioIsLocal = false, bool subtitleIsLocal = false, ProxySettings? proxySettings = null)
         {
-            var cachedDashTask = videoIsLocal || audioIsLocal || subtitleIsLocal ? null : state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, subtitleIndex, proxySettings);
+            var cachedDashTask = videoIsLocal || audioIsLocal || subtitleIsLocal ? null : state.DetailsState.GetCachedDashTask(videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings);
             if (cachedDashTask != null)
             {
                 Logger.w<DetailsController>("Using cached DASH.");
@@ -617,7 +724,7 @@ namespace Grayjay.ClientServer.Controllers
 
                 V8PromiseMetadata? metadata = null;
                 var task = GenerateSourceDashRaw(state, videoRawSource, audioRawSource, sourceSubtitle, proxySettings, out metadata);
-                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, task);
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings, task);
                 return (task, metadata);
             }
             else if(sourceVideo is DashManifestRawSource videoRawSource2)
@@ -627,7 +734,7 @@ namespace Grayjay.ClientServer.Controllers
 
                 V8PromiseMetadata? metadata = null;
                 var task = GenerateSourceDashRaw(state, videoRawSource2, null, sourceSubtitle, proxySettings, out metadata);
-                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, task);
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings, task);
                 return (task, metadata);
             }
 
@@ -741,7 +848,7 @@ namespace Grayjay.ClientServer.Controllers
             var dash = DashBuilder.GenerateOnDemandDash(sourceVideo, videoUrl, sourceAudio, audioUrl, sourceSubtitle, subtitleUrl);
             var dashTask = Task.FromResult(dash);
             if (!videoIsLocal && !audioIsLocal && !subtitleIsLocal)
-                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, proxySettings, dashTask);
+                state.DetailsState.SetCachedDash(videoIndex, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings, dashTask);
             return (dashTask, null);
         }
 
@@ -821,7 +928,7 @@ namespace Grayjay.ClientServer.Controllers
 
                 var subUrl = subtitleSource?.Url;
                 if (!string.IsNullOrWhiteSpace(subUrl))
-                    dash = InjectDashSubtitle(dash, subUrl, SubtitleLanguage.Resolve(subtitleSource?.Language, subtitleSource?.Name), subtitleSource?.Name);
+                    dash = InjectDashSubtitle(dash, subUrl + "&asVtt=true", SubtitleLanguage.Resolve(subtitleSource?.Language, subtitleSource?.Name), subtitleSource?.Name);
 
                 return dash;
             });
@@ -867,6 +974,471 @@ namespace Grayjay.ClientServer.Controllers
             else
                 throw new NotImplementedException();
         }
+
+        [HttpGet]
+        public async Task<IActionResult> SourceDashUrl(int videoIndex, int subtitleIndex = -1, bool subtitleIsLocal = false, bool isLoopback = true)
+            => await SourceDashUrlInternal(videoIndex, subtitleIndex, subtitleIsLocal, isLoopback, retried: false);
+
+        private async Task<IActionResult> SourceDashUrlInternal(int videoIndex, int subtitleIndex, bool subtitleIsLocal, bool isLoopback, bool retried)
+        {
+            var state = this.State();
+            var proxySettings = new ProxySettings(isLoopback);
+            try
+            {
+                return Content(await GetOrGenerateSourceDashUrl(state, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings), "application/dash+xml");
+            }
+            catch (SupersededDashRequestException)
+            {
+                return StatusCode(409, "The video changed while the DASH manifest was generated");
+            }
+            catch (ScriptReloadRequiredException reloadEx)
+            {
+                if (retried)
+                    throw;
+                await StatePlatform.HandleReloadRequired(reloadEx);
+                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                var reloadedSources = state.DetailsState.VideoLoaded?.Video?.VideoSources;
+                if (videoIndex >= 0 && (reloadedSources == null || videoIndex >= reloadedSources.Length))
+                    throw new InvalidDataException("Video source is no longer available after reload");
+                return await SourceDashUrlInternal(videoIndex, subtitleIndex, subtitleIsLocal, isLoopback, retried: true);
+            }
+        }
+
+        public static async Task<string> GetOrGenerateSourceDashUrl(WindowState state, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings proxySettings)
+        {
+            var generation = state.DetailsState.CachedDashGeneration;
+            var cachedTask = state.DetailsState.GetCachedDashTask(videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings);
+            if (cachedTask != null)
+                return await cachedTask;
+
+            (var mpd, var isDynamic) = GenerateSourceDashUrl(state, generation, videoIndex, subtitleIndex, subtitleIsLocal, proxySettings);
+            if (!isDynamic && !state.DetailsState.TrySetCachedDash(generation, videoIndex, -1, subtitleIndex, subtitleIsLocal, proxySettings, Task.FromResult(mpd)))
+                throw new SupersededDashRequestException();
+            return mpd;
+        }
+
+        public static (string Mpd, bool IsDynamic) GenerateSourceDashUrl(WindowState state, long generation, int videoIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings)
+        {
+            (var sourceVideo, _, var sourceSubtitle) = GetSources(state, videoIndex, -1, subtitleIndex, false, false, subtitleIsLocal);
+            if (!(sourceVideo is DashManifestSource dashSource))
+                throw new Exception("Expected a DASH manifest source.");
+
+            var modifier = dashSource.GetRequestModifier();
+            var session = state.DetailsState.GetOrCreateDashSourceSession(dashSource);
+            var manifestUrl = state.DetailsState.GetDashManifestLocation(dashSource) ?? dashSource.Url;
+            var res = ModifierHttp.GetBytes(session.Client, manifestUrl, modifier, new Grayjay.Engine.Models.HttpHeaders(), decodeContent: true);
+            if (!res.IsOk)
+                throw new InvalidDataException($"Failed to fetch manifest [{res.Code}]");
+
+            var finalUrl = res.FinalUrl;
+            var baseUri = GetBaseUri(state, proxySettings);
+            var modifierId = modifier != null ? ProxyController.GetOrCreateModifierId(state, modifier, finalUrl) : null;
+            if (modifierId != null)
+                DetailsState.Modifiers[modifierId] = modifier!;
+
+            var document = XDocument.Load(new MemoryStream(res.Bytes));
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            bool isDynamic = string.Equals((string?)root.Attribute("type"), "dynamic", StringComparison.OrdinalIgnoreCase);
+
+            ResolveDashXlinks(document, new Uri(finalUrl), url =>
+            {
+                try
+                {
+                    var xlinkResponse = ModifierHttp.GetBytes(session.Client, url, modifier, new Grayjay.Engine.Models.HttpHeaders(), decodeContent: true);
+                    return xlinkResponse.IsOk ? xlinkResponse.Bytes : null;
+                }
+                catch (Exception e) when (e is not ScriptReloadRequiredException)
+                {
+                    Logger.w<DetailsController>($"Failed to fetch a DASH xlink document, keeping the original element: {e.Message}");
+                    return null;
+                }
+            });
+
+            string ProxyRootFor(string hostRoot)
+            {
+                var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId, session))
+                    ?? throw new SupersededDashRequestException();
+                return $"{baseUri}/proxy/DashRelative/{token}/";
+            }
+
+            var location = RewriteDashManifestForProxy(document, new Uri(finalUrl), ProxyRootFor);
+            if (location != null)
+                state.DetailsState.SetDashManifestLocation(dashSource, location);
+
+            if (sourceSubtitle != null)
+                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings, modifierId) + "&asVtt=true", SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
+            return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
+        }
+
+        private const string DashProxyProbeRoot = "http://proxy.invalid/root/";
+        private static readonly Regex DashTemplateIdentifierRegex = new Regex(@"\$[^$]*\$", RegexOptions.Compiled);
+        private static readonly Regex DashUrlSchemeRegex = new Regex("^[A-Za-z][A-Za-z0-9+.-]*:", RegexOptions.Compiled);
+        private static readonly (string Element, string Attribute)[] DashUrlAttributes = new (string Element, string Attribute)[]
+        {
+            ("SegmentTemplate", "media"),
+            ("SegmentTemplate", "initialization"),
+            ("SegmentTemplate", "index"),
+            ("SegmentTemplate", "bitstreamSwitching"),
+            ("SegmentURL", "media"),
+            ("SegmentURL", "index"),
+            ("Initialization", "sourceURL"),
+            ("RepresentationIndex", "sourceURL"),
+            ("BitstreamSwitching", "sourceURL")
+        };
+        private static readonly string[] DashSegmentElementNames = new[] { "SegmentBase", "SegmentList", "SegmentTemplate" };
+        private static readonly string[] DashUrlChildElementNames = new[] { "Initialization", "RepresentationIndex", "BitstreamSwitching", "SegmentURL" };
+        private static readonly HashSet<string> DashHttpTimingSchemes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "urn:mpeg:dash:utc:http-head:2014", "urn:mpeg:dash:utc:http-xsdate:2014", "urn:mpeg:dash:utc:http-iso:2014", "urn:mpeg:dash:utc:http-ntp:2014",
+            "urn:mpeg:dash:utc:http-head:2012", "urn:mpeg:dash:utc:http-xsdate:2012", "urn:mpeg:dash:utc:http-iso:2012", "urn:mpeg:dash:utc:http-ntp:2012"
+        };
+        private static readonly XNamespace XlinkNamespace = "http://www.w3.org/1999/xlink";
+        private const string DashResolveToZero = "urn:mpeg:dash:resolve-to-zero:2013";
+
+        // Inlines onLoad xlinks before the proxy rewrite, so the remote elements are rewritten too; the player handles the rest.
+        public static void ResolveDashXlinks(XDocument document, Uri manifestUri, Func<string, byte[]?> fetch)
+        {
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            ResolveDashXlinkElements(root.Elements().Where(element => element.Name.LocalName == "Period").ToList(), root, manifestUri, fetch);
+            var periodChildren = root.Elements().Where(element => element.Name.LocalName == "Period")
+                .SelectMany(period => period.Elements().Where(element => element.Name.LocalName == "AdaptationSet" || element.Name.LocalName == "EventStream"))
+                .ToList();
+            ResolveDashXlinkElements(periodChildren, root, manifestUri, fetch);
+        }
+
+        private static void ResolveDashXlinkElements(List<XElement> elements, XElement root, Uri manifestUri, Func<string, byte[]?> fetch)
+        {
+            foreach (var element in elements)
+            {
+                var href = ((string?)element.Attribute(XlinkNamespace + "href"))?.Trim();
+                if (string.IsNullOrEmpty(href) || href == DashResolveToZero || (string?)element.Attribute(XlinkNamespace + "actuate") != "onLoad")
+                    continue;
+
+                List<XElement>? resolved = null;
+                if (Uri.TryCreate(manifestUri, href, out var hrefUri) && IsHttpUri(hrefUri))
+                {
+                    var body = fetch(hrefUri.AbsoluteUri);
+                    if (body != null)
+                        resolved = ParseDashXlinkResponse(body, root, element.Name);
+                }
+
+                if (resolved == null || resolved.Count == 0)
+                {
+                    element.Attribute(XlinkNamespace + "href")?.Remove();
+                    element.Attribute(XlinkNamespace + "actuate")?.Remove();
+                    continue;
+                }
+                element.ReplaceWith(resolved);
+            }
+        }
+
+        private static List<XElement>? ParseDashXlinkResponse(byte[] body, XElement root, XName targetName)
+        {
+            var namespaceManager = new System.Xml.XmlNamespaceManager(new System.Xml.NameTable());
+            foreach (var attribute in root.Attributes().Where(attribute => attribute.IsNamespaceDeclaration))
+                namespaceManager.AddNamespace(attribute.Name.Namespace == XNamespace.None ? "" : attribute.Name.LocalName, attribute.Value);
+            var parserContext = new System.Xml.XmlParserContext(null, namespaceManager, null, System.Xml.XmlSpace.None);
+            var readerSettings = new System.Xml.XmlReaderSettings { ConformanceLevel = System.Xml.ConformanceLevel.Fragment, DtdProcessing = System.Xml.DtdProcessing.Prohibit };
+
+            var parsed = new List<XElement>();
+            try
+            {
+                using var reader = System.Xml.XmlReader.Create(new MemoryStream(body), readerSettings, parserContext);
+                reader.Read();
+                while (!reader.EOF)
+                {
+                    if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                    {
+                        parsed.Add((XElement)XNode.ReadFrom(reader));
+                    }
+                    else
+                    {
+                        reader.Read();
+                    }
+                }
+            }
+            catch (System.Xml.XmlException e)
+            {
+                Logger.w<DetailsController>($"Failed to parse a DASH xlink document: {e.Message}");
+                return null;
+            }
+
+            var resolved = parsed.Where(element => element.Name.LocalName == targetName.LocalName).ToList();
+            foreach (var element in resolved)
+            {
+                element.Attribute(XlinkNamespace + "href")?.Remove();
+                element.Attribute(XlinkNamespace + "actuate")?.Remove();
+                var sourceNamespace = element.Name.Namespace;
+                if (sourceNamespace == targetName.Namespace)
+                    continue;
+                foreach (var descendant in element.DescendantsAndSelf().Where(descendant => descendant.Name.Namespace == sourceNamespace))
+                {
+                    descendant.Name = targetName.Namespace + descendant.Name.LocalName;
+                    descendant.Attributes().Where(attribute => attribute.IsNamespaceDeclaration && attribute.Name.Namespace == XNamespace.None).Remove();
+                }
+            }
+            return resolved;
+        }
+
+        // Relative values that stay under the proxy root are kept relative, so BaseURL failover still works.
+        public static string? RewriteDashManifestForProxy(XDocument document, Uri manifestUri, Func<string, string> proxyRootFor)
+        {
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            XNamespace ns = root.Name.Namespace;
+
+            string? location = null;
+            foreach (var locationElement in root.Elements(ns + "Location").ToList())
+            {
+                if (location == null && Uri.TryCreate(manifestUri, locationElement.Value.Trim(), out var resolvedLocation) && IsHttpUri(resolvedLocation))
+                {
+                    location = resolvedLocation.AbsoluteUri;
+                }
+                locationElement.Remove();
+            }
+            root.Elements(ns + "PatchLocation").Remove();
+
+            if (!root.Elements(ns + "BaseURL").Any())
+                root.AddFirst(new XElement(ns + "BaseURL", manifestUri.AbsoluteUri));
+
+            InlineDashMpdUrlQuery(root, manifestUri);
+            PushDownInheritedDashSegmentUrls(root);
+            // dash.js resolves MPD-level relative BaseURLs against the served manifest URL, so they are always made absolute.
+            RewriteDashElementForProxy(root, new[] { manifestUri }, false, proxyRootFor);
+            return location;
+        }
+
+        // With useMPDUrlQuery the player would append the local manifest query, so the upstream one is inlined instead.
+        private static void InlineDashMpdUrlQuery(XElement root, Uri manifestUri)
+        {
+            var manifestUrl = manifestUri.OriginalString;
+            var queryStart = manifestUrl.IndexOf('?');
+            var fragmentStart = manifestUrl.IndexOf('#');
+            var upstreamQuery = "";
+            if (queryStart >= 0 && (fragmentStart < 0 || queryStart < fragmentStart))
+            {
+                var queryEnd = fragmentStart > queryStart ? fragmentStart : manifestUrl.Length;
+                upstreamQuery = manifestUrl.Substring(queryStart + 1, queryEnd - queryStart - 1);
+            }
+
+            foreach (var queryInfo in root.Descendants().Where(element => element.Name.LocalName is "UrlQueryInfo" or "ExtUrlQueryInfo"))
+            {
+                var useMpdUrlQuery = queryInfo.Attribute("useMPDUrlQuery");
+                if (useMpdUrlQuery == null || useMpdUrlQuery.Value != "true")
+                    continue;
+
+                useMpdUrlQuery.Value = "false";
+                if (upstreamQuery.Length == 0)
+                    continue;
+
+                var queryString = (string?)queryInfo.Attribute("queryString");
+                queryInfo.SetAttributeValue("queryString", string.IsNullOrEmpty(queryString) ? upstreamQuery : queryString + "&" + upstreamQuery);
+            }
+        }
+
+        // Players resolve inherited segment URLs against the Representation's own BaseURL, so they are copied down first.
+        private static void PushDownInheritedDashSegmentUrls(XElement root)
+        {
+            XNamespace ns = root.Name.Namespace;
+            foreach (var representation in root.Elements(ns + "Period").Elements(ns + "AdaptationSet").Elements(ns + "Representation"))
+            {
+                var adaptationSet = representation.Parent!;
+                var levels = new[] { representation, adaptationSet, adaptationSet.Parent! };
+                foreach (var segmentName in DashSegmentElementNames)
+                {
+                    foreach (var target in DashUrlAttributes)
+                    {
+                        if (target.Element != segmentName)
+                            continue;
+                        var sourceIndex = Array.FindIndex(levels, level => level.Element(ns + segmentName)?.Attribute(target.Attribute) != null);
+                        if (!HasDashBaseUrlBelow(levels, sourceIndex, ns))
+                            continue;
+                        var value = levels[sourceIndex].Element(ns + segmentName)!.Attribute(target.Attribute)!.Value;
+                        GetOrAddDashSegmentElement(representation, ns + segmentName).SetAttributeValue(target.Attribute, value);
+                    }
+
+                    foreach (var childName in DashUrlChildElementNames)
+                    {
+                        var sourceIndex = Array.FindIndex(levels, level => level.Element(ns + segmentName)?.Element(ns + childName) != null);
+                        if (!HasDashBaseUrlBelow(levels, sourceIndex, ns))
+                            continue;
+                        var children = levels[sourceIndex].Element(ns + segmentName)!.Elements(ns + childName).Select(child => new XElement(child)).ToList();
+                        GetOrAddDashSegmentElement(representation, ns + segmentName).Add(children);
+                    }
+                }
+            }
+        }
+
+        private static bool HasDashBaseUrlBelow(XElement[] levels, int sourceIndex, XNamespace ns)
+        {
+            return sourceIndex > 0 && levels.Take(sourceIndex).Any(level => level.Element(ns + "BaseURL") != null);
+        }
+
+        private static XElement GetOrAddDashSegmentElement(XElement representation, XName segmentName)
+        {
+            var segmentElement = representation.Element(segmentName);
+            if (segmentElement == null)
+            {
+                segmentElement = new XElement(segmentName);
+                representation.Add(segmentElement);
+            }
+            return segmentElement;
+        }
+
+        private static void RewriteDashElementForProxy(XElement element, IReadOnlyList<Uri> parentBases, bool keepRelative, Func<string, string> proxyRootFor)
+        {
+            var baseUrlName = element.Name.Namespace + "BaseURL";
+            var levelBases = new List<Uri>();
+            foreach (var baseUrlElement in element.Elements(baseUrlName))
+            {
+                var value = baseUrlElement.Value.Trim();
+                if (keepRelative && IsRelativeDashPath(value) && parentBases.All(parentBase => StaysUnderProxyRoot(value, parentBase)))
+                {
+                    foreach (var parentBase in parentBases)
+                    {
+                        if (Uri.TryCreate(parentBase, value, out var relativeResolved))
+                            levelBases.Add(relativeResolved);
+                    }
+                    continue;
+                }
+
+                if (!Uri.TryCreate(parentBases[0], value, out var resolved) || !IsHttpUri(resolved))
+                    continue;
+                baseUrlElement.Value = ToDashProxyUrl(resolved.AbsoluteUri, proxyRootFor);
+                levelBases.Add(resolved);
+            }
+            IReadOnlyList<Uri> bases = levelBases.Count > 0 ? levelBases : parentBases;
+
+            // dash.js resolves relative clock URLs against the MPD BaseURL, which is the proxy, so every URL is made absolute upstream.
+            if (element.Name.LocalName == "UTCTiming" && DashHttpTimingSchemes.Contains(((string?)element.Attribute("schemeIdUri"))?.Trim() ?? ""))
+            {
+                var valueAttribute = element.Attribute("value");
+                if (valueAttribute != null)
+                {
+                    valueAttribute.Value = string.Join(" ", valueAttribute.Value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(clockUrl => Uri.TryCreate(bases[0], clockUrl, out var resolvedClock) && IsHttpUri(resolvedClock) ? ToDashProxyUrl(resolvedClock.AbsoluteUri, proxyRootFor) : clockUrl));
+                }
+            }
+
+            foreach (var target in DashUrlAttributes)
+            {
+                if (element.Name.LocalName != target.Element)
+                    continue;
+                var attribute = element.Attribute(target.Attribute);
+                if (attribute == null)
+                    continue;
+
+                // Values may hold $Number%05d$ templates, so they are resolved as strings rather than parsed as Uri.
+                var absoluteUrl = ToAbsoluteDashTemplateUrl(attribute.Value, bases[0]);
+                if (absoluteUrl == null && IsRelativeDashPath(attribute.Value) && !bases.All(levelBase => StaysUnderProxyRoot(attribute.Value, levelBase)))
+                    absoluteUrl = ResolveDashTemplateUrl(bases[0], attribute.Value);
+                if (absoluteUrl != null)
+                    attribute.Value = ToDashProxyUrl(absoluteUrl, proxyRootFor);
+            }
+
+            foreach (var child in element.Elements())
+            {
+                if (child.Name != baseUrlName)
+                    RewriteDashElementForProxy(child, bases, true, proxyRootFor);
+            }
+        }
+
+        private static bool IsRelativeDashPath(string value)
+        {
+            return value.Length > 0 && !value.StartsWith("/", StringComparison.Ordinal) && !DashUrlSchemeRegex.IsMatch(value);
+        }
+
+        private static bool StaysUnderProxyRoot(string relative, Uri upstreamBase)
+        {
+            var placeholderValue = ReplaceDashTemplates(relative, out _);
+            var probeBase = new Uri(DashProxyProbeRoot + upstreamBase.PathAndQuery.TrimStart('/'));
+            if (!Uri.TryCreate(upstreamBase, placeholderValue, out var upstreamResolved) || !Uri.TryCreate(probeBase, placeholderValue, out var probeResolved))
+                return false;
+            return probeResolved.PathAndQuery == "/root" + upstreamResolved.PathAndQuery;
+        }
+
+        private static string? ResolveDashTemplateUrl(Uri levelBase, string relative)
+        {
+            var placeholderValue = ReplaceDashTemplates(relative, out var identifiers);
+            if (!Uri.TryCreate(levelBase, placeholderValue, out var resolved) || !IsHttpUri(resolved))
+                return null;
+            var absoluteUrl = resolved.AbsoluteUri;
+            for (var index = 0; index < identifiers.Count; index++)
+                absoluteUrl = absoluteUrl.Replace(DashTemplatePlaceholder(index), identifiers[index]);
+            return absoluteUrl;
+        }
+
+        private static string ReplaceDashTemplates(string value, out List<string> identifiers)
+        {
+            var found = new List<string>();
+            var replaced = DashTemplateIdentifierRegex.Replace(value, match =>
+            {
+                found.Add(match.Value);
+                return DashTemplatePlaceholder(found.Count - 1);
+            });
+            identifiers = found;
+            return replaced;
+        }
+
+        private static string DashTemplatePlaceholder(int index) => "grayjaydashtemplate" + index + "x";
+
+        private static string? ToAbsoluteDashTemplateUrl(string value, Uri levelBase)
+        {
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return value;
+            if (value.StartsWith("//", StringComparison.Ordinal))
+                return levelBase.Scheme + ":" + value;
+            if (value.StartsWith("/", StringComparison.Ordinal))
+                return levelBase.GetLeftPart(UriPartial.Authority) + value;
+            return null;
+        }
+
+        private static string ToDashProxyUrl(string absoluteUrl, Func<string, string> proxyRootFor)
+        {
+            var authorityStart = absoluteUrl.IndexOf("://", StringComparison.Ordinal) + 3;
+            var pathStart = absoluteUrl.IndexOfAny(new[] { '/', '?', '#' }, authorityStart);
+            if (pathStart < 0)
+                return proxyRootFor(absoluteUrl + "/");
+            if (absoluteUrl[pathStart] == '/')
+            {
+                // Dot segments are removed upstream-side first; left in place, the browser would climb out of the proxy prefix.
+                var pathEnd = absoluteUrl.IndexOfAny(new[] { '?', '#' }, pathStart);
+                var path = RemoveDashDotSegments(pathEnd < 0 ? absoluteUrl[pathStart..] : absoluteUrl[pathStart..pathEnd]);
+                var rest = pathEnd < 0 ? "" : absoluteUrl[pathEnd..];
+                return proxyRootFor(absoluteUrl[..(pathStart + 1)]) + path[1..] + rest;
+            }
+            return proxyRootFor(absoluteUrl[..pathStart] + "/") + absoluteUrl[pathStart..];
+        }
+
+        public static string RemoveDashDotSegments(string path)
+        {
+            var segments = path.Split('/');
+            var output = new List<string>();
+            for (var index = 1; index < segments.Length; index++)
+            {
+                var segment = segments[index];
+                var isLast = index == segments.Length - 1;
+                var normalizedSegment = segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase);
+                if (normalizedSegment == "..")
+                {
+                    if (output.Count > 0)
+                        output.RemoveAt(output.Count - 1);
+                    if (isLast)
+                        output.Add("");
+                }
+                else if (normalizedSegment == ".")
+                {
+                    if (isLast)
+                        output.Add("");
+                }
+                else
+                {
+                    output.Add(segment);
+                }
+            }
+            return "/" + string.Join("/", output);
+        }
+
+        private static bool IsHttpUri(Uri uri) => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
 
         [HttpGet]
         public async Task<IActionResult> SourceHLS(int videoIndex = -1, int audioIndex = -1, int subtitleIndex = -1, bool subtitleIsLocal = false, bool isLoopback = true, string? modifierId = null)
@@ -1150,7 +1722,14 @@ namespace Grayjay.ClientServer.Controllers
 
             if (sourceVideo == null && (sourceAudio is HLSManifestAudioSource || sourceAudio is HLSVariantAudioUrlSource))
                 return DirectHLSUrlSource(state, -1, audioIndex, subtitleIndex, subtitleIsLocal, proxySettings ?? new ProxySettings(true), null);
-                
+
+            if (sourceVideo is DashManifestSource && sourceAudio == null)
+            {
+                var dashSubtitleIndex = (sourceSubtitle != null) ? subtitleIndex : -1;
+                var subtitleQuery = (dashSubtitleIndex >= 0) ? $"&subtitleIndex={dashSubtitleIndex}&subtitleIsLocal={subtitleIsLocal}" : "";
+                return new SourceDescriptor($"/details/SourceDashUrl?videoIndex={videoIndex}{subtitleQuery}&isLoopback={proxySettings?.IsLoopback ?? true}&windowId={state.WindowID}", "application/dash+xml", videoIndex, -1, dashSubtitleIndex, false, false, subtitleIsLocal);
+            }
+
             if (sourceVideo is LocalVideoSource && (sourceAudio is LocalAudioSource || sourceSubtitle != null))
             {
                 string manifest;
@@ -1266,22 +1845,15 @@ namespace Grayjay.ClientServer.Controllers
             }, captchaException);
         }
 
-        private static readonly Regex _repIdRegex = new Regex("Representation\\s+id=\"(\\d+)\"", RegexOptions.Compiled);
-        private static int NextNumericRepresentationId(string mpd)
+        private static int NextNumericRepresentationId(XDocument document)
         {
             int max = 0;
-            foreach (Match m in _repIdRegex.Matches(mpd))
+            foreach (var representation in document.Descendants().Where(element => element.Name.LocalName == "Representation"))
             {
-                if (int.TryParse(m.Groups[1].Value, out var v) && v > max)
-                    max = v;
+                if (int.TryParse((string?)representation.Attribute("id"), out var id) && id > max)
+                    max = id;
             }
             return max + 1;
-        }
-
-        private static string XmlEscape(string s)
-        {
-            var raw = s.Replace("&amp;", "&").Trim();
-            return SecurityElement.Escape(raw) ?? raw;
         }
 
         private static string InjectDashSubtitle(string mpd, string subtitleUrl, string lang = "und", string? name = null)
@@ -1289,25 +1861,100 @@ namespace Grayjay.ClientServer.Controllers
             if (string.IsNullOrWhiteSpace(mpd) || string.IsNullOrWhiteSpace(subtitleUrl))
                 return mpd;
 
-            if (mpd.IndexOf("mimeType=\"text/vtt\"", StringComparison.OrdinalIgnoreCase) >= 0)
+            XDocument document;
+            try
+            {
+                // Plugin generated manifests may start with a BOM or whitespace, which the XML declaration does not allow.
+                document = XDocument.Parse(mpd.TrimStart('﻿', ' ', '\t', '\r', '\n'), LoadOptions.PreserveWhitespace);
+            }
+            catch (System.Xml.XmlException e)
+            {
+                Logger.w<DetailsController>($"Failed to parse the DASH manifest, the selected subtitle is not added: {e.Message}");
                 return mpd;
+            }
 
-            int repId = NextNumericRepresentationId(mpd);
-            string url = XmlEscape(subtitleUrl);
-            string block =
-                $"    <AdaptationSet mimeType=\"text/vtt\" lang=\"{XmlEscape(lang)}\">\n" +
-                "      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"main\"/>\n" +
-                $"      <Label>{XmlEscape(name ?? "Subtitles")}</Label>\n" +
-                $"      <Representation id=\"{repId}\" bandwidth=\"256\">\n" +
-                $"        <BaseURL>{url}</BaseURL>\n" +
-                $"      </Representation>\n" +
-                $"    </AdaptationSet>\n";
-
-            int insertAt = mpd.LastIndexOf("</Period>", StringComparison.OrdinalIgnoreCase);
-            if (insertAt < 0)
+            if (!InjectDashSubtitleIntoDocument(document, subtitleUrl, lang, name))
                 return mpd;
+            var declaration = document.Declaration != null ? document.Declaration + "\n" : "";
+            return declaration + document.ToString(SaveOptions.DisableFormatting);
+        }
 
-            return mpd.Insert(insertAt, block);
+        // Inserted first in every Period, as dash.js shows the first non-forced text AdaptationSet.
+        private static bool InjectDashSubtitleIntoDocument(XDocument document, string subtitleUrl, string lang, string? name)
+        {
+            var periods = document.Root?.Elements().Where(element => element.Name.LocalName == "Period").ToList();
+            if (periods == null || periods.Count == 0)
+                return false;
+
+            static string Normalize(string value) => value.Replace("&amp;", "&").Trim();
+            int representationId = NextNumericRepresentationId(document);
+            foreach (var period in periods)
+            {
+                MoveDashPeriodSegmentElementsToAdaptationSets(period);
+                var periodNamespace = period.Name.Namespace;
+                var adaptationSet = new XElement(periodNamespace + "AdaptationSet",
+                    new XAttribute("mimeType", "text/vtt"),
+                    new XAttribute("lang", Normalize(lang)),
+                    new XElement(periodNamespace + "Role", new XAttribute("schemeIdUri", "urn:mpeg:dash:role:2011"), new XAttribute("value", "main")),
+                    new XElement(periodNamespace + "Label", Normalize(name ?? "Subtitles")),
+                    new XElement(periodNamespace + "Representation", new XAttribute("id", representationId), new XAttribute("bandwidth", 256),
+                        new XElement(periodNamespace + "BaseURL", Normalize(subtitleUrl))));
+
+                var firstAdaptationSet = period.Elements().FirstOrDefault(element => element.Name.LocalName == "AdaptationSet");
+                if (firstAdaptationSet != null)
+                {
+                    firstAdaptationSet.AddBeforeSelf(adaptationSet);
+                }
+                else
+                {
+                    period.Add(adaptationSet);
+                }
+            }
+            return true;
+        }
+
+        // Keeps the injected subtitle from inheriting the Period segment elements.
+        private static void MoveDashPeriodSegmentElementsToAdaptationSets(XElement period)
+        {
+            var adaptationSets = period.Elements().Where(element => element.Name.LocalName == "AdaptationSet").ToList();
+            foreach (var segmentName in DashSegmentElementNames)
+            {
+                var periodSegment = period.Elements().FirstOrDefault(element => element.Name.LocalName == segmentName);
+                if (periodSegment == null)
+                    continue;
+
+                foreach (var adaptationSet in adaptationSets)
+                {
+                    var ownSegment = adaptationSet.Elements().FirstOrDefault(element => element.Name.LocalName == segmentName);
+                    if (ownSegment == null)
+                    {
+                        var copy = new XElement(periodSegment);
+                        var firstRepresentation = adaptationSet.Elements().FirstOrDefault(element => element.Name.LocalName == "Representation");
+                        if (firstRepresentation != null)
+                        {
+                            firstRepresentation.AddBeforeSelf(copy);
+                        }
+                        else
+                        {
+                            adaptationSet.Add(copy);
+                        }
+                        continue;
+                    }
+
+                    foreach (var attribute in periodSegment.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration))
+                    {
+                        if (ownSegment.Attribute(attribute.Name) == null)
+                            ownSegment.SetAttributeValue(attribute.Name, attribute.Value);
+                    }
+                    var ownChildNames = ownSegment.Elements().Select(child => child.Name.LocalName).ToHashSet();
+                    foreach (var childGroup in periodSegment.Elements().GroupBy(child => child.Name.LocalName))
+                    {
+                        if (!ownChildNames.Contains(childGroup.Key))
+                            ownSegment.Add(childGroup.Select(child => new XElement(child)));
+                    }
+                }
+                periodSegment.Remove();
+            }
         }
 
         [HttpGet]
@@ -1493,6 +2140,11 @@ namespace Grayjay.ClientServer.Controllers
 
 
 
+
+        internal sealed class SupersededDashRequestException : Exception
+        {
+        }
+
         public class VideoLoadResult
         {
             public PlatformVideoDetails Video { get; set; }
@@ -1605,7 +2257,7 @@ namespace Grayjay.ClientServer.Controllers
             if (modifier != null)
             {
                 var headers = new Grayjay.Engine.Models.HttpHeaders();
-                var res = ModifierHttp.GetBytes(new ManagedHttpClient(), uri.ToString(), modifier, headers);
+                var res = ModifierHttp.GetBytes(new ManagedHttpClient(), uri.ToString(), modifier, headers, decodeContent: true);
                 if (!res.IsOk)
                     throw new InvalidDataException($"Failed to fetch subtitle [{res.Code}]");
 

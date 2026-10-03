@@ -25,7 +25,7 @@ import PillButton from "../../buttons/PillButton";
 import IconButton from "../../buttons/IconButton";
 import CustomButton from "../../buttons/CustomButton";
 import CommentView from "../../CommentView";
-import { createResourceDefault, getBestThumbnail, preventDragDrop, proxyImage, sanitzeHtml, toHumanNowDiffString, toHumanNowDiffStringMinDay, toHumanNumber, formatAudioSourceName, getDefaultPlaybackSpeed, formatDuration } from "../../../utility";
+import { createResourceDefault, getBestThumbnail, preventDragDrop, proxyImage, sanitzeHtml, toHumanNowDiffString, toHumanNowDiffStringMinDay, toHumanNumber, formatAudioSourceName, getDefaultPlaybackSpeed, formatDuration, getPrimaryAudioLanguage, getPreferOriginalAudio } from "../../../utility";
 import { DetailsBackend } from "../../../backend/DetailsBackend";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import SubscribeButton from "../../buttons/SubscribeButton";
@@ -83,6 +83,7 @@ import { useCasting } from "../../../contexts/Casting";
 import { SearchBackend } from "../../../backend/SearchBackend";
 import history from '../../../assets/icons/icon_nav_history.svg';
 import { UmpFormatInfo } from "../../player/UmpPlayer/UmpPlayer";
+import { DashAudioTrack, DashTrackSelection, DashVideoRepresentation, formatAudioTrackName, primarySubtag } from "../../player/VideoPlayerView/dashTracks";
 import { CastingBackend } from "../../../backend/CastingBackend";
 
 const SCOPE_ID = "video-detail-view";
@@ -214,6 +215,23 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
         refetchUmpCastQualities();
     };
+    // The tracks and selection the player resolved for the current Period, kept apart from the user's choices below.
+    const [dashTracks$, setDashTracks] = createSignal<DashTrackSelection>({ representations: [], audioTracks: [] });
+    const [dashVideoRepresentationId$, setDashVideoRepresentationId] = createSignal<string>();
+    const [dashAudioTrackKey$, setDashAudioTrackKey] = createSignal<string>();
+    const [dashActiveRepresentationId$, setDashActiveRepresentationId] = createSignal<string>();
+    const [preferredAudioLanguage$, setPreferredAudioLanguage] = createSignal<string | null>(null);
+    const [preferOriginalAudio$, setPreferOriginalAudio] = createSignal<boolean>(true);
+    const isCasting$ = createMemo(() => !!casting.activeDevice.device());
+    const formatDashRepresentationName = (representation?: DashVideoRepresentation) => {
+        if (!representation) {
+            return "";
+        }
+        const sharesHeight = dashTracks$().representations.filter(x => x.height == representation.height).length > 1;
+        return sharesHeight ? `${representation.height}p ${Math.round(representation.bandwidth / 1000)} kbps` : `${representation.height}p`;
+    };
+    const formatDashAudioTrackName = (track?: DashAudioTrack) => track ? formatAudioTrackName(track) : "";
+    const isPreferredAudioLanguage = (language: string) => primarySubtag(language) == primarySubtag(preferredAudioLanguage$() ?? navigator.language);
     createEffect(on(() => `${videoSource$()?.url}|${videoSource$()?.video}|${videoSource$()?.videoIsLocal}`, () => {
         setUmpVideoFormats([]);
         setUmpAudioFormats([]);
@@ -221,7 +239,24 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         setUmpAudioKey(undefined);
         setUmpActiveVideo(undefined);
         setUmpActiveAudio(undefined);
+        setDashTracks({ representations: [], audioTracks: [] });
+        setDashVideoRepresentationId(undefined);
+        setDashAudioTrackKey(undefined);
+        setDashActiveRepresentationId(undefined);
     }, { defer: true }));
+
+    // Read for every opened video, so a changed Primary Language applies without remounting this view.
+    createEffect(on(currentVideoUrl$, async () => {
+        try {
+            const [primaryAudioLanguage, preferOriginalAudio] = await Promise.all([getPrimaryAudioLanguage(), getPreferOriginalAudio()]);
+            batch(() => {
+                setPreferredAudioLanguage(primaryAudioLanguage);
+                setPreferOriginalAudio(preferOriginalAudio);
+            });
+        } catch (e) {
+            console.warn("Failed to read the audio language settings", e);
+        }
+    }));
 
     createEffect(on(currentVideoUrl$, (url) => {
         console.info("Reset error counter because video source changed", { url, errorCounter });
@@ -1214,6 +1249,49 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                         } as IMenuItemOption)))
                     }
                 } as IMenuItemGroup : undefined,
+                (!isCasting$() && dashTracks$().representations.length > 1) ? {
+                    key: "Video Quality (" + dashTracks$().representations.length + ")",
+                    value: dashTracks$().representationId
+                        ? formatDashRepresentationName(dashTracks$().representations.find(x => x.id == dashTracks$().representationId))
+                        : (dashActiveRepresentationId$() ? `Auto (${formatDashRepresentationName(dashTracks$().representations.find(x => x.id == dashActiveRepresentationId$()))})` : "Auto"),
+                    type: "group",
+                    subMenu: {
+                        title: "Stream qualities",
+                        items: [{
+                            name: "Auto",
+                            value: "Auto",
+                            type: "option",
+                            onSelected: () => setDashVideoRepresentationId(undefined),
+                            isSelected: !dashTracks$().representationId
+                        } as IMenuItemOption].concat([...dashTracks$().representations].sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth).map(x => ({
+                            name: formatDashRepresentationName(x),
+                            value: x.width + "x" + x.height,
+                            type: "option",
+                            onSelected: () => setDashVideoRepresentationId(x.id),
+                            isSelected: dashTracks$().representationId == x.id
+                        } as IMenuItemOption)))
+                    }
+                } as IMenuItemGroup : undefined,
+                (!isCasting$() && dashTracks$().audioTracks.length > 1) ? {
+                    key: "Audio Tracks (" + dashTracks$().audioTracks.length + ")",
+                    value: formatDashAudioTrackName(dashTracks$().audioTracks.find(x => x.key == dashTracks$().audioTrackKey)),
+                    type: "group",
+                    subMenu: {
+                        title: "Audio tracks",
+                        items: [...dashTracks$().audioTracks].sort((a, b) =>
+                            Number(isPreferredAudioLanguage(b.language)) - Number(isPreferredAudioLanguage(a.language))
+                            || formatAudioTrackName(a).localeCompare(formatAudioTrackName(b))
+                            || Number(a.isVariant) - Number(b.isVariant)
+                            || b.maxBandwidth - a.maxBandwidth
+                        ).map(x => ({
+                            name: formatAudioTrackName(x),
+                            value: x.key,
+                            type: "option",
+                            onSelected: () => setDashAudioTrackKey(x.key),
+                            isSelected: dashTracks$().audioTrackKey == x.key
+                        } as IMenuItemOption))
+                    }
+                } as IMenuItemGroup : undefined,
                 (audioSources$() && audioSources$().length > 0 && videoSource$()) ? {
                     key: "Audio Sources (" + (audioSources$().length) + ")",
                     value: (videoSource$() && !videoSource$()?.audioIsLocal) ? audioSources$()[videoSource$()!.audio]?.name : undefined,
@@ -1684,6 +1762,12 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                             onUmpInitialVideoFormat={(format) => setUmpVideoKey(format.key)}
                             onUmpFormats={(video, audio) => { setUmpVideoFormats(video); setUmpAudioFormats(audio); }}
                             onUmpActiveFormat={(role, format) => role == "video" ? setUmpActiveVideo(format) : setUmpActiveAudio(format)}
+                            dashVideoRepresentationId={dashVideoRepresentationId$()}
+                            dashAudioTrackKey={dashAudioTrackKey$()}
+                            preferredAudioLanguage={preferredAudioLanguage$()}
+                            preferOriginalAudio={preferOriginalAudio$()}
+                            onDashTracks={(tracks) => setDashTracks(tracks)}
+                            onDashActiveRepresentation={(representationId) => setDashActiveRepresentationId(representationId)}
                             onSettingsDialog={(ev) => onShowSettings()} 
                             lockOverlay={showSettings$()} 
                             volume={video?.volume()}
