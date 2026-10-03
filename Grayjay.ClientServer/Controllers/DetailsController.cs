@@ -1007,7 +1007,7 @@ namespace Grayjay.ClientServer.Controllers
             var modifier = dashSource.GetRequestModifier();
             var headers = new Grayjay.Engine.Models.HttpHeaders();
             var manifestUrl = state.DetailsState.GetDashManifestLocation(dashSource) ?? dashSource.Url;
-            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), manifestUrl, modifier, headers);
+            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), manifestUrl, modifier, headers, decodeContent: true);
             if (!res.IsOk)
                 throw new InvalidDataException($"Failed to fetch manifest [{res.Code}]");
 
@@ -1950,7 +1950,7 @@ namespace Grayjay.ClientServer.Controllers
             if (modifier != null)
             {
                 var headers = new Grayjay.Engine.Models.HttpHeaders();
-                var res = ModifierHttp.GetBytes(new ManagedHttpClient(), uri.ToString(), modifier, headers);
+                var res = ModifierHttp.GetBytes(new ManagedHttpClient(), uri.ToString(), modifier, headers, decodeContent: true);
                 if (!res.IsOk)
                     throw new InvalidDataException($"Failed to fetch subtitle [{res.Code}]");
 

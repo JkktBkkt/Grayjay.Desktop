@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Grayjay.Engine.Models;
 using Grayjay.Engine.Web;
 using Grayjay.Engine.Models.Video.Additions;
@@ -29,11 +30,16 @@ namespace Grayjay.ClientServer
             return list;
         }
 
+        /// <summary>
+        /// Fetches url through the modifier. With decodeContent, a managed body still carrying a Content-Encoding (such as br) is decoded.
+        /// Libcurl bodies are already decoded by libcurl, so they are returned as they are.
+        /// </summary>
         public static BytesResult GetBytes(
             ManagedHttpClient client,
             string url,
             IRequestModifier? modifier = null,
-            HttpHeaders? headers = null)
+            HttpHeaders? headers = null,
+            bool decodeContent = false)
         {
             headers ??= new HttpHeaders();
             var modified = modifier?.ModifyRequest(url, headers);
@@ -65,7 +71,77 @@ namespace Grayjay.ClientServer
             if (resp.Body == null)
                 return new BytesResult(finalUrl, resp.Code, Array.Empty<byte>());
 
-            return new BytesResult(finalUrl, resp.Code, resp.Body.AsBytes());
+            var body = resp.Body.AsBytes();
+            if (decodeContent && resp.Headers != null)
+                body = DecodeContent(resp.Headers, body);
+            return new BytesResult(finalUrl, resp.Code, body);
+        }
+
+        /// <summary>
+        /// Removes every Content-Encoding coding from body, across repeated headers, in reverse order of application.
+        /// </summary>
+        public static byte[] DecodeContent(HttpHeaders headers, byte[] body)
+        {
+            var codings = headers.GetAll("content-encoding")
+                .SelectMany(value => value.Split(','))
+                .Select(part => part.Trim().ToLowerInvariant())
+                .ToList();
+            if (body.Length == 0 || codings.Count == 0)
+                return body;
+
+            codings.Reverse();
+            foreach (var coding in codings)
+            {
+                switch (coding)
+                {
+                    case "identity":
+                    case "":
+                        break;
+                    case "gzip":
+                    case "x-gzip":
+                        body = Decompress(body, input => new GZipStream(input, CompressionMode.Decompress));
+                        break;
+                    case "deflate":
+                        // Servers send both zlib-wrapped (RFC 1950) and raw deflate.
+                        body = HasZlibHeader(body)
+                            ? Decompress(body, input => new ZLibStream(input, CompressionMode.Decompress))
+                            : Decompress(body, input => new DeflateStream(input, CompressionMode.Decompress));
+                        break;
+                    case "br":
+                        body = Decompress(body, input => new BrotliStream(input, CompressionMode.Decompress));
+                        break;
+                    case "zstd":
+                        // The streaming decoder also accepts frames that omit the content size.
+                        body = Decompress(body, input => new ZstdNet.DecompressionStream(input));
+                        break;
+                    default:
+                        throw new NotSupportedException($"Unsupported content encoding: {coding}");
+                }
+            }
+            return body;
+        }
+
+        /// <summary>
+        /// RFC 1950 header: compression method 8, window size up to 32K, and a header checksum that is a multiple of 31.
+        /// </summary>
+        private static bool HasZlibHeader(byte[] body)
+        {
+            if (body.Length < 2)
+                return false;
+            var compressionMethodAndFlags = body[0];
+            var flags = body[1];
+            return (compressionMethodAndFlags & 0x0F) == 8
+                && (compressionMethodAndFlags >> 4) <= 7
+                && ((compressionMethodAndFlags << 8) | flags) % 31 == 0;
+        }
+
+        private static byte[] Decompress(byte[] data, Func<Stream, Stream> createDecoder)
+        {
+            using var input = new MemoryStream(data);
+            using var decoder = createDecoder(input);
+            using var output = new MemoryStream();
+            decoder.CopyTo(output);
+            return output.ToArray();
         }
 
         public static StreamResult GetStream(
