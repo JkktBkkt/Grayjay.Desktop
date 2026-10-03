@@ -515,7 +515,8 @@ namespace Grayjay.ClientServer.Controllers
             "https://plugins.grayjay.app/RedbullTv/RedBullTvConfig.json",
             "https://plugins.grayjay.app/FOSDEM/FOSDEMConfig.json",
             "https://plugins.grayjay.app/NASA-Plus/NASA-PlusConfig.json",
-            "https://plugins.grayjay.app/InternetArchive/InternetArchiveConfig.json"
+            "https://plugins.grayjay.app/InternetArchive/InternetArchiveConfig.json",
+            "https://plugins.grayjay.app/Niconico/NiconicoConfig.json"
         };
         private static PluginConfig[] _official = new PluginConfig[0];
 
