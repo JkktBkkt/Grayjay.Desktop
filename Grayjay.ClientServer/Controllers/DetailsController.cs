@@ -123,16 +123,6 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            public void ClearDashRelativeProxies()
-            {
-                lock (_dashRelativeProxyTokens)
-                {
-                    foreach (var token in _dashRelativeProxyTokens)
-                        ProxyController.RemoveDashRelativeProxy(token);
-                    _dashRelativeProxyTokens.Clear();
-                }
-            }
-
             public long _lastWatchPosition = 0;
             public DateTime _lastWatchPositionChange = DateTime.MinValue;
             public LiveChatManager? LiveChatManager { get; set; }
@@ -246,8 +236,9 @@ namespace Grayjay.ClientServer.Controllers
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
+                // Bumps the generation too, so a manifest request still in flight cannot register proxies after this.
+                ClearCachedDash();
                 ClearDashManifestLocations();
-                ClearDashRelativeProxies();
                 ClearDashSourceSessions();
             }
         }
