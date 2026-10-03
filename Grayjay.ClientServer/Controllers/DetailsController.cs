@@ -1082,6 +1082,7 @@ namespace Grayjay.ClientServer.Controllers
             ("RepresentationIndex", "sourceURL"),
             ("BitstreamSwitching", "sourceURL")
         };
+        private static readonly string[] DashSegmentElementNames = new[] { "SegmentBase", "SegmentList", "SegmentTemplate" };
 
         /// <summary>
         /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
@@ -1671,6 +1672,7 @@ namespace Grayjay.ClientServer.Controllers
         /// <summary>
         /// Adds the selected subtitle as the first AdaptationSet of every Period, in the Period's namespace.
         /// dash.js shows the first non-forced text AdaptationSet, so it goes before any embedded ones.
+        /// Period segment elements are moved into the existing AdaptationSets first, so the subtitle does not inherit them.
         /// </summary>
         private static bool InjectDashSubtitleIntoDocument(XDocument document, string subtitleUrl, string lang, string? name)
         {
@@ -1682,6 +1684,7 @@ namespace Grayjay.ClientServer.Controllers
             int representationId = NextNumericRepresentationId(document);
             foreach (var period in periods)
             {
+                MoveDashPeriodSegmentElementsToAdaptationSets(period);
                 var periodNamespace = period.Name.Namespace;
                 var adaptationSet = new XElement(periodNamespace + "AdaptationSet",
                     new XAttribute("mimeType", "text/vtt"),
@@ -1702,6 +1705,53 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// Moves Period SegmentBase, SegmentList and SegmentTemplate into each AdaptationSet with the inheritance dash.js applies:
+        /// attributes and child groups the AdaptationSet's own element lacks are copied, its own values win.
+        /// </summary>
+        private static void MoveDashPeriodSegmentElementsToAdaptationSets(XElement period)
+        {
+            var adaptationSets = period.Elements().Where(element => element.Name.LocalName == "AdaptationSet").ToList();
+            foreach (var segmentName in DashSegmentElementNames)
+            {
+                var periodSegment = period.Elements().FirstOrDefault(element => element.Name.LocalName == segmentName);
+                if (periodSegment == null)
+                    continue;
+
+                foreach (var adaptationSet in adaptationSets)
+                {
+                    var ownSegment = adaptationSet.Elements().FirstOrDefault(element => element.Name.LocalName == segmentName);
+                    if (ownSegment == null)
+                    {
+                        var copy = new XElement(periodSegment);
+                        var firstRepresentation = adaptationSet.Elements().FirstOrDefault(element => element.Name.LocalName == "Representation");
+                        if (firstRepresentation != null)
+                        {
+                            firstRepresentation.AddBeforeSelf(copy);
+                        }
+                        else
+                        {
+                            adaptationSet.Add(copy);
+                        }
+                        continue;
+                    }
+
+                    foreach (var attribute in periodSegment.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration))
+                    {
+                        if (ownSegment.Attribute(attribute.Name) == null)
+                            ownSegment.SetAttributeValue(attribute.Name, attribute.Value);
+                    }
+                    var ownChildNames = ownSegment.Elements().Select(child => child.Name.LocalName).ToHashSet();
+                    foreach (var childGroup in periodSegment.Elements().GroupBy(child => child.Name.LocalName))
+                    {
+                        if (!ownChildNames.Contains(childGroup.Key))
+                            ownSegment.Add(childGroup.Select(child => new XElement(child)));
+                    }
+                }
+                periodSegment.Remove();
+            }
         }
 
         [HttpGet]
