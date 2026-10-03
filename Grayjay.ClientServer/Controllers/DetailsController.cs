@@ -941,7 +941,7 @@ namespace Grayjay.ClientServer.Controllers
 
                 var subUrl = subtitleSource?.Url;
                 if (!string.IsNullOrWhiteSpace(subUrl))
-                    dash = InjectDashSubtitle(dash, subUrl, SubtitleLanguage.Resolve(subtitleSource?.Language, subtitleSource?.Name), subtitleSource?.Name);
+                    dash = InjectDashSubtitle(dash, subUrl + "&asVtt=true", SubtitleLanguage.Resolve(subtitleSource?.Language, subtitleSource?.Name), subtitleSource?.Name);
 
                 return dash;
             });
@@ -1063,7 +1063,7 @@ namespace Grayjay.ClientServer.Controllers
                 state.DetailsState.SetDashManifestLocation(dashSource, location);
 
             if (sourceSubtitle != null)
-                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings), SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
+                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings) + "&asVtt=true", SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
             return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
         }
 
