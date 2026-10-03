@@ -1046,6 +1046,8 @@ namespace Grayjay.ClientServer.Controllers
             var finalUrl = res.FinalUrl;
             var baseUri = GetBaseUri(state, proxySettings);
             var modifierId = modifier != null ? ProxyController.GetOrCreateModifierId(state, modifier, finalUrl) : null;
+            if (modifierId != null)
+                DetailsState.Modifiers[modifierId] = modifier!;
 
             var document = XDocument.Load(new MemoryStream(res.Bytes));
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
@@ -1063,7 +1065,7 @@ namespace Grayjay.ClientServer.Controllers
                 state.DetailsState.SetDashManifestLocation(dashSource, location);
 
             if (sourceSubtitle != null)
-                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings) + "&asVtt=true", SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
+                InjectDashSubtitleIntoDocument(document, BuildSubtitleUrl(state, subtitleIndex, subtitleIsLocal, proxySettings, modifierId) + "&asVtt=true", SubtitleLanguage.Resolve(sourceSubtitle.Language, sourceSubtitle.Name), sourceSubtitle.Name);
             return (document.ToString(SaveOptions.DisableFormatting), isDynamic);
         }
 
