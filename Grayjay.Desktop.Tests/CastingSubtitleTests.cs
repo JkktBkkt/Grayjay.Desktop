@@ -331,6 +331,49 @@ public class CastingSubtitleTests
         }
     }
 
+    [TestMethod]
+    public async Task DashSourceManifestCacheSeparatesLocalAndRemoteSubtitles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(directory);
+        var previous = GrayjayServer.Instance;
+        _ = new GrayjayServer();
+        var context = new DefaultHttpContext();
+        context.Request.QueryString = new QueryString("?windowId=" + Guid.NewGuid());
+        using var state = context.GetState();
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var origin = builder.Build();
+        origin.MapGet("/video.mpd", () => Results.Text("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\"><Period><AdaptationSet contentType=\"video\"><Representation id=\"1\" bandwidth=\"1\"><BaseURL>video.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>", "application/dash+xml"));
+        await origin.StartAsync();
+        try
+        {
+            var url = origin.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single() + "/video.mpd";
+            var captions = Path.Combine(directory, "captions.vtt");
+            File.WriteAllText(captions, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nCaption\n");
+            var local = new VideoLocal(new PlatformVideoDetails { Url = "https://test/video" });
+            local.SubtitleSources.Add(new LocalSubtitleSource { FilePath = captions, Format = "text/vtt", Name = "English" });
+            state.DetailsState.VideoLocal = local;
+            state.DetailsState.VideoLoaded = new PlatformVideoDetails
+            {
+                Url = "https://test/video",
+                Video = new VideoDescriptor { VideoSources = new IVideoSource[] { new DashManifestSource { Url = url } } },
+                Subtitles = new[] { new SubtitleSource { Name = "Remote", Url = "https://test/remote.vtt", Format = "text/vtt" } }
+            };
+            var proxySettings = new Grayjay.ClientServer.Proxy.ProxySettings(true);
+            var remoteManifest = await DetailsController.GetOrGenerateSourceDashUrl(state, 0, 0, false, proxySettings);
+            var localManifest = await DetailsController.GetOrGenerateSourceDashUrl(state, 0, 0, true, proxySettings);
+            StringAssert.Contains(remoteManifest, "subtitleIsLocal=False");
+            StringAssert.Contains(localManifest, "subtitleIsLocal=True");
+            Assert.AreEqual(remoteManifest, await DetailsController.GetOrGenerateSourceDashUrl(state, 0, 0, false, proxySettings));
+        }
+        finally
+        {
+            typeof(GrayjayServer).GetProperty(nameof(GrayjayServer.Instance))!.SetValue(null, previous);
+            Directory.Delete(directory, true);
+        }
+    }
+
     [DataTestMethod]
     [DataRow(false, false, true)]
     [DataRow(false, false, false)]
