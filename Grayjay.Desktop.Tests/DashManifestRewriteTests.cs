@@ -278,4 +278,18 @@ public class DashManifestRewriteTests
         Assert.IsFalse(document.Root!.Elements(Mpd + "PatchLocation").Any());
         CollectionAssert.AreEqual(new[] { "http://127.0.0.1:1/proxy/DashRelative/A/dir/manifest.mpd" }, BaseUrls(document.Root!));
     }
+
+    [DataTestMethod]
+    [DataRow("video:123/seg-1.m4s", "https://cdn.example/video:123/seg-1.m4s")]
+    [DataRow("http:foo/seg.m4s", "https://cdn.example/http:foo/seg.m4s")]
+    [DataRow("dir/seg.m4s?token=a:b", "https://cdn.example/dir/seg.m4s?token=a:b")]
+    [DataRow("../../seg.m4s", "https://cdn.example/seg.m4s")]
+    [DataRow("/evil.example/seg.m4s", "https://cdn.example//evil.example/seg.m4s")]
+    [DataRow("//evil.example/seg.m4s", "https://cdn.example///evil.example/seg.m4s")]
+    [DataRow("\\evil.example/seg.m4s", "https://cdn.example//evil.example/seg.m4s")]
+    [DataRow("@evil.example/seg.m4s", "https://cdn.example/@evil.example/seg.m4s")]
+    public void RelativeTarget_StaysOnTheUpstreamHost(string relative, string expected)
+    {
+        Assert.AreEqual(expected, ProxyController.ResolveDashRelativeTarget("https://cdn.example/", relative));
+    }
 }

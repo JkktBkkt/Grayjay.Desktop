@@ -86,19 +86,17 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         /// <summary>
-        /// Resolves a relative request against the proxy base URL. Returns null for absolute or
-        /// protocol-relative input, unparsable input, or a result on another origin.
+        /// Appends a request path to the proxy's upstream host root (scheme://authority/) instead of resolving it as a
+        /// reference, so a first segment containing a colon or a leading slash stays a path on that host. Dot segments are
+        /// normalized. Returns null for unparsable input or a result on another origin.
         /// </summary>
         public static string? ResolveDashRelativeTarget(string baseUrl, string relative)
         {
             if (string.IsNullOrEmpty(relative))
                 return baseUrl;
 
-            if (relative.StartsWith("//") || (Uri.TryCreate(relative, UriKind.Absolute, out var absoluteProbe) && (absoluteProbe.Scheme == Uri.UriSchemeHttp || absoluteProbe.Scheme == Uri.UriSchemeHttps)))
-                return null;
-
             var baseUri = new Uri(baseUrl);
-            if (!Uri.TryCreate(baseUri, relative, out var resolved))
+            if (!Uri.TryCreate(baseUri.GetLeftPart(UriPartial.Authority) + "/" + relative, UriKind.Absolute, out var resolved))
                 return null;
             if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
                 return null;
