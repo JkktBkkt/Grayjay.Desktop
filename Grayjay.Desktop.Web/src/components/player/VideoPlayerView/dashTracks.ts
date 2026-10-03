@@ -11,6 +11,8 @@ const PROGRAMME_AUDIO_ROLES = [MAIN_ROLE, "dub", "alternate"];
 // Some manifests mark audio description and dialogue boost only in the adaptation's audioTrackId attribute.
 const VARIANT_AUDIO_TRACK_ID_MARKERS = ["descriptive", "boosteddialog"];
 const FALLBACK_AUDIO_LANGUAGE = "en";
+// Manifests usually label tracks in English, whatever the UI language is.
+const LABEL_LANGUAGE_NAME_LOCALE = "en";
 const AUDIO_TRACK_ID_INDEX_REGEX = /^\d+$/;
 
 export interface DashVideoRepresentation {
@@ -97,15 +99,19 @@ export function describeAudioTrack(player: MediaPlayerClass, mediaInfo: MediaInf
     const audioTrackId = readAudioTrackId(player, mediaInfo);
     const roleValues = dashRoleValues(mediaInfo);
     const role = roleValues.find(value => value === MAIN_ROLE) ?? roleValues[0] ?? "";
+    const variantMarker = VARIANT_AUDIO_TRACK_ID_MARKERS.find(marker => audioTrackId.includes(marker)) ?? "";
     const isVariant = roleValues.some(value => !PROGRAMME_AUDIO_ROLES.includes(value))
         || (mediaInfo.accessibility?.length ?? 0) > 0
-        || VARIANT_AUDIO_TRACK_ID_MARKERS.some(marker => audioTrackId.includes(marker));
+        || !!variantMarker;
     const maxBandwidth = Math.max(0, ...mediaInfo.bitrateList.map(bitrate => bitrate.bandwidth ?? 0));
+    const displayLanguage = regionalLanguage(language, audioTrackId);
 
     return {
-        key: [language, label || audioTrackId, role, accessibilitySignature(mediaInfo)].join("|"),
+        // The regional language keeps pt-BR and pt-PT apart when both share lang="pt" and a label.
+        // The variant marker keeps descriptive audio apart from the programme track when both share a label.
+        key: [displayLanguage, label || audioTrackId, variantMarker, role, accessibilitySignature(mediaInfo)].join("|"),
         language,
-        displayLanguage: regionalLanguage(language, audioTrackId),
+        displayLanguage,
         label,
         audioTrackId,
         role,
@@ -181,6 +187,24 @@ export function pickInitialAudioTrack(tracks: DashAudioTrack[], preferredLanguag
 }
 
 /**
+ * Whether a label only names the track's language or region, for example "Portuguese" on a lang="pt" track.
+ */
+function isLanguageNameLabel(track: DashAudioTrack): boolean {
+    if (!track.label || !track.language) {
+        return false;
+    }
+    const normalizedLabel = track.label.trim().toLowerCase();
+    const languageCodes = [primarySubtag(track.language), track.displayLanguage].filter(code => !!code);
+    return [navigator.language, LABEL_LANGUAGE_NAME_LOCALE].some(locale => languageCodes.some(code => {
+        try {
+            return new Intl.DisplayNames([locale], { type: "language" }).of(code)?.toLowerCase() === normalizedLabel;
+        } catch (e) {
+            return false;
+        }
+    }));
+}
+
+/**
  * Display name of a grouped audio track, for example "English (dialog)".
  */
 export function formatAudioTrackName(track: DashAudioTrack): string {
@@ -195,7 +219,8 @@ export function formatAudioTrackName(track: DashAudioTrack): string {
 
     // Some audioTrackIds read "<language>_<name>_<index>", for example "en-us_boosteddialoghigh_0".
     const idParts = track.audioTrackId.split("_").slice(1).filter(part => !AUDIO_TRACK_ID_INDEX_REGEX.test(part));
-    const detail = track.label || idParts.join(" ") || (track.role && track.role !== MAIN_ROLE ? track.role : "") || accessibilityName(track.mediaInfo);
+    const label = isLanguageNameLabel(track) ? "" : track.label;
+    const detail = label || idParts.join(" ") || (track.role && track.role !== MAIN_ROLE ? track.role : "") || accessibilityName(track.mediaInfo);
     const name = detail ? `${languageName} (${detail})` : languageName;
     return name || "Unknown";
 }
