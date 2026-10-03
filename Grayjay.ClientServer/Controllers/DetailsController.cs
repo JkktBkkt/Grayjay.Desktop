@@ -1227,10 +1227,42 @@ namespace Grayjay.ClientServer.Controllers
             if (!root.Elements(ns + "BaseURL").Any())
                 root.AddFirst(new XElement(ns + "BaseURL", manifestUri.AbsoluteUri));
 
+            InlineDashMpdUrlQuery(root, manifestUri);
             PushDownInheritedDashSegmentUrls(root);
             // dash.js resolves MPD-level relative BaseURLs against the served manifest URL, so they are always made absolute.
             RewriteDashElementForProxy(root, new[] { manifestUri }, false, proxyRootFor);
             return location;
+        }
+
+        /// <summary>
+        /// The player would append the query of the served (local) manifest URL for useMPDUrlQuery="true",
+        /// so the upstream manifest query is appended to queryString instead, in the order dash.js uses, and the flag is cleared.
+        /// </summary>
+        private static void InlineDashMpdUrlQuery(XElement root, Uri manifestUri)
+        {
+            var manifestUrl = manifestUri.OriginalString;
+            var queryStart = manifestUrl.IndexOf('?');
+            var fragmentStart = manifestUrl.IndexOf('#');
+            var upstreamQuery = "";
+            if (queryStart >= 0 && (fragmentStart < 0 || queryStart < fragmentStart))
+            {
+                var queryEnd = fragmentStart > queryStart ? fragmentStart : manifestUrl.Length;
+                upstreamQuery = manifestUrl.Substring(queryStart + 1, queryEnd - queryStart - 1);
+            }
+
+            foreach (var queryInfo in root.Descendants().Where(element => element.Name.LocalName is "UrlQueryInfo" or "ExtUrlQueryInfo"))
+            {
+                var useMpdUrlQuery = queryInfo.Attribute("useMPDUrlQuery");
+                if (useMpdUrlQuery == null || useMpdUrlQuery.Value != "true")
+                    continue;
+
+                useMpdUrlQuery.Value = "false";
+                if (upstreamQuery.Length == 0)
+                    continue;
+
+                var queryString = (string?)queryInfo.Attribute("queryString");
+                queryInfo.SetAttributeValue("queryString", string.IsNullOrEmpty(queryString) ? upstreamQuery : queryString + "&" + upstreamQuery);
+            }
         }
 
         /// <summary>

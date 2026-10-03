@@ -16,10 +16,12 @@ public class DashManifestRewriteTests
         ["https://other.example/"] = "http://127.0.0.1:1/proxy/DashRelative/C/"
     };
 
-    private static (XDocument Document, string? Location) Rewrite(string body)
+    private static (XDocument Document, string? Location) Rewrite(string body) => Rewrite(body, ManifestUri);
+
+    private static (XDocument Document, string? Location) Rewrite(string body, Uri manifestUri)
     {
-        var document = XDocument.Parse($"""<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">{body}</MPD>""");
-        var location = DetailsController.RewriteDashManifestForProxy(document, ManifestUri, root => ProxyRoots[root]);
+        var document = XDocument.Parse($"""<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:up="urn:mpeg:dash:schema:urlparam:2014" type="static">{body}</MPD>""");
+        var location = DetailsController.RewriteDashManifestForProxy(document, manifestUri, root => ProxyRoots[root]);
         return (document, location);
     }
 
@@ -291,5 +293,50 @@ public class DashManifestRewriteTests
     public void RelativeTarget_StaysOnTheUpstreamHost(string relative, string expected)
     {
         Assert.AreEqual(expected, ProxyController.ResolveDashRelativeTarget("https://cdn.example/", relative));
+    }
+
+    [DataTestMethod]
+    [DataRow("UrlQueryInfo", "urn:mpeg:dash:urlparam:2014", "", "token=abc%7E")]
+    [DataRow("UrlQueryInfo", "urn:mpeg:dash:urlparam:2014", "a=1", "a=1&token=abc%7E")]
+    [DataRow("ExtUrlQueryInfo", "urn:mpeg:dash:urlparam:2016", "a=1", "a=1&token=abc%7E")]
+    public void UseMpdUrlQuery_IsInlinedWithTheUpstreamQuery(string elementName, string scheme, string queryString, string expected)
+    {
+        var queryStringAttribute = queryString.Length > 0 ? $" queryString=\"{queryString}\"" : "";
+        var (document, _) = Rewrite($"""
+            <EssentialProperty schemeIdUri="{scheme}"><up:{elementName} queryTemplate="$querypart$" useMPDUrlQuery="true"{queryStringAttribute}/></EssentialProperty>
+            <Period/>
+            """, new Uri("https://cdn.example/dir/manifest.mpd?token=abc%7E#frag"));
+
+        var queryInfo = document.Descendants().Single(element => element.Name.LocalName == elementName);
+        Assert.AreEqual("false", queryInfo.Attribute("useMPDUrlQuery")!.Value);
+        Assert.AreEqual(expected, queryInfo.Attribute("queryString")!.Value);
+    }
+
+    [DataTestMethod]
+    [DataRow(" useMPDUrlQuery=\"false\"")]
+    [DataRow("")]
+    public void UseMpdUrlQuery_NotTrue_LeavesQueryInfoUnchanged(string useMpdUrlQuery)
+    {
+        var (document, _) = Rewrite($"""
+            <EssentialProperty schemeIdUri="urn:mpeg:dash:urlparam:2014"><up:UrlQueryInfo queryTemplate="$querypart$" queryString="a=1"{useMpdUrlQuery}/></EssentialProperty>
+            <Period/>
+            """, new Uri("https://cdn.example/dir/manifest.mpd?token=abc"));
+
+        var queryInfo = document.Descendants().Single(element => element.Name.LocalName == "UrlQueryInfo");
+        Assert.AreEqual("a=1", queryInfo.Attribute("queryString")!.Value);
+        Assert.AreEqual(useMpdUrlQuery.Length > 0 ? "false" : null, queryInfo.Attribute("useMPDUrlQuery")?.Value);
+    }
+
+    [TestMethod]
+    public void UseMpdUrlQuery_WithoutUpstreamQuery_OnlyClearsTheFlag()
+    {
+        var (document, _) = Rewrite("""
+            <EssentialProperty schemeIdUri="urn:mpeg:dash:urlparam:2014"><up:UrlQueryInfo queryTemplate="$querypart$" useMPDUrlQuery="true"/></EssentialProperty>
+            <Period/>
+            """);
+
+        var queryInfo = document.Descendants().Single(element => element.Name.LocalName == "UrlQueryInfo");
+        Assert.AreEqual("false", queryInfo.Attribute("useMPDUrlQuery")!.Value);
+        Assert.IsNull(queryInfo.Attribute("queryString"));
     }
 }
