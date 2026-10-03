@@ -14,7 +14,7 @@ public static class HLS
     public class DecryptionInfo
     {
         public string Method { get; }
-        public string? KeyUrl { get; }
+        public string? KeyUrl { get; set; }
         public string? IV { get; }
         public string? KeyFormat { get; }
         public string? KeyFormatVersions { get; }
@@ -951,7 +951,7 @@ public static class HLS
         public override string ToM3U8Line()
         {
             var builder = new StringBuilder();
-            builder.AppendLine($"#EXTINF:{Duration},");
+            builder.AppendLine($"#EXTINF:{Duration.ToString(CultureInfo.InvariantCulture)},");
             
             if (BytesLength > 0)
             {
