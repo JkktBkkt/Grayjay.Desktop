@@ -205,8 +205,8 @@ namespace Grayjay.ClientServer
                 }
             });
 
-            AddCorsHandler("/proxy/DashRelative/{token}/{**path}", [ "GET", "OPTIONS" ]);
-            _app.MapGet("/proxy/DashRelative/{token}/{**path}", async (HttpContext context, string token, string? path) =>
+            AddCorsHandler("/proxy/DashRelative/{token}/{**path}", [ "GET", "HEAD", "OPTIONS" ]);
+            _app.MapMethods("/proxy/DashRelative/{token}/{**path}", [ "GET", "HEAD" ], async (HttpContext context, string token, string? path) =>
             {
                 context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 

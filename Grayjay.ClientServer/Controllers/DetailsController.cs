@@ -1086,6 +1086,11 @@ namespace Grayjay.ClientServer.Controllers
         };
         private static readonly string[] DashSegmentElementNames = new[] { "SegmentBase", "SegmentList", "SegmentTemplate" };
         private static readonly string[] DashUrlChildElementNames = new[] { "Initialization", "RepresentationIndex", "BitstreamSwitching", "SegmentURL" };
+        private static readonly HashSet<string> DashHttpTimingSchemes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "urn:mpeg:dash:utc:http-head:2014", "urn:mpeg:dash:utc:http-xsdate:2014", "urn:mpeg:dash:utc:http-iso:2014", "urn:mpeg:dash:utc:http-ntp:2014",
+            "urn:mpeg:dash:utc:http-head:2012", "urn:mpeg:dash:utc:http-xsdate:2012", "urn:mpeg:dash:utc:http-iso:2012", "urn:mpeg:dash:utc:http-ntp:2012"
+        };
 
         /// <summary>
         /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
@@ -1197,6 +1202,17 @@ namespace Grayjay.ClientServer.Controllers
                 levelBases.Add(resolved);
             }
             IReadOnlyList<Uri> bases = levelBases.Count > 0 ? levelBases : parentBases;
+
+            // dash.js resolves relative clock URLs against the MPD BaseURL, which is the proxy, so every URL is made absolute upstream.
+            if (element.Name.LocalName == "UTCTiming" && DashHttpTimingSchemes.Contains(((string?)element.Attribute("schemeIdUri"))?.Trim() ?? ""))
+            {
+                var valueAttribute = element.Attribute("value");
+                if (valueAttribute != null)
+                {
+                    valueAttribute.Value = string.Join(" ", valueAttribute.Value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(clockUrl => Uri.TryCreate(bases[0], clockUrl, out var resolvedClock) && IsHttpUri(resolvedClock) ? ToDashProxyUrl(resolvedClock.AbsoluteUri, proxyRootFor) : clockUrl));
+                }
+            }
 
             foreach (var target in DashUrlAttributes)
             {

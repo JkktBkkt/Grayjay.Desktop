@@ -66,6 +66,7 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet("/proxy/DashRelative/{token}/{**path}")]
+        [HttpHead("/proxy/DashRelative/{token}/{**path}")]
         public async Task<IActionResult> DashRelative(string token, string? path)
         {
             await ServeDashRelativeAsync(HttpContext, token, path);
@@ -132,8 +133,10 @@ namespace Grayjay.ClientServer.Controllers
             var impersonate = modified?.Options?.ImpersonateTarget;
 
             context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-            // content-encoding is relayed because the body is relayed still encoded.
-            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges", "content-encoding" };
+            // Date is relayed for http-head UTCTiming; content-encoding stays because the body is relayed still encoded.
+            context.Response.Headers["Access-Control-Expose-Headers"] = "Date";
+            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges", "content-encoding", "date" };
+            var method = HttpMethods.IsHead(context.Request.Method) ? "HEAD" : "GET";
 
             void RelayHeaders(IEnumerable<KeyValuePair<string, string>> upstreamHeaders, bool relayContentLength)
             {
@@ -150,7 +153,7 @@ namespace Grayjay.ClientServer.Controllers
                 var res = Libcurl.Perform(new Libcurl.Request()
                 {
                     Url = finalUrl,
-                    Method = "GET",
+                    Method = method,
                     Headers = finalHeaders.Where(headerPair => !string.IsNullOrEmpty(headerPair.Key) && headerPair.Value != null).ToList(),
                     ImpersonateTarget = impersonate
                 });
@@ -158,18 +161,21 @@ namespace Grayjay.ClientServer.Controllers
                 var body = res.BodyBytes ?? Array.Empty<byte>();
                 context.Response.StatusCode = res.Status;
                 RelayHeaders(res.Headers, relayContentLength: false);
-                context.Response.ContentLength = body.Length;
-                await context.Response.Body.WriteAsync(body, context.RequestAborted);
+                if (method != "HEAD")
+                {
+                    context.Response.ContentLength = body.Length;
+                    await context.Response.Body.WriteAsync(body, context.RequestAborted);
+                }
                 return;
             }
 
-            var resp = entry.Client.GET(finalUrl, finalHeaders);
+            var resp = entry.Client.Request(method, finalUrl, finalHeaders);
             context.Response.StatusCode = resp.Code;
             if (resp.Headers != null)
             {
                 RelayHeaders(resp.Headers, relayContentLength: true);
             }
-            if (resp.Body != null)
+            if (resp.Body != null && method != "HEAD")
             {
                 using var bodyStream = resp.Body.AsStream();
                 await bodyStream.CopyToAsync(context.Response.Body, context.RequestAborted);
