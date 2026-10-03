@@ -1053,6 +1053,20 @@ namespace Grayjay.ClientServer.Controllers
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
             bool isDynamic = string.Equals((string?)root.Attribute("type"), "dynamic", StringComparison.OrdinalIgnoreCase);
 
+            ResolveDashXlinks(document, new Uri(finalUrl), url =>
+            {
+                try
+                {
+                    var xlinkResponse = ModifierHttp.GetBytes(session.Client, url, modifier, new Grayjay.Engine.Models.HttpHeaders(), decodeContent: true);
+                    return xlinkResponse.IsOk ? xlinkResponse.Bytes : null;
+                }
+                catch (Exception e) when (e is not ScriptReloadRequiredException)
+                {
+                    Logger.w<DetailsController>($"Failed to fetch a DASH xlink document, keeping the original element: {e.Message}");
+                    return null;
+                }
+            });
+
             string ProxyRootFor(string hostRoot)
             {
                 var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId, session))
@@ -1091,6 +1105,101 @@ namespace Grayjay.ClientServer.Controllers
             "urn:mpeg:dash:utc:http-head:2014", "urn:mpeg:dash:utc:http-xsdate:2014", "urn:mpeg:dash:utc:http-iso:2014", "urn:mpeg:dash:utc:http-ntp:2014",
             "urn:mpeg:dash:utc:http-head:2012", "urn:mpeg:dash:utc:http-xsdate:2012", "urn:mpeg:dash:utc:http-iso:2012", "urn:mpeg:dash:utc:http-ntp:2012"
         };
+        private static readonly XNamespace XlinkNamespace = "http://www.w3.org/1999/xlink";
+        private const string DashResolveToZero = "urn:mpeg:dash:resolve-to-zero:2013";
+
+        /// <summary>
+        /// Replaces Period, then AdaptationSet and EventStream elements with xlink:actuate="onLoad" by the remote elements, like dash.js.
+        /// A failed fetch keeps the element without its xlink attributes. Other xlinks and resolve-to-zero are left to the player.
+        /// </summary>
+        /// <param name="fetch">Returns the body of an absolute http(s) URL, or null on failure.</param>
+        public static void ResolveDashXlinks(XDocument document, Uri manifestUri, Func<string, byte[]?> fetch)
+        {
+            var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
+            ResolveDashXlinkElements(root.Elements().Where(element => element.Name.LocalName == "Period").ToList(), root, manifestUri, fetch);
+            var periodChildren = root.Elements().Where(element => element.Name.LocalName == "Period")
+                .SelectMany(period => period.Elements().Where(element => element.Name.LocalName == "AdaptationSet" || element.Name.LocalName == "EventStream"))
+                .ToList();
+            ResolveDashXlinkElements(periodChildren, root, manifestUri, fetch);
+        }
+
+        private static void ResolveDashXlinkElements(List<XElement> elements, XElement root, Uri manifestUri, Func<string, byte[]?> fetch)
+        {
+            foreach (var element in elements)
+            {
+                var href = ((string?)element.Attribute(XlinkNamespace + "href"))?.Trim();
+                if (string.IsNullOrEmpty(href) || href == DashResolveToZero || (string?)element.Attribute(XlinkNamespace + "actuate") != "onLoad")
+                    continue;
+
+                List<XElement>? resolved = null;
+                if (Uri.TryCreate(manifestUri, href, out var hrefUri) && IsHttpUri(hrefUri))
+                {
+                    var body = fetch(hrefUri.AbsoluteUri);
+                    if (body != null)
+                        resolved = ParseDashXlinkResponse(body, root, element.Name);
+                }
+
+                if (resolved == null || resolved.Count == 0)
+                {
+                    element.Attribute(XlinkNamespace + "href")?.Remove();
+                    element.Attribute(XlinkNamespace + "actuate")?.Remove();
+                    continue;
+                }
+                element.ReplaceWith(resolved);
+            }
+        }
+
+        /// <summary>
+        /// Parses a remote xlink document, which may hold several sibling elements, and returns the elements named like the target.
+        /// The reader detects the encoding from the BOM or XML declaration; the MPD root's namespaces are in scope for unprefixed elements.
+        /// </summary>
+        private static List<XElement>? ParseDashXlinkResponse(byte[] body, XElement root, XName targetName)
+        {
+            var namespaceManager = new System.Xml.XmlNamespaceManager(new System.Xml.NameTable());
+            foreach (var attribute in root.Attributes().Where(attribute => attribute.IsNamespaceDeclaration))
+                namespaceManager.AddNamespace(attribute.Name.Namespace == XNamespace.None ? "" : attribute.Name.LocalName, attribute.Value);
+            var parserContext = new System.Xml.XmlParserContext(null, namespaceManager, null, System.Xml.XmlSpace.None);
+            var readerSettings = new System.Xml.XmlReaderSettings { ConformanceLevel = System.Xml.ConformanceLevel.Fragment, DtdProcessing = System.Xml.DtdProcessing.Prohibit };
+
+            var parsed = new List<XElement>();
+            try
+            {
+                using var reader = System.Xml.XmlReader.Create(new MemoryStream(body), readerSettings, parserContext);
+                reader.Read();
+                while (!reader.EOF)
+                {
+                    if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                    {
+                        parsed.Add((XElement)XNode.ReadFrom(reader));
+                    }
+                    else
+                    {
+                        reader.Read();
+                    }
+                }
+            }
+            catch (System.Xml.XmlException e)
+            {
+                Logger.w<DetailsController>($"Failed to parse a DASH xlink document: {e.Message}");
+                return null;
+            }
+
+            var resolved = parsed.Where(element => element.Name.LocalName == targetName.LocalName).ToList();
+            foreach (var element in resolved)
+            {
+                element.Attribute(XlinkNamespace + "href")?.Remove();
+                element.Attribute(XlinkNamespace + "actuate")?.Remove();
+                var sourceNamespace = element.Name.Namespace;
+                if (sourceNamespace == targetName.Namespace)
+                    continue;
+                foreach (var descendant in element.DescendantsAndSelf().Where(descendant => descendant.Name.Namespace == sourceNamespace))
+                {
+                    descendant.Name = targetName.Namespace + descendant.Name.LocalName;
+                    descendant.Attributes().Where(attribute => attribute.IsNamespaceDeclaration && attribute.Name.Namespace == XNamespace.None).Remove();
+                }
+            }
+            return resolved;
+        }
 
         /// <summary>
         /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
