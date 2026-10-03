@@ -797,6 +797,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
             if (mediaType === 'application/dash+xml' && !videoElement.canPlayType(mediaType)) {
                 dashPlayer = dashjs.MediaPlayer().create();
+                const initializedStreamIds = new Set<string>();
                 dashPlayer.updateSettings({
                     streaming: {
                         text: {
@@ -881,7 +882,17 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     }
                 });
                 dashPlayer.on(dashjs.MediaPlayer.events.REPRESENTATION_SWITCH, e => updateFps());
+                // A manifest refresh fires STREAM_UPDATED for existing streams; the first one comes before STREAM_INITIALIZED.
+                dashPlayer.on(dashjs.MediaPlayer.events.STREAM_UPDATED, (e: dashjs.MediaPlayerEvent & { streamInfo?: dashjs.StreamInfo }) => {
+                    const streamId = e.streamInfo?.id;
+                    if (streamId !== undefined && initializedStreamIds.has(streamId) && streamId === dashPlayer?.getActiveStream()?.getId()) {
+                        refreshDashTracks();
+                    }
+                });
                 dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, e => {
+                    if (e.streamInfo?.id !== undefined) {
+                        initializedStreamIds.add(e.streamInfo.id);
+                    }
                     if (e.streamInfo?.id !== dashPlayer?.getActiveStream()?.getId()) {
                         return;
                     }
