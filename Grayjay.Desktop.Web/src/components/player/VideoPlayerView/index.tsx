@@ -667,11 +667,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         tracks.find(track => track.key === untrack(() => props.dashAudioTrackKey))
             ?? pickInitialAudioTrack(tracks, untrack(() => props.preferredAudioLanguage), untrack(() => props.preferOriginalAudio));
 
-    /**
-     * Reads the tracks of the active Period, applies the user's preferences that it offers and publishes the tracks
-     * with the selection in effect. The preferences are left as they are, so a later Period that offers them gets them back.
-     * The dash.js getters and setters throw until streaming initializes; STREAM_INITIALIZED refreshes again.
-     */
+    // Preferences the active Period lacks are kept, so a later Period that offers them gets them back.
     const refreshDashTracks = () => {
         const player = dashPlayer;
         if (!player) {
@@ -912,7 +908,6 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
                 dashPlayer.on(dashjs.MediaPlayer.events.CUE_ENTER, (e: any) => {
                     // dash.js 5.1+ re-adds active cues when it refreshes its cue window, which fires enter again.
-                    // Changelog: https://github.com/Dash-Industry-Forum/dash.js/releases/tag/v5.1.0 (#4812)
                     if (subtitleMap.has(e.cueID)) {
                         return;
                     }

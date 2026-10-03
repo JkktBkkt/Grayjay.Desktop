@@ -103,10 +103,7 @@ namespace Grayjay.ClientServer.Controllers
 
             private readonly List<string> _dashRelativeProxyTokens = new List<string>();
 
-            /// <summary>
-            /// Creates and registers a DashRelative proxy only when generation is still the current cache generation, else returns null.
-            /// A stale request creates nothing, as its proxy key can match a token the next video already uses.
-            /// </summary>
+            // A stale generation creates nothing, as its proxy key can match a token the next video already uses.
             public string? TryCreateDashRelativeProxy(long generation, Func<string> createProxy)
             {
                 lock (_dashRelativeProxyTokens)
@@ -150,9 +147,7 @@ namespace Grayjay.ClientServer.Controllers
                 return id;
             }
 
-            /// <summary>
-            /// Bumped by every ClearCachedDash, so a request that started before a video change cannot write into the next video's state.
-            /// </summary>
+            // Bumped by ClearCachedDash, so a request started before a video change cannot write into the next video's state.
             public long CachedDashGeneration
             {
                 get
@@ -164,10 +159,7 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            /// <summary>
-            /// Bumps the generation and removes the DashRelative proxies in one critical section with TryCreateDashRelativeProxy,
-            /// so a request on the new generation cannot register a proxy that this call then removes.
-            /// </summary>
+            // Holds the proxy token lock, so a proxy registered for the new generation is never removed here.
             public void ClearCachedDash()
             {
                 lock (_dashRelativeProxyTokens)
@@ -209,9 +201,6 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            /// <summary>
-            /// Caches dash only when generation is still the current cache generation, and returns whether it did.
-            /// </summary>
             public bool TrySetCachedDash(long generation, int videoIndex, int audioIndex, int subtitleIndex, bool subtitleIsLocal, ProxySettings? proxySettings, Task<string> dash)
             {
                 lock (_cachedDashLockObject)
@@ -245,9 +234,7 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        /// <summary>
-        /// HTTP session of one DASH manifest source, shared by its manifest, xlink and DashRelative proxy requests so cookies carry over.
-        /// </summary>
+        // Shared by the manifest, xlink and DashRelative requests of one DASH source, so cookies carry over.
         public sealed class DashSourceSession
         {
             public string Id { get; } = Guid.NewGuid().ToString("N");
@@ -1108,11 +1095,7 @@ namespace Grayjay.ClientServer.Controllers
         private static readonly XNamespace XlinkNamespace = "http://www.w3.org/1999/xlink";
         private const string DashResolveToZero = "urn:mpeg:dash:resolve-to-zero:2013";
 
-        /// <summary>
-        /// Replaces Period, then AdaptationSet and EventStream elements with xlink:actuate="onLoad" by the remote elements, like dash.js.
-        /// A failed fetch keeps the element without its xlink attributes. Other xlinks and resolve-to-zero are left to the player.
-        /// </summary>
-        /// <param name="fetch">Returns the body of an absolute http(s) URL, or null on failure.</param>
+        // Inlines onLoad xlinks before the proxy rewrite, so the remote elements are rewritten too; the player handles the rest.
         public static void ResolveDashXlinks(XDocument document, Uri manifestUri, Func<string, byte[]?> fetch)
         {
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
@@ -1149,10 +1132,6 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        /// <summary>
-        /// Parses a remote xlink document, which may hold several sibling elements, and returns the elements named like the target.
-        /// The reader detects the encoding from the BOM or XML declaration; the MPD root's namespaces are in scope for unprefixed elements.
-        /// </summary>
         private static List<XElement>? ParseDashXlinkResponse(byte[] body, XElement root, XName targetName)
         {
             var namespaceManager = new System.Xml.XmlNamespaceManager(new System.Xml.NameTable());
@@ -1201,13 +1180,7 @@ namespace Grayjay.ClientServer.Controllers
             return resolved;
         }
 
-        /// <summary>
-        /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
-        /// Relative values that stay under the proxy root for every parent BaseURL are kept relative, so BaseURL failover still works.
-        /// Inherited segment URLs are first copied onto Representations with their own BaseURL, since players resolve them against that base.
-        /// Removes Location and PatchLocation and returns the resolved Location URL, or null.
-        /// </summary>
-        /// <param name="proxyRootFor">Maps an upstream host root (scheme://authority/) to its proxy root URL ending in '/'.</param>
+        // Relative values that stay under the proxy root are kept relative, so BaseURL failover still works.
         public static string? RewriteDashManifestForProxy(XDocument document, Uri manifestUri, Func<string, string> proxyRootFor)
         {
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
@@ -1234,10 +1207,7 @@ namespace Grayjay.ClientServer.Controllers
             return location;
         }
 
-        /// <summary>
-        /// The player would append the query of the served (local) manifest URL for useMPDUrlQuery="true",
-        /// so the upstream manifest query is appended to queryString instead, in the order dash.js uses, and the flag is cleared.
-        /// </summary>
+        // With useMPDUrlQuery the player would append the local manifest query, so the upstream one is inlined instead.
         private static void InlineDashMpdUrlQuery(XElement root, Uri manifestUri)
         {
             var manifestUrl = manifestUri.OriginalString;
@@ -1265,10 +1235,7 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        /// <summary>
-        /// Copies each segment URL a Representation inherits onto the Representation's own segment element when a BaseURL sits
-        /// between the defining level and the Representation. Nearest level wins per attribute or child name, like dash.js.
-        /// </summary>
+        // Players resolve inherited segment URLs against the Representation's own BaseURL, so they are copied down first.
         private static void PushDownInheritedDashSegmentUrls(XElement root)
         {
             XNamespace ns = root.Name.Namespace;
@@ -1317,9 +1284,6 @@ namespace Grayjay.ClientServer.Controllers
             return segmentElement;
         }
 
-        /// <summary>
-        /// Rewrites one MPD level. <paramref name="parentBases"/> are the upstream BaseURL candidates dash.js may select for the parent level.
-        /// </summary>
         private static void RewriteDashElementForProxy(XElement element, IReadOnlyList<Uri> parentBases, bool keepRelative, Func<string, string> proxyRootFor)
         {
             var baseUrlName = element.Name.Namespace + "BaseURL";
@@ -1383,9 +1347,6 @@ namespace Grayjay.ClientServer.Controllers
             return value.Length > 0 && !value.StartsWith("/", StringComparison.Ordinal) && !DashUrlSchemeRegex.IsMatch(value);
         }
 
-        /// <summary>
-        /// Whether a relative value resolves to the same path under the proxy root as upstream; climbing above the upstream root would leave the proxy prefix.
-        /// </summary>
         private static bool StaysUnderProxyRoot(string relative, Uri upstreamBase)
         {
             var placeholderValue = ReplaceDashTemplates(relative, out _);
@@ -1448,10 +1409,6 @@ namespace Grayjay.ClientServer.Controllers
             return proxyRootFor(absoluteUrl[..pathStart] + "/") + absoluteUrl[pathStart..];
         }
 
-        /// <summary>
-        /// Removes "." and ".." segments from an absolute path like a browser, including percent-encoded dots.
-        /// Other characters, escapes, DASH $identifiers$ and repeated slashes are kept as they are.
-        /// </summary>
         public static string RemoveDashDotSegments(string path)
         {
             var segments = path.Split('/');
@@ -1922,11 +1879,7 @@ namespace Grayjay.ClientServer.Controllers
             return declaration + document.ToString(SaveOptions.DisableFormatting);
         }
 
-        /// <summary>
-        /// Adds the selected subtitle as the first AdaptationSet of every Period, in the Period's namespace.
-        /// dash.js shows the first non-forced text AdaptationSet, so it goes before any embedded ones.
-        /// Period segment elements are moved into the existing AdaptationSets first, so the subtitle does not inherit them.
-        /// </summary>
+        // Inserted first in every Period, as dash.js shows the first non-forced text AdaptationSet.
         private static bool InjectDashSubtitleIntoDocument(XDocument document, string subtitleUrl, string lang, string? name)
         {
             var periods = document.Root?.Elements().Where(element => element.Name.LocalName == "Period").ToList();
@@ -1960,10 +1913,7 @@ namespace Grayjay.ClientServer.Controllers
             return true;
         }
 
-        /// <summary>
-        /// Moves Period SegmentBase, SegmentList and SegmentTemplate into each AdaptationSet with the inheritance dash.js applies:
-        /// attributes and child groups the AdaptationSet's own element lacks are copied, its own values win.
-        /// </summary>
+        // Keeps the injected subtitle from inheriting the Period segment elements.
         private static void MoveDashPeriodSegmentElementsToAdaptationSets(XElement period)
         {
             var adaptationSets = period.Elements().Where(element => element.Name.LocalName == "AdaptationSet").ToList();
@@ -2191,9 +2141,6 @@ namespace Grayjay.ClientServer.Controllers
 
 
 
-        /// <summary>
-        /// Thrown when the video changed while a DASH manifest was generated for the previous one.
-        /// </summary>
         internal sealed class SupersededDashRequestException : Exception
         {
         }

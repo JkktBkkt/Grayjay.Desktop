@@ -2,7 +2,7 @@ import type { MediaInfo, MediaPlayerClass } from "dashjs";
 
 const DASH_ROLE_SCHEME_ID = "urn:mpeg:dash:role:2011";
 const AUDIO_PURPOSE_SCHEME_ID = "urn:tva:metadata:cs:AudioPurposeCS:2007";
-// AudioPurposeCS terms (ETSI TS 102 822-3-1) that DVB-DASH uses on audio Accessibility descriptors.
+// DVB audio purpose codes used on audio Accessibility descriptors.
 const AUDIO_PURPOSE_NAMES: Record<string, string> = { "1": "audio description", "2": "hearing impaired" };
 const ACCESSIBILITY_FALLBACK_NAME = "accessibility";
 const MAIN_ROLE = "main";
@@ -35,12 +35,10 @@ export interface DashAudioTrack {
     mediaInfo: MediaInfo;
 }
 
-/**
- * The tracks of the active DASH Period and the selection in effect for it. An undefined representation id means automatic quality.
- */
 export interface DashTrackSelection {
     representations: DashVideoRepresentation[];
     audioTracks: DashAudioTrack[];
+    // Undefined means automatic quality.
     representationId?: string;
     audioTrackKey?: string;
 }
@@ -104,9 +102,6 @@ function regionalLanguage(language: string, audioTrackId: string): string {
     }
 }
 
-/**
- * Describes one dash.js audio track. Copies of one track in different codecs share the same key.
- */
 export function describeAudioTrack(player: MediaPlayerClass, mediaInfo: MediaInfo): DashAudioTrack {
     const language = mediaInfo.lang ?? "";
     const label = mediaInfo.labels?.find(entry => !!entry.text)?.text ?? "";
@@ -121,8 +116,7 @@ export function describeAudioTrack(player: MediaPlayerClass, mediaInfo: MediaInf
     const displayLanguage = regionalLanguage(language, audioTrackId);
 
     return {
-        // The regional language keeps pt-BR and pt-PT apart when both share lang="pt" and a label.
-        // The variant marker keeps descriptive audio apart from the programme track when both share a label.
+        // Region and variant marker keep pt-BR/pt-PT and descriptive audio apart when they share a label.
         key: [displayLanguage, label || audioTrackId, variantMarker, role, accessibilitySignature(mediaInfo)].join("|"),
         language,
         displayLanguage,
@@ -136,10 +130,7 @@ export function describeAudioTrack(player: MediaPlayerClass, mediaInfo: MediaInf
     };
 }
 
-/**
- * Returns one entry per track key, keeping the copy with the highest bandwidth.
- * The display language keeps its region only when the same language is offered in more than one region.
- */
+// The display language keeps its region only when the same language is offered in more than one region.
 export function groupAudioTracks(tracks: DashAudioTrack[]): DashAudioTrack[] {
     const groups = new Map<string, DashAudioTrack>();
     for (const track of tracks) {
@@ -163,9 +154,6 @@ export function groupAudioTracks(tracks: DashAudioTrack[]): DashAudioTrack[] {
     });
 }
 
-/**
- * Picks the audio track playback starts on, from the Primary Language and Prefer Original Audio settings.
- */
 export function pickInitialAudioTrack(tracks: DashAudioTrack[], preferredLanguage: string | null | undefined, preferOriginal: boolean | undefined): DashAudioTrack | undefined {
     if (tracks.length === 0) {
         return undefined;
@@ -200,9 +188,6 @@ export function pickInitialAudioTrack(tracks: DashAudioTrack[], preferredLanguag
     return candidates.reduce((best, track) => track.maxBandwidth > best.maxBandwidth ? track : best);
 }
 
-/**
- * Whether a label only names the track's language or region, for example "Portuguese" on a lang="pt" track.
- */
 function isLanguageNameLabel(track: DashAudioTrack): boolean {
     if (!track.label || !track.language) {
         return false;
@@ -218,9 +203,6 @@ function isLanguageNameLabel(track: DashAudioTrack): boolean {
     }));
 }
 
-/**
- * Display name of a grouped audio track, for example "English (dialog)".
- */
 export function formatAudioTrackName(track: DashAudioTrack): string {
     let languageName = track.displayLanguage;
     if (track.displayLanguage) {
@@ -296,12 +278,7 @@ function tracksWithHighestBitrate(tracks: MediaInfo[]): MediaInfo[] {
     return result;
 }
 
-/**
- * The dash.js default initial pick with default settings: selection priority, main role, then highest efficiency
- * (5.0.3; 5.2 adds a bootstrap step first). A custom selection function replaces that logic for every type, so
- * non-audio types are routed back through this.
- * Not reproduced: the closest-bitrate pick dash.js makes when a later period starts.
- */
+// The dash.js 5.0.3 default pick, as a custom selection function replaces it for every track type.
 export function pickDefaultTracks(tracks: MediaInfo[]): MediaInfo[] {
     let candidates = tracksWithHighestSelectionPriority(tracks);
     if (candidates.length > 1) {

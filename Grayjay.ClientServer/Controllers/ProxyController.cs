@@ -36,9 +36,6 @@ namespace Grayjay.ClientServer.Controllers
         private static readonly ConcurrentDictionary<string, DashRelativeProxyEntry> DashRelativeProxies = new();
         private static readonly ConcurrentDictionary<string, string> DashRelativeProxyTokens = new();
 
-        /// <summary>
-        /// Returns the token of the proxy for baseUrl in one DASH source session; its requests share the session's client and cookies.
-        /// </summary>
         public static string GetOrCreateDashRelativeProxy(WindowState state, string baseUrl, IRequestModifier? modifier, string? modifierId, DashSourceSession session)
         {
             var key = $"{state.WindowID}|{session.Id}|{modifierId ?? ""}|{baseUrl}";
@@ -73,10 +70,7 @@ namespace Grayjay.ClientServer.Controllers
             return new EmptyResult();
         }
 
-        /// <summary>
-        /// Returns the still-encoded path and query after the proxy prefix, so percent-escapes reach upstream unchanged.
-        /// Falls back to the decoded route path when the raw request target does not carry the prefix.
-        /// </summary>
+        // Uses the raw request target, so percent-escapes reach upstream unchanged.
         public static string GetDashRelativeRequestPath(string? rawTarget, string token, string? path, string? queryString)
         {
             var prefix = $"/proxy/DashRelative/{token}/";
@@ -85,11 +79,7 @@ namespace Grayjay.ClientServer.Controllers
             return (path ?? "") + (queryString ?? "");
         }
 
-        /// <summary>
-        /// Appends a request path to the proxy's upstream host root (scheme://authority/) instead of resolving it as a
-        /// reference, so a first segment containing a colon or a leading slash stays a path on that host. Dot segments are
-        /// normalized. Returns null for unparsable input or a result on another origin.
-        /// </summary>
+        // Appended rather than resolved as a reference, so a first segment with a colon stays a path on the same host.
         public static string? ResolveDashRelativeTarget(string baseUrl, string relative)
         {
             if (string.IsNullOrEmpty(relative))

@@ -30,10 +30,7 @@ namespace Grayjay.ClientServer
             return list;
         }
 
-        /// <summary>
-        /// Fetches url through the modifier. With decodeContent, a managed body still carrying a Content-Encoding (such as br) is decoded.
-        /// Libcurl bodies are already decoded by libcurl, so they are returned as they are.
-        /// </summary>
+        // Libcurl bodies arrive decoded, so decodeContent only applies to the managed client.
         public static BytesResult GetBytes(
             ManagedHttpClient client,
             string url,
@@ -77,9 +74,6 @@ namespace Grayjay.ClientServer
             return new BytesResult(finalUrl, resp.Code, body);
         }
 
-        /// <summary>
-        /// Removes every Content-Encoding coding from body, across repeated headers, in reverse order of application.
-        /// </summary>
         public static byte[] DecodeContent(HttpHeaders headers, byte[] body)
         {
             var codings = headers.GetAll("content-encoding")
@@ -121,9 +115,6 @@ namespace Grayjay.ClientServer
             return body;
         }
 
-        /// <summary>
-        /// RFC 1950 header: compression method 8, window size up to 32K, and a header checksum that is a multiple of 31.
-        /// </summary>
         private static bool HasZlibHeader(byte[] body)
         {
             if (body.Length < 2)
