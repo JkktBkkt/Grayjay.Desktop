@@ -951,7 +951,7 @@ public static class HLS
         public override string ToM3U8Line()
         {
             var builder = new StringBuilder();
-            builder.AppendLine($"#EXTINF:{Duration},");
+            builder.AppendLine($"#EXTINF:{Duration.ToString(CultureInfo.InvariantCulture)},");
             
             if (BytesLength > 0)
             {

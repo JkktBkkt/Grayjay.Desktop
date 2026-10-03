@@ -1,5 +1,6 @@
 using Grayjay.ClientServer.Controllers;
 using Grayjay.ClientServer.Parsers;
+using System.Globalization;
 
 namespace Grayjay.Desktop.Tests;
 
@@ -465,6 +466,24 @@ public class HLSTests
 
         var dataKey = ProxyController.ProxyHLSPlaylist(ProxyBaseUri, HLS.ParseVariantPlaylist(DataKeyPlaylist, SourceUrl), true);
         StringAssert.Contains(GetKeyLines(dataKey.GenerateM3U8()).Single(), "URI=\"data:text/plain;base64,");
+    }
+
+    [TestMethod]
+    public void TestGenerateM3U8UsesInvariantDuration()
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pt-PT");
+            Assert.AreEqual("9,986", 9.986.ToString());
+
+            var generated = HLS.ParseVariantPlaylist(MediaPlaylist, SourceUrl).GenerateM3U8();
+            Assert.AreEqual(2, CountOccurrences(generated, "#EXTINF:9.986,"));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     private static int CountOccurrences(string text, string value)
