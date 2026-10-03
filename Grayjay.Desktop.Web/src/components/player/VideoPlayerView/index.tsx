@@ -10,6 +10,7 @@ import { Event0 } from "../../../utility/Event";
 import * as dashjs from 'dashjs';
 import Hls from 'hls.js';
 import { UmpFormatInfo, UmpPlayer } from '../UmpPlayer/UmpPlayer';
+import { DashAudioTrack, DashTrackSelection, DashVideoRepresentation, describeAudioTrack, groupAudioTracks, pickDefaultTracks, pickInitialAudioTrack } from './dashTracks';
 import { ChapterType, IChapter } from '../../../backend/models/contentDetails/IChapter';
 import { IPlatformVideoDetails } from '../../../backend/models/contentDetails/IPlatformVideoDetails';
 import CircleLoader from '../../basics/loaders/CircleLoader';
@@ -21,6 +22,24 @@ import { clearLiveChatOnSeek } from '../../../state/StateLiveChat';
 import { focusable } from '../../../focusable'; void focusable;
 import { FocusableOptions, InputSource } from '../../../nav';
 import { SettingsBackend } from '../../../backend/SettingsBackend';
+
+// dash.js error payloads can reference themselves (a segment request carries its representation), which JSON.stringify rejects.
+const stringifyDashError = (error: unknown): string => {
+    const seen = new WeakSet<object>();
+    try {
+        return JSON.stringify(error, (_key, value: unknown) => {
+            if (typeof value === "object" && value !== null) {
+                if (seen.has(value)) {
+                    return "[Circular]";
+                }
+                seen.add(value);
+            }
+            return value;
+        });
+    } catch {
+        return String(error);
+    }
+};
 
 interface VideoProps {
     onVideoDimensionsChanged: (width: number, height: number) => void;
@@ -34,6 +53,12 @@ interface VideoProps {
     onUmpInitialVideoFormat?: (format: UmpFormatInfo) => void;
     onUmpFormats?: (video: UmpFormatInfo[], audio: UmpFormatInfo[]) => void;
     onUmpActiveFormat?: (role: "video" | "audio", format: UmpFormatInfo) => void;
+    dashVideoRepresentationId?: string;
+    dashAudioTrackKey?: string;
+    preferredAudioLanguage?: string | null;
+    preferOriginalAudio?: boolean;
+    onDashTracks?: (tracks: DashTrackSelection) => void;
+    onDashActiveRepresentation?: (representationId: string | undefined) => void;
     onSettingsDialog?: (event: HTMLElement|undefined) => void;
     onFullscreenChange?: (isFullscreen: boolean) => void;
     onToggleSubtitles?: () => void;
@@ -634,6 +659,60 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setResumePositionVisible(visible);
     });
 
+    const describeDashAudioTracks = (player: dashjs.MediaPlayerClass): DashAudioTrack[] =>
+        groupAudioTracks(player.getTracksFor("audio").map(track => describeAudioTrack(player, track)));
+
+    // The user's track, or the settings default when the user has not chosen one or this Period lacks it.
+    const resolveDashAudioTrack = (tracks: DashAudioTrack[]): DashAudioTrack | undefined =>
+        tracks.find(track => track.key === untrack(() => props.dashAudioTrackKey))
+            ?? pickInitialAudioTrack(tracks, untrack(() => props.preferredAudioLanguage), untrack(() => props.preferOriginalAudio));
+
+    // Preferences the active Period lacks are kept, so a later Period that offers them gets them back.
+    const refreshDashTracks = () => {
+        const player = dashPlayer;
+        if (!player) {
+            return;
+        }
+        try {
+            const representations: DashVideoRepresentation[] = player.getRepresentationsByType("video").map(representation => ({
+                id: representation.id,
+                width: representation.width,
+                height: representation.height,
+                bandwidth: representation.bandwidth
+            }));
+            const audioTracks = describeDashAudioTracks(player);
+
+            const preferredRepresentationId = untrack(() => props.dashVideoRepresentationId);
+            const offersPreferredRepresentation = representations.some(representation => representation.id === preferredRepresentationId);
+            // A manual quality stays manual in a Period without it; dash.js then keeps the nearest bitrate.
+            player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: preferredRepresentationId === undefined } } } });
+            if (preferredRepresentationId !== undefined && offersPreferredRepresentation) {
+                // A forced replace leaves dash.js gap jumping off for the session and stalls on manifests with nominal segment durations.
+                // dash.js 5.0.3 types the id as a number but matches it with === against the string Representation.id.
+                player.setRepresentationForTypeById("video", preferredRepresentationId as never, false);
+            }
+
+            const audioTrack = resolveDashAudioTrack(audioTracks);
+            const currentAudioTrack = player.getCurrentTrackFor("audio");
+            const currentAudioTrackKey = currentAudioTrack ? describeAudioTrack(player, currentAudioTrack).key : undefined;
+            if (audioTrack && audioTrack.key !== currentAudioTrackKey) {
+                player.setCurrentTrack(audioTrack.mediaInfo, true);
+            }
+
+            const currentRepresentationId = player.getCurrentRepresentationForType("video")?.id;
+            let representationId: string | undefined = undefined;
+            if (preferredRepresentationId !== undefined) {
+                representationId = offersPreferredRepresentation ? preferredRepresentationId : currentRepresentationId;
+            }
+            batch(() => {
+                props.onDashTracks?.({ representations, audioTracks, representationId, audioTrackKey: audioTrack?.key ?? currentAudioTrackKey });
+                props.onDashActiveRepresentation?.(currentRepresentationId);
+            });
+        } catch (e) {
+            console.warn("Failed to refresh the DASH tracks", e);
+        }
+    };
+
     const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration) => {
         //TODO: Implement playWhenReady ?
         console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime});
@@ -675,6 +754,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 console.warn("Failed to destroy dash player", e);
             }
             dashPlayer = undefined;
+            batch(() => {
+                props.onDashTracks?.({ representations: [], audioTracks: [] });
+                props.onDashActiveRepresentation?.(undefined);
+            });
         }
 
         if (hlsPlayer) {
@@ -710,12 +793,17 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
             if (mediaType === 'application/dash+xml' && !videoElement.canPlayType(mediaType)) {
                 dashPlayer = dashjs.MediaPlayer().create();
+                const initializedStreamIds = new Set<string>();
                 dashPlayer.updateSettings({
                     streaming: {
                         text: {
                             dispatchForManualRendering: true
                         },
-                        manifestRequestTimeout: 60000
+                        manifestRequestTimeout: 60000,
+                        // The cached choice is shared by every plugin and would override the Primary Language setting.
+                        lastMediaSettingsCachingInfo: {
+                            enabled: false
+                        }
                     }
                 });
 
@@ -779,10 +867,33 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 
                 dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, e => { if (e.mediaType === 'video') updateFps(); });
                 dashPlayer.on(dashjs.MediaPlayer.events.TRACK_CHANGE_RENDERED, updateFps);
-                dashPlayer.on(dashjs.MediaPlayer.events.PERIOD_SWITCH_COMPLETED, updateFps);
-                dashPlayer.on(dashjs.MediaPlayer.events.REPRESENTATION_SWITCH, e => updateFps());
-                dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+                // A preloaded Period initializes while the previous one plays and fires no event when it becomes active.
+                dashPlayer.on(dashjs.MediaPlayer.events.PERIOD_SWITCH_COMPLETED, () => {
                     updateFps();
+                    refreshDashTracks();
+                });
+                dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, e => {
+                    if (e.mediaType === 'video') {
+                        props.onDashActiveRepresentation?.(e.newRepresentation?.id);
+                    }
+                });
+                dashPlayer.on(dashjs.MediaPlayer.events.REPRESENTATION_SWITCH, e => updateFps());
+                // A manifest refresh fires STREAM_UPDATED for existing streams; the first one comes before STREAM_INITIALIZED.
+                dashPlayer.on(dashjs.MediaPlayer.events.STREAM_UPDATED, (e: dashjs.MediaPlayerEvent & { streamInfo?: dashjs.StreamInfo }) => {
+                    const streamId = e.streamInfo?.id;
+                    if (streamId !== undefined && initializedStreamIds.has(streamId) && streamId === dashPlayer?.getActiveStream()?.getId()) {
+                        refreshDashTracks();
+                    }
+                });
+                dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, e => {
+                    if (e.streamInfo?.id !== undefined) {
+                        initializedStreamIds.add(e.streamInfo.id);
+                    }
+                    if (e.streamInfo?.id !== dashPlayer?.getActiveStream()?.getId()) {
+                        return;
+                    }
+                    updateFps();
+                    refreshDashTracks();
                     const videoWidth = videoElement?.videoWidth ?? 0;
                     const videoHeight = videoElement?.videoHeight ?? 0;
                     setIsAudioOnly(videoWidth === 0 && videoHeight === 0);
@@ -796,6 +907,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.CUE_ENTER, (e: any) => {
+                    // dash.js 5.1+ re-adds active cues when it refreshes its cue window, which fires enter again.
+                    if (subtitleMap.has(e.cueID)) {
+                        return;
+                    }
                     const subtitle = document.createElement("div")
                     subtitle.textContent = cueText(e.text);
                     subtitleMap.set(e.cueID, subtitle);
@@ -882,16 +997,26 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (data) => {
                     console.error("DashJS ERROR", data);
                     const code = (data.error as any)?.code;
-                    onError(`DashJS Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    onError(`DashJS Error: ${stringifyDashError(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
                 });
 
                 dashPlayer.on(dashjs.MediaPlayer.events.PLAYBACK_ERROR, (data) => {
                     console.error("DashJS PLAYBACK_ERROR", data);
                     const code = (data.error as any)?.code;
-                    onError(`DashJS Playback Error: ${JSON.stringify(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
+                    onError(`DashJS Playback Error: ${stringifyDashError(data.error)}`, code ? fatalErrorCodes.includes(code) : false);
                 });
 
-                dashPlayer.initialize(videoElement, sourceUrl, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
+                const trackSelectionPlayer = dashPlayer;
+                dashPlayer.setCustomInitialTrackSelectionFunction((tracks: dashjs.MediaInfo[]) => {
+                    if (tracks[0]?.type !== 'audio') {
+                        return pickDefaultTracks(tracks);
+                    }
+                    const chosenTrack = resolveDashAudioTrack(groupAudioTracks(tracks.map(track => describeAudioTrack(trackSelectionPlayer, track))));
+                    return chosenTrack ? [chosenTrack.mediaInfo] : tracks;
+                });
+
+                // dash.js 5.2 CMCD parses every response URL with new URL(), which throws on a relative manifest URL.
+                dashPlayer.initialize(videoElement, new URL(sourceUrl, window.location.href).href, true, getResumePosition(shouldResume, startTime)?.as('seconds') ?? 0);
             } else if ((mediaType === 'application/vnd.apple.mpegurl' || mediaType === 'application/x-mpegURL') && Hls.isSupported()) {
                 videoElement.onerror = (event: Event | string, source?: string, lineno?: number, colno?: number, error?: Error) => {
                     console.error("Player error", {source, lineno, colno, error});
@@ -1128,6 +1253,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         const key = props.umpAudioKey;
         umpPlayer?.setAudioFormat(key);
     });
+    // Settings read after the initial pick still move playback to the preferred language, unless the user chose a track.
+    createEffect(on(() => [props.dashVideoRepresentationId, props.dashAudioTrackKey, props.preferredAudioLanguage, props.preferOriginalAudio], () => {
+        refreshDashTracks();
+    }, { defer: true }));
 
     const toggleFullscreen = () => {
         syncFullscreenToDom(!isFullscreen());

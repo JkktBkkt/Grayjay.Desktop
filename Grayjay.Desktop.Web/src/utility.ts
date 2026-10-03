@@ -608,3 +608,16 @@ export async function getDefaultPlaybackSpeed() {
         default: return 1.0;
     }
 }
+
+// Same index order as PlaybackSettings.GetPrimaryLanguage on the backend.
+const PRIMARY_AUDIO_LANGUAGES = ["en", "es", "de", "fr", "ja", "ko", "th", "vi", "id", "hi", "ar", "tr", "ru", "pt", "zh", "it"];
+
+export async function getPrimaryAudioLanguage(): Promise<string | null> {
+    const value = (await SettingsBackend.settings())?.object?.playback?.primaryLanguage;
+    return (typeof value === "number") ? (PRIMARY_AUDIO_LANGUAGES[value] ?? null) : null;
+}
+
+export async function getPreferOriginalAudio(): Promise<boolean> {
+    const value = (await SettingsBackend.settings())?.object?.playback?.preferOriginalAudio;
+    return value !== false;
+}

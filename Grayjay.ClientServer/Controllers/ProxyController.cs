@@ -6,6 +6,7 @@ using Grayjay.Desktop.POC.Port.States;
 using Grayjay.Engine.Models.Video.Additions;
 using Grayjay.Engine.Packages;
 using Grayjay.Engine.Web;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using System;
@@ -25,6 +26,149 @@ namespace Grayjay.ClientServer.Controllers
     {
         private static readonly ConcurrentDictionary<string, string> ModifierIdCache = new();
         private static readonly Dictionary<(string? modifierId, string url), string> ExistingHlsProxies = new();
+
+        public class DashRelativeProxyEntry
+        {
+            public required string BaseUrl { get; init; }
+            public IRequestModifier? Modifier { get; init; }
+            public required ManagedHttpClient Client { get; init; }
+        }
+        private static readonly ConcurrentDictionary<string, DashRelativeProxyEntry> DashRelativeProxies = new();
+        private static readonly ConcurrentDictionary<string, string> DashRelativeProxyTokens = new();
+
+        public static string GetOrCreateDashRelativeProxy(WindowState state, string baseUrl, IRequestModifier? modifier, string? modifierId, DashSourceSession session)
+        {
+            var key = $"{state.WindowID}|{session.Id}|{modifierId ?? ""}|{baseUrl}";
+            var token = DashRelativeProxyTokens.GetOrAdd(key, _ => Guid.NewGuid().ToString("N"));
+            DashRelativeProxies.AddOrUpdate(token,
+                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = session.Client },
+                (_, existing) => ReferenceEquals(existing.Modifier, modifier)
+                    ? existing
+                    : new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = existing.Client });
+            return token;
+        }
+
+        public static void RemoveDashRelativeProxy(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+                return;
+            if (!DashRelativeProxies.TryRemove(token, out _))
+                return;
+
+            foreach (var pair in DashRelativeProxyTokens)
+            {
+                if (pair.Value == token)
+                    DashRelativeProxyTokens.TryRemove(pair.Key, out _);
+            }
+        }
+
+        [HttpGet("/proxy/DashRelative/{token}/{**path}")]
+        [HttpHead("/proxy/DashRelative/{token}/{**path}")]
+        public async Task<IActionResult> DashRelative(string token, string? path)
+        {
+            await ServeDashRelativeAsync(HttpContext, token, path);
+            return new EmptyResult();
+        }
+
+        // Uses the raw request target, so percent-escapes reach upstream unchanged.
+        public static string GetDashRelativeRequestPath(string? rawTarget, string token, string? path, string? queryString)
+        {
+            var prefix = $"/proxy/DashRelative/{token}/";
+            if (rawTarget != null && rawTarget.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return rawTarget[prefix.Length..];
+            return (path ?? "") + (queryString ?? "");
+        }
+
+        // Appended rather than resolved as a reference, so a first segment with a colon stays a path on the same host.
+        public static string? ResolveDashRelativeTarget(string baseUrl, string relative)
+        {
+            if (string.IsNullOrEmpty(relative))
+                return baseUrl;
+
+            var baseUri = new Uri(baseUrl);
+            if (!Uri.TryCreate(baseUri.GetLeftPart(UriPartial.Authority) + "/" + relative, UriKind.Absolute, out var resolved))
+                return null;
+            if (!string.Equals(resolved.GetLeftPart(UriPartial.Authority), baseUri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return resolved.AbsoluteUri;
+        }
+
+        public static async Task ServeDashRelativeAsync(HttpContext context, string token, string? path)
+        {
+            if (!DashRelativeProxies.TryGetValue(token, out var entry))
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
+
+            var rawTarget = context.Features.Get<IHttpRequestFeature>()?.RawTarget;
+            var relative = GetDashRelativeRequestPath(rawTarget, token, path, context.Request.QueryString.Value);
+            var targetUrl = ResolveDashRelativeTarget(entry.BaseUrl, relative);
+            if (targetUrl == null)
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            var headers = new Engine.Models.HttpHeaders();
+            if (context.Request.Headers.TryGetValue("Range", out var rangeValues))
+                headers.Set("Range", rangeValues.ToString());
+
+            var modified = entry.Modifier?.ModifyRequest(targetUrl, headers);
+            var finalUrl = modified?.Url ?? targetUrl;
+            var finalHeaders = modified?.Headers ?? headers;
+            var impersonate = modified?.Options?.ImpersonateTarget;
+
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            // Date is relayed for http-head UTCTiming; content-encoding stays because the body is relayed still encoded.
+            context.Response.Headers["Access-Control-Expose-Headers"] = "Date";
+            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges", "content-encoding", "date" };
+            var method = HttpMethods.IsHead(context.Request.Method) ? "HEAD" : "GET";
+
+            void RelayHeaders(IEnumerable<KeyValuePair<string, string>> upstreamHeaders, bool relayContentLength)
+            {
+                foreach (var header in upstreamHeaders)
+                {
+                    var name = header.Key.ToLowerInvariant();
+                    if (headersToRelay.Contains(name) || (relayContentLength && name == "content-length"))
+                        context.Response.Headers[header.Key] = header.Value;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(impersonate))
+            {
+                var res = Libcurl.Perform(new Libcurl.Request()
+                {
+                    Url = finalUrl,
+                    Method = method,
+                    Headers = finalHeaders.Where(headerPair => !string.IsNullOrEmpty(headerPair.Key) && headerPair.Value != null).ToList(),
+                    ImpersonateTarget = impersonate
+                });
+
+                var body = res.BodyBytes ?? Array.Empty<byte>();
+                context.Response.StatusCode = res.Status;
+                RelayHeaders(res.Headers, relayContentLength: false);
+                if (method != "HEAD")
+                {
+                    context.Response.ContentLength = body.Length;
+                    await context.Response.Body.WriteAsync(body, context.RequestAborted);
+                }
+                return;
+            }
+
+            var resp = entry.Client.Request(method, finalUrl, finalHeaders);
+            context.Response.StatusCode = resp.Code;
+            if (resp.Headers != null)
+            {
+                RelayHeaders(resp.Headers, relayContentLength: true);
+            }
+            if (resp.Body != null && method != "HEAD")
+            {
+                using var bodyStream = resp.Body.AsStream();
+                await bodyStream.CopyToAsync(context.Response.Body, context.RequestAborted);
+            }
+        }
 
         [HttpGet]
         public async Task<IActionResult> Image(string url, string cacheName = null)
