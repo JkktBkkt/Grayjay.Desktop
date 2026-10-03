@@ -1085,10 +1085,12 @@ namespace Grayjay.ClientServer.Controllers
             ("BitstreamSwitching", "sourceURL")
         };
         private static readonly string[] DashSegmentElementNames = new[] { "SegmentBase", "SegmentList", "SegmentTemplate" };
+        private static readonly string[] DashUrlChildElementNames = new[] { "Initialization", "RepresentationIndex", "BitstreamSwitching", "SegmentURL" };
 
         /// <summary>
         /// Routes every BaseURL and URL attribute of an MPD through the DashRelative proxy, resolved per level like ExoPlayer.
         /// Relative values that stay under the proxy root for every parent BaseURL are kept relative, so BaseURL failover still works.
+        /// Inherited segment URLs are first copied onto Representations with their own BaseURL, since players resolve them against that base.
         /// Removes Location and PatchLocation and returns the resolved Location URL, or null.
         /// </summary>
         /// <param name="proxyRootFor">Maps an upstream host root (scheme://authority/) to its proxy root URL ending in '/'.</param>
@@ -1111,9 +1113,62 @@ namespace Grayjay.ClientServer.Controllers
             if (!root.Elements(ns + "BaseURL").Any())
                 root.AddFirst(new XElement(ns + "BaseURL", manifestUri.AbsoluteUri));
 
+            PushDownInheritedDashSegmentUrls(root);
             // dash.js resolves MPD-level relative BaseURLs against the served manifest URL, so they are always made absolute.
             RewriteDashElementForProxy(root, new[] { manifestUri }, false, proxyRootFor);
             return location;
+        }
+
+        /// <summary>
+        /// Copies each segment URL a Representation inherits onto the Representation's own segment element when a BaseURL sits
+        /// between the defining level and the Representation. Nearest level wins per attribute or child name, like dash.js.
+        /// </summary>
+        private static void PushDownInheritedDashSegmentUrls(XElement root)
+        {
+            XNamespace ns = root.Name.Namespace;
+            foreach (var representation in root.Elements(ns + "Period").Elements(ns + "AdaptationSet").Elements(ns + "Representation"))
+            {
+                var adaptationSet = representation.Parent!;
+                var levels = new[] { representation, adaptationSet, adaptationSet.Parent! };
+                foreach (var segmentName in DashSegmentElementNames)
+                {
+                    foreach (var target in DashUrlAttributes)
+                    {
+                        if (target.Element != segmentName)
+                            continue;
+                        var sourceIndex = Array.FindIndex(levels, level => level.Element(ns + segmentName)?.Attribute(target.Attribute) != null);
+                        if (!HasDashBaseUrlBelow(levels, sourceIndex, ns))
+                            continue;
+                        var value = levels[sourceIndex].Element(ns + segmentName)!.Attribute(target.Attribute)!.Value;
+                        GetOrAddDashSegmentElement(representation, ns + segmentName).SetAttributeValue(target.Attribute, value);
+                    }
+
+                    foreach (var childName in DashUrlChildElementNames)
+                    {
+                        var sourceIndex = Array.FindIndex(levels, level => level.Element(ns + segmentName)?.Element(ns + childName) != null);
+                        if (!HasDashBaseUrlBelow(levels, sourceIndex, ns))
+                            continue;
+                        var children = levels[sourceIndex].Element(ns + segmentName)!.Elements(ns + childName).Select(child => new XElement(child)).ToList();
+                        GetOrAddDashSegmentElement(representation, ns + segmentName).Add(children);
+                    }
+                }
+            }
+        }
+
+        private static bool HasDashBaseUrlBelow(XElement[] levels, int sourceIndex, XNamespace ns)
+        {
+            return sourceIndex > 0 && levels.Take(sourceIndex).Any(level => level.Element(ns + "BaseURL") != null);
+        }
+
+        private static XElement GetOrAddDashSegmentElement(XElement representation, XName segmentName)
+        {
+            var segmentElement = representation.Element(segmentName);
+            if (segmentElement == null)
+            {
+                segmentElement = new XElement(segmentName);
+                representation.Add(segmentElement);
+            }
+            return segmentElement;
         }
 
         /// <summary>
