@@ -129,7 +129,8 @@ namespace Grayjay.ClientServer.Controllers
             var impersonate = modified?.Options?.ImpersonateTarget;
 
             context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges" };
+            // content-encoding is relayed because the body is relayed still encoded.
+            var headersToRelay = new[] { "content-type", "content-range", "accept-ranges", "content-encoding" };
 
             void RelayHeaders(IEnumerable<KeyValuePair<string, string>> upstreamHeaders, bool relayContentLength)
             {
