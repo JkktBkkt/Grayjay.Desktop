@@ -59,6 +59,10 @@ const OverlayOfficialPluginsDialog: Component<OverlayOfficialPluginsDialogProps>
       }
     }
 
+    function displayName(config: ISourceConfig) {
+      return (config.name != "PeerTube") ? config.name : "FUTO PeerTube";
+    }
+
     function toggleSource(source: ISourceConfig){
       if(!selected$())
         return;
@@ -144,8 +148,8 @@ const OverlayOfficialPluginsDialog: Component<OverlayOfficialPluginsDialogProps>
                   <div class={styles.imageContainer}>
                     <img class={styles.image} src={config.absoluteIconUrl} />
                   </div>
-                  <div class={styles.name}>
-                    {(config.name != "PeerTube") ? config.name : "FUTO PeerTube"}
+                  <div class={styles.name} title={displayName(config)}>
+                    <span class={styles.nameText}>{displayName(config)}</span>
                   </div>
                 </div>
               }</For>
@@ -154,7 +158,7 @@ const OverlayOfficialPluginsDialog: Component<OverlayOfficialPluginsDialogProps>
                     <img class={styles.image} src="https://plugins.grayjay.app/PeerTube/peertube.png" />
                   </div>
                   <div class={styles.name} style="font-size: 12px">
-                    {"PeerTube Instance"}
+                    <span class={styles.nameText}>{"PeerTube Instance"}</span>
                   </div>
               </div>
             </div>
