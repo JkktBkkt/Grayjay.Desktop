@@ -1,7 +1,8 @@
 
 
 .container {
-    width: 500px;
+    width: min(780px, calc(100vw - 40px));
+    box-sizing: border-box;
     position: relative;
     max-height: calc(100vh - 40px);
     padding-top: 20px;
