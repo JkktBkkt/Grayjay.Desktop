@@ -1297,8 +1297,47 @@ namespace Grayjay.ClientServer.Controllers
             if (pathStart < 0)
                 return proxyRootFor(absoluteUrl + "/");
             if (absoluteUrl[pathStart] == '/')
-                return proxyRootFor(absoluteUrl[..(pathStart + 1)]) + absoluteUrl[(pathStart + 1)..];
+            {
+                // Dot segments are removed upstream-side first; left in place, the browser would climb out of the proxy prefix.
+                var pathEnd = absoluteUrl.IndexOfAny(new[] { '?', '#' }, pathStart);
+                var path = RemoveDashDotSegments(pathEnd < 0 ? absoluteUrl[pathStart..] : absoluteUrl[pathStart..pathEnd]);
+                var rest = pathEnd < 0 ? "" : absoluteUrl[pathEnd..];
+                return proxyRootFor(absoluteUrl[..(pathStart + 1)]) + path[1..] + rest;
+            }
             return proxyRootFor(absoluteUrl[..pathStart] + "/") + absoluteUrl[pathStart..];
+        }
+
+        /// <summary>
+        /// Removes "." and ".." segments from an absolute path like a browser, including percent-encoded dots.
+        /// Other characters, escapes, DASH $identifiers$ and repeated slashes are kept as they are.
+        /// </summary>
+        public static string RemoveDashDotSegments(string path)
+        {
+            var segments = path.Split('/');
+            var output = new List<string>();
+            for (var index = 1; index < segments.Length; index++)
+            {
+                var segment = segments[index];
+                var isLast = index == segments.Length - 1;
+                var normalizedSegment = segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase);
+                if (normalizedSegment == "..")
+                {
+                    if (output.Count > 0)
+                        output.RemoveAt(output.Count - 1);
+                    if (isLast)
+                        output.Add("");
+                }
+                else if (normalizedSegment == ".")
+                {
+                    if (isLast)
+                        output.Add("");
+                }
+                else
+                {
+                    output.Add(segment);
+                }
+            }
+            return "/" + string.Join("/", output);
         }
 
         private static bool IsHttpUri(Uri uri) => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
