@@ -174,11 +174,19 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
+            /// <summary>
+            /// Bumps the generation and removes the DashRelative proxies in one critical section with TryCreateDashRelativeProxy,
+            /// so a request on the new generation cannot register a proxy that this call then removes.
+            /// </summary>
             public void ClearCachedDash()
             {
+                lock (_dashRelativeProxyTokens)
                 lock (_cachedDashLockObject)
                 {
                     _cachedDashGeneration++;
+                    foreach (var token in _dashRelativeProxyTokens)
+                        ProxyController.RemoveDashRelativeProxy(token);
+                    _dashRelativeProxyTokens.Clear();
                     CachedDashAudioIndex = -1;
                     CachedDashVideoIndex = -1;
                     CachedDashSubtitleIndex = -1;
@@ -266,7 +274,6 @@ namespace Grayjay.ClientServer.Controllers
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
             state.ClearDashManifestLocations();
-            state.ClearDashRelativeProxies();
             state.ClearDashSourceSessions();
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
