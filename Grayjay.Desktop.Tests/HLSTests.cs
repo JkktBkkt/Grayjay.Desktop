@@ -1,3 +1,4 @@
+using Grayjay.ClientServer.Controllers;
 using Grayjay.ClientServer.Parsers;
 
 namespace Grayjay.Desktop.Tests;
@@ -396,6 +397,74 @@ public class HLSTests
 
         var reparsed = HLS.ParseVariantPlaylist(generated, SourceUrl);
         Assert.AreEqual("https://keys.example.com/key1", reparsed.GetMapDecryption()?.KeyUrl);
+    }
+
+    private const string ProxyBaseUri = "http://127.0.0.1:11338";
+
+    private const string DataKeyPlaylist = """
+    #EXTM3U
+    #EXT-X-VERSION:3
+    #EXT-X-TARGETDURATION:10
+    #EXT-X-KEY:METHOD=AES-128,URI="data:text/plain;base64,AAAAAAAAAAAAAAAAAAAAAA=="
+    #EXTINF:9.0,
+    https://cdn.example.com/segment0.ts
+    #EXT-X-ENDLIST
+    """;
+
+    private static List<string> GetKeyLines(string playlist)
+    {
+        return playlist.Split('\n').Where(line => line.StartsWith("#EXT-X-KEY:")).ToList();
+    }
+
+    [TestMethod]
+    public void TestProxyHlsPlaylistProxiesKeyBeforeMap()
+    {
+        var playlist = HLS.ParseVariantPlaylist(KeyRotationAfterMapPlaylist, SourceUrl);
+        var proxied = ProxyController.ProxyHLSPlaylist(ProxyBaseUri, playlist, true);
+        var generated = proxied.GenerateM3U8();
+
+        Assert.IsFalse(generated.Contains("keys.example.com"));
+        var keyLines = GetKeyLines(generated);
+        Assert.AreEqual(2, keyLines.Count);
+        Assert.IsTrue(keyLines.All(line => line.Contains("URI=\"http://127.0.0.1:")));
+        Assert.AreNotEqual(proxied.MapKeys!.Single().KeyUrl, proxied.Segments.OfType<HLS.MediaSegment>().First().Keys!.Single().KeyUrl);
+
+        var key1Index = generated.IndexOf(keyLines[0]);
+        var mapIndex = generated.IndexOf("#EXT-X-MAP:");
+        var key2Index = generated.IndexOf(keyLines[1]);
+        Assert.IsTrue(key1Index < mapIndex && mapIndex < key2Index);
+        StringAssert.Contains(keyLines[0], "IV=0x00000000000000000000000000000001");
+
+        var reparsed = HLS.ParseVariantPlaylist(generated, ProxyBaseUri);
+        Assert.AreEqual(proxied.MapKeys!.Single().KeyUrl, reparsed.GetMapDecryption()?.KeyUrl);
+    }
+
+    [TestMethod]
+    public void TestProxyHlsPlaylistProxiesKeyAfterMap()
+    {
+        var playlist = HLS.ParseVariantPlaylist(MapBeforeKeyPlaylist, SourceUrl);
+        var proxied = ProxyController.ProxyHLSPlaylist(ProxyBaseUri, playlist, true);
+        var generated = proxied.GenerateM3U8();
+
+        Assert.IsFalse(generated.Contains("keys.example.com"));
+        var keyLines = GetKeyLines(generated);
+        Assert.AreEqual(1, keyLines.Count);
+        StringAssert.Contains(keyLines[0], "URI=\"http://127.0.0.1:");
+        Assert.IsTrue(generated.IndexOf("#EXT-X-MAP:") < generated.IndexOf(keyLines[0]));
+        Assert.IsNull(HLS.ParseVariantPlaylist(generated, ProxyBaseUri).GetMapDecryption());
+    }
+
+    [TestMethod]
+    public void TestProxyHlsPlaylistLeavesDrmAndDataKeys()
+    {
+        var multiDrm = ProxyController.ProxyHLSPlaylist(ProxyBaseUri, HLS.ParseVariantPlaylist(MultiDrmPlaylist, SourceUrl), true);
+        var multiDrmLines = GetKeyLines(multiDrm.GenerateM3U8());
+        Assert.AreEqual(2, multiDrmLines.Count);
+        StringAssert.Contains(multiDrmLines[0], "URI=\"https://drm.example.com/widevine\"");
+        StringAssert.Contains(multiDrmLines[1], "URI=\"http://127.0.0.1:");
+
+        var dataKey = ProxyController.ProxyHLSPlaylist(ProxyBaseUri, HLS.ParseVariantPlaylist(DataKeyPlaylist, SourceUrl), true);
+        StringAssert.Contains(GetKeyLines(dataKey.GenerateM3U8()).Single(), "URI=\"data:text/plain;base64,");
     }
 
     private static int CountOccurrences(string text, string value)

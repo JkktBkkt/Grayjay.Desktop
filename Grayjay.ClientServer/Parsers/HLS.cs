@@ -14,7 +14,7 @@ public static class HLS
     public class DecryptionInfo
     {
         public string Method { get; }
-        public string? KeyUrl { get; }
+        public string? KeyUrl { get; set; }
         public string? IV { get; }
         public string? KeyFormat { get; }
         public string? KeyFormatVersions { get; }

@@ -384,6 +384,62 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
+            // Segment and map key lists share these instances, so rewriting in place covers every KEY line
+            foreach (var decryptionKey in hlsMediaPlaylist.Keys)
+            {
+                if (!Parsers.HLS.VariantPlaylist.IsLocallyDecryptable(decryptionKey) || string.IsNullOrEmpty(decryptionKey.KeyUrl))
+                    continue;
+                if (!decryptionKey.KeyUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !decryptionKey.KeyUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var key = (modifierId, decryptionKey.KeyUrl);
+                lock (ExistingHlsProxies)
+                {
+                    if (ExistingHlsProxies.TryGetValue(key, out var cached))
+                    {
+                        decryptionKey.KeyUrl = cached;
+                    }
+                    else
+                    {
+                        var proxiedUri = HttpProxy.Get(isLoopback).Add(new HttpProxyRegistryEntry()
+                        {
+                            Url = decryptionKey.KeyUrl,
+                            FollowRedirects = true,
+                            RequestHeaderOptions = new RequestHeaderOptions()
+                            {
+                                HeadersToInject = new Dictionary<string, string>()
+                                {
+                                    { "Origin", null }
+                                }
+                            },
+                            ResponseHeaderOptions = new ResponseHeaderOptions()
+                            {
+                                InjectPermissiveCORS = true
+                            },
+                            RequestModifier = (modifier != null) ? (string url, HttpProxyRequest req) =>
+                            {
+                                var modified = modifier.ModifyRequest(url, req.Headers);
+                                var newReq = new HttpProxyRequest()
+                                {
+                                    Method = req.Method,
+                                    Path = req.Path,
+                                    QueryString = req.QueryString,
+                                    Version = req.Version,
+                                    Headers = modified?.Headers ?? req.Headers,
+                                    Options = req.Options?.Clone() ?? new HttpProxyRequestOptions()
+                                };
+
+                                newReq.Options.ImpersonateTarget = modified?.Options?.ImpersonateTarget ?? newReq.Options.ImpersonateTarget;
+                                return (modified?.Url ?? url, newReq);
+                            } : null
+                        }, ip);
+
+                        ExistingHlsProxies[key] = proxiedUri;
+                        decryptionKey.KeyUrl = proxiedUri;
+                    }
+                }
+            }
+
             return hlsMediaPlaylist;
         }
 
