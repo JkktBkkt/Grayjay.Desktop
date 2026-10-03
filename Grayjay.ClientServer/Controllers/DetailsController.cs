@@ -81,6 +81,27 @@ namespace Grayjay.ClientServer.Controllers
                     _dashManifestLocations.Clear();
             }
 
+            private readonly Dictionary<DashManifestSource, DashSourceSession> _dashSourceSessions = new Dictionary<DashManifestSource, DashSourceSession>(ReferenceEqualityComparer.Instance);
+
+            public DashSourceSession GetOrCreateDashSourceSession(DashManifestSource source)
+            {
+                lock (_dashSourceSessions)
+                {
+                    if (!_dashSourceSessions.TryGetValue(source, out var session))
+                    {
+                        session = new DashSourceSession();
+                        _dashSourceSessions[source] = session;
+                    }
+                    return session;
+                }
+            }
+
+            public void ClearDashSourceSessions()
+            {
+                lock (_dashSourceSessions)
+                    _dashSourceSessions.Clear();
+            }
+
             private readonly List<string> _dashRelativeProxyTokens = new List<string>();
 
             /// <summary>
@@ -219,7 +240,17 @@ namespace Grayjay.ClientServer.Controllers
                 ReleaseUmpPlayback();
                 ClearDashManifestLocations();
                 ClearDashRelativeProxies();
+                ClearDashSourceSessions();
             }
+        }
+
+        /// <summary>
+        /// HTTP session of one DASH manifest source, shared by its manifest, xlink and DashRelative proxy requests so cookies carry over.
+        /// </summary>
+        public sealed class DashSourceSession
+        {
+            public string Id { get; } = Guid.NewGuid().ToString("N");
+            public ManagedHttpClient Client { get; } = new ManagedHttpClient();
         }
 
         static ManagedHttpClient _qualityClient = new ManagedHttpClient();
@@ -236,6 +267,7 @@ namespace Grayjay.ClientServer.Controllers
             state.UmpCastHeight = -1;
             state.ClearDashManifestLocations();
             state.ClearDashRelativeProxies();
+            state.ClearDashSourceSessions();
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
             state.VideoPlaybackTracker?.onConcluded();
@@ -1005,9 +1037,9 @@ namespace Grayjay.ClientServer.Controllers
                 throw new Exception("Expected a DASH manifest source.");
 
             var modifier = dashSource.GetRequestModifier();
-            var headers = new Grayjay.Engine.Models.HttpHeaders();
+            var session = state.DetailsState.GetOrCreateDashSourceSession(dashSource);
             var manifestUrl = state.DetailsState.GetDashManifestLocation(dashSource) ?? dashSource.Url;
-            var res = ModifierHttp.GetBytes(new ManagedHttpClient(), manifestUrl, modifier, headers, decodeContent: true);
+            var res = ModifierHttp.GetBytes(session.Client, manifestUrl, modifier, new Grayjay.Engine.Models.HttpHeaders(), decodeContent: true);
             if (!res.IsOk)
                 throw new InvalidDataException($"Failed to fetch manifest [{res.Code}]");
 
@@ -1021,7 +1053,7 @@ namespace Grayjay.ClientServer.Controllers
 
             string ProxyRootFor(string hostRoot)
             {
-                var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId))
+                var token = state.DetailsState.TryCreateDashRelativeProxy(generation, () => ProxyController.GetOrCreateDashRelativeProxy(state, hostRoot, modifier, modifierId, session))
                     ?? throw new SupersededDashRequestException();
                 return $"{baseUri}/proxy/DashRelative/{token}/";
             }

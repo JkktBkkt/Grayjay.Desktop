@@ -36,12 +36,15 @@ namespace Grayjay.ClientServer.Controllers
         private static readonly ConcurrentDictionary<string, DashRelativeProxyEntry> DashRelativeProxies = new();
         private static readonly ConcurrentDictionary<string, string> DashRelativeProxyTokens = new();
 
-        public static string GetOrCreateDashRelativeProxy(WindowState state, string baseUrl, IRequestModifier? modifier, string? modifierId)
+        /// <summary>
+        /// Returns the token of the proxy for baseUrl in one DASH source session; its requests share the session's client and cookies.
+        /// </summary>
+        public static string GetOrCreateDashRelativeProxy(WindowState state, string baseUrl, IRequestModifier? modifier, string? modifierId, DashSourceSession session)
         {
-            var key = $"{state.WindowID}|{modifierId ?? ""}|{baseUrl}";
+            var key = $"{state.WindowID}|{session.Id}|{modifierId ?? ""}|{baseUrl}";
             var token = DashRelativeProxyTokens.GetOrAdd(key, _ => Guid.NewGuid().ToString("N"));
             DashRelativeProxies.AddOrUpdate(token,
-                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = new ManagedHttpClient() },
+                _ => new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = session.Client },
                 (_, existing) => ReferenceEquals(existing.Modifier, modifier)
                     ? existing
                     : new DashRelativeProxyEntry() { BaseUrl = baseUrl, Modifier = modifier, Client = existing.Client });
