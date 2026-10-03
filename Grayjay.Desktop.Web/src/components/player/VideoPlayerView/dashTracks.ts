@@ -40,7 +40,7 @@ export function primarySubtag(language: string): string {
 }
 
 function dashRoleValues(mediaInfo: MediaInfo): string[] {
-    return (mediaInfo.roles ?? []).filter(role => role.schemeIdUri === DASH_ROLE_SCHEME_ID).map(role => role.value);
+    return (mediaInfo.roles ?? []).filter(role => role.schemeIdUri === DASH_ROLE_SCHEME_ID).map(role => role.value ?? "");
 }
 
 function accessibilitySignature(mediaInfo: MediaInfo): string {
