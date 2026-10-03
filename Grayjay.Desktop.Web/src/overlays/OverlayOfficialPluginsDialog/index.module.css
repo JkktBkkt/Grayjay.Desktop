@@ -149,4 +149,5 @@
     text-align: center;
     color: red;
     border-radius: 10px;
+    overflow-wrap: anywhere;
 }
