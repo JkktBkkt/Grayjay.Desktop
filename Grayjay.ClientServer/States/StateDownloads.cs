@@ -5,6 +5,7 @@ using Grayjay.ClientServer.Models.Downloads;
 using Grayjay.ClientServer.Settings;
 using Grayjay.ClientServer.Store;
 using Grayjay.Desktop.POC;
+using Grayjay.Desktop.POC.Port.States;
 using Grayjay.Engine;
 using Grayjay.Engine.Models.Detail;
 using Grayjay.Engine.Models.Feed;
@@ -238,6 +239,7 @@ namespace Grayjay.ClientServer.States
             while (currentVideo != null)
             {
                 await TryDownloadVideo(currentVideo, ignore);
+                await StatePlatform.TryReloadPendingWidevineClients();
 
                 Thread.Sleep(500);
                 currentVideo = StateDownloads.GetDownloading().Where(x => !ignore.Contains(x)).FirstOrDefault();

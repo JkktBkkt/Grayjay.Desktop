@@ -4,6 +4,7 @@ using Grayjay.ClientServer.Controllers;
 using Grayjay.ClientServer.Developer;
 using Grayjay.ClientServer.Exceptions;
 using Grayjay.ClientServer.Models;
+using Grayjay.ClientServer.Models.Downloads;
 using Grayjay.ClientServer.Models.Sources;
 using Grayjay.ClientServer.Pagers;
 using Grayjay.ClientServer.Pooling;
@@ -58,7 +59,7 @@ namespace Grayjay.Desktop.POC.Port.States
         private static event Action<GrayjayPlugin> OnSourceDisabled;
         private static event Action OnDevSourceChanged;
 
-        private static bool _didStartup = false;
+        private static volatile bool _didStartup = false;
 
         private static Regex REGEX_PAGER_REF = new Regex("[a-zA-Z]://grayjay\\.internal/refPager");
         private static ConcurrentDictionary<string, WeakReference<RefPager<PlatformContent>>> _refPagers = new ConcurrentDictionary<string, WeakReference<RefPager<PlatformContent>>>(); 
@@ -105,6 +106,7 @@ namespace Grayjay.Desktop.POC.Port.States
                 Logger.i(nameof(StatePlatform), $"Client [{plugin.Config.Name}] captcha changed, reloading");
                 await ReloadClient(plugin.Config.ID, true);
             };
+            StateWidevine.PlaybackBecameAvailable += () => _ = Task.Run(ReloadWidevineClientsAsync);
             PlatformNestedMedia.SetPluginResolver((url) =>
             {
                 var contentPlugin = GetContentClientOrNull(url);
@@ -113,6 +115,158 @@ namespace Grayjay.Desktop.POC.Port.States
                 else
                     return (null, null, null);
             });
+        }
+
+        // Plugins snapshot bridge.supportedFeatures when their script is evaluated. A client enabled before the
+        // Widevine CDM became available (first launch, CDM downloaded mid-session) would never offer DRM sources.
+        private static async Task ReloadWidevineClientsAsync()
+        {
+            try
+            {
+                await WaitForStartup();
+            }
+            catch (Exception ex)
+            {
+                Logger.w(nameof(StatePlatform), "Waiting for startup before reloading Widevine clients failed.", ex);
+                return;
+            }
+
+            foreach (var client in GetEnabledClients())
+            {
+                var script = StatePlugins.GetPluginScript(client.Config.ID);
+                if (script == null || !script.Contains("HLSWidevineSource"))
+                {
+                    continue;
+                }
+
+                lock (_pendingWidevineReloads)
+                {
+                    _pendingWidevineReloads.Add(client.ID);
+                }
+            }
+            await TryReloadPendingWidevineClients();
+        }
+
+        private static readonly HashSet<string> _pendingWidevineReloads = new HashSet<string>();
+        private static readonly SemaphoreSlim _widevineReloadSemaphore = new SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// Reloads clients waiting for the Widevine reload, skipping those still used by a window's video or an active download.
+        /// </summary>
+        /// <param name="pluginId">Only reload this client; null reloads every pending client.</param>
+        /// <param name="navigatingWindow">A window loading a new video; its current video does not count as in use.</param>
+        public static async Task TryReloadPendingWidevineClients(string? pluginId = null, WindowState? navigatingWindow = null)
+        {
+            lock (_pendingWidevineReloads)
+            {
+                if (_pendingWidevineReloads.Count == 0)
+                {
+                    return;
+                }
+            }
+
+            await _widevineReloadSemaphore.WaitAsync();
+            try
+            {
+                string[] pending;
+                lock (_pendingWidevineReloads)
+                {
+                    pending = _pendingWidevineReloads.Where(id => pluginId == null || id == pluginId).ToArray();
+                }
+
+                foreach (var id in pending)
+                {
+                    var client = GetEnabledClient(id);
+                    if (client == null)
+                    {
+                        lock (_pendingWidevineReloads)
+                        {
+                            _pendingWidevineReloads.Remove(id);
+                        }
+                        continue;
+                    }
+
+                    var user = FindWidevineReloadBlocker(id, navigatingWindow);
+                    if (user != null)
+                    {
+                        Logger.i(nameof(StatePlatform), $"Deferred reloading [{client.Config.Name}] for Widevine while {user} uses it");
+                        continue;
+                    }
+
+                    lock (_pendingWidevineReloads)
+                    {
+                        _pendingWidevineReloads.Remove(id);
+                    }
+                    try
+                    {
+                        Logger.i(nameof(StatePlatform), $"Reloading [{client.Config.Name}] because Widevine became available");
+                        await ReloadClient(id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.w(nameof(StatePlatform), $"Failed to reload [{client.Config.Name}] after Widevine became available.", ex);
+                    }
+                }
+            }
+            finally
+            {
+                _widevineReloadSemaphore.Release();
+            }
+        }
+
+        /// <summary>
+        /// Reloads the pending client that owns url before a window loads it, so the video comes from an engine that offers DRM sources.
+        /// </summary>
+        public static async Task TryReloadPendingWidevineClientFor(string url, WindowState navigatingWindow)
+        {
+            lock (_pendingWidevineReloads)
+            {
+                if (_pendingWidevineReloads.Count == 0)
+                {
+                    return;
+                }
+            }
+
+            var pluginId = GetContentClientOrNull(url)?.ID;
+            if (pluginId != null)
+            {
+                await TryReloadPendingWidevineClients(pluginId, navigatingWindow);
+            }
+        }
+
+        // Reloading disposes the plugin engine, which loaded videos and downloads still use for proxied and license requests.
+        private static string? FindWidevineReloadBlocker(string pluginId, WindowState? navigatingWindow)
+        {
+            foreach (var window in StateWindow.GetAllStates())
+            {
+                if (window != navigatingWindow && GetOwningPluginId(window.DetailsState.VideoLoaded) == pluginId)
+                {
+                    return "a loaded video";
+                }
+            }
+
+            foreach (var download in StateDownloads.GetDownloading())
+            {
+                bool active = download.State == DownloadState.PREPARING || download.State == DownloadState.DOWNLOADING;
+                if (active && GetOwningPluginId(download.VideoDetails ?? download.Video) == pluginId)
+                {
+                    return "a download";
+                }
+            }
+            return null;
+        }
+
+        private static string? GetOwningPluginId(PlatformVideo? video)
+        {
+            if (video == null)
+            {
+                return null;
+            }
+            if (!string.IsNullOrEmpty(video.ID?.PluginID))
+            {
+                return video.ID.PluginID;
+            }
+            return string.IsNullOrEmpty(video.Url) ? null : GetContentClientOrNull(video.Url)?.ID;
         }
 
         public static void InjectPlugin(GrayjayPlugin plugin)
@@ -1041,14 +1195,20 @@ namespace Grayjay.Desktop.POC.Port.States
         {
             if (_didStartup)
                 return Task.CompletedTask;
-            var waitTask = new TaskCompletionSource<bool>();
+            var waitTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Action<bool> handler = null;
             handler = (val) =>
             {
                 OnSourcesAvailableChanged -= handler;
-                waitTask.SetResult(true);
+                waitTask.TrySetResult(true);
             };
             OnSourcesAvailableChanged += handler;
+            // Startup may have finished between the first check and the subscription.
+            if (_didStartup)
+            {
+                OnSourcesAvailableChanged -= handler;
+                return Task.CompletedTask;
+            }
             return waitTask.Task;
         }
     }

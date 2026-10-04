@@ -440,6 +440,7 @@ namespace Grayjay.ClientServer.Controllers
         public VideoLoadResult VideoLoad(string url)
         {
             Logger.i(nameof(DetailsController), "Loading: " + url);
+            StatePlatform.TryReloadPendingWidevineClientFor(url, this.State()).GetAwaiter().GetResult();
             VideoLocal local = StateDownloads.GetDownloadedVideo(url);
             IPlatformContentDetails contentDetails = null;
             Exception contentDetailsException = null;
