@@ -117,8 +117,7 @@ namespace Grayjay.Desktop.POC.Port.States
             });
         }
 
-        // Plugins snapshot bridge.supportedFeatures when their script is evaluated. A client enabled before the
-        // Widevine CDM became available (first launch, CDM downloaded mid-session) would never offer DRM sources.
+        // Plugins read bridge.supportedFeatures when evaluated, so clients enabled before the CDM offer no DRM sources.
         private static async Task ReloadWidevineClientsAsync()
         {
             try
@@ -150,11 +149,6 @@ namespace Grayjay.Desktop.POC.Port.States
         private static readonly HashSet<string> _pendingWidevineReloads = new HashSet<string>();
         private static readonly SemaphoreSlim _widevineReloadSemaphore = new SemaphoreSlim(1, 1);
 
-        /// <summary>
-        /// Reloads clients waiting for the Widevine reload, skipping those still used by a window's video or an active download.
-        /// </summary>
-        /// <param name="pluginId">Only reload this client; null reloads every pending client.</param>
-        /// <param name="navigatingWindow">A window loading a new video; its current video does not count as in use.</param>
         public static async Task TryReloadPendingWidevineClients(string? pluginId = null, WindowState? navigatingWindow = null)
         {
             lock (_pendingWidevineReloads)
@@ -214,9 +208,6 @@ namespace Grayjay.Desktop.POC.Port.States
             }
         }
 
-        /// <summary>
-        /// Reloads the pending client that owns url before a window loads it, so the video comes from an engine that offers DRM sources.
-        /// </summary>
         public static async Task TryReloadPendingWidevineClientFor(string url, WindowState navigatingWindow)
         {
             lock (_pendingWidevineReloads)
@@ -234,7 +225,7 @@ namespace Grayjay.Desktop.POC.Port.States
             }
         }
 
-        // Reloading disposes the plugin engine, which loaded videos and downloads still use for proxied and license requests.
+        // Reloading disposes the engine that loaded videos and downloads still use for proxied and license requests.
         private static string? FindWidevineReloadBlocker(string pluginId, WindowState? navigatingWindow)
         {
             foreach (var window in StateWindow.GetAllStates())

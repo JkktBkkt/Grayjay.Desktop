@@ -2,9 +2,7 @@ using Google.Protobuf;
 
 namespace Grayjay.ClientServer.Helpers;
 
-/// <summary>
-/// Reads the CDM session id from Widevine license messages (license_protocol.proto), without the generated types.
-/// </summary>
+// Field numbers from Widevine's license_protocol.proto.
 public static class WidevineLicenseMessages
 {
     private const int SignedMessageTypeField = 1;
@@ -17,9 +15,6 @@ public static class WidevineLicenseMessages
     private const int LicenseIdField = 1;
     private const int LicenseIdentificationSessionIdField = 2;
 
-    /// <summary>
-    /// Returns License.id.session_id from a license response, or null when the message is not a parsable license.
-    /// </summary>
     public static byte[]? TryGetLicenseSessionId(byte[] license)
     {
         var licenseMessage = ReadSignedMessage(license, SignedMessageLicense);
@@ -27,10 +22,7 @@ public static class WidevineLicenseMessages
         return ReadLengthDelimitedField(licenseId, LicenseIdentificationSessionIdField);
     }
 
-    /// <summary>
-    /// Returns the session id a renewal or release request names in content_id.existing_license, or null for
-    /// new requests and messages that do not parse.
-    /// </summary>
+    // Renewal and release requests name their session in content_id.existing_license.
     public static byte[]? TryGetRenewalSessionId(byte[] challenge)
     {
         var licenseRequest = ReadSignedMessage(challenge, SignedMessageLicenseRequest);

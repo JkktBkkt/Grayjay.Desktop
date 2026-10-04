@@ -7,11 +7,7 @@ namespace Grayjay.ClientServer.Helpers;
 
 public static class Mp4MetadataHelper
 {
-    /// <summary>
-    /// Scans top-level MP4 boxes to derive on-demand DASH byte ranges: init (start through moov)
-    /// and index (sidx). Returns null when no moov box is found before media data starts.
-    /// </summary>
-    /// <param name="fetchBytes">Reads up to count bytes at offset; null or short reads end the scan.</param>
+    // Init range runs from the start through moov, index range is sidx; null without moov before media data.
     public static StreamMetaData? FindOnDemandRanges(Func<long, int, byte[]?> fetchBytes)
     {
         long offset = 0;
@@ -90,9 +86,6 @@ public static class Mp4MetadataHelper
 
     private static readonly byte[] WidevineSystemId = Convert.FromHexString("edef8ba979d64acea3c827dcd51d21ed");
 
-    /// <summary>
-    /// Returns the Data payload of every Widevine pssh box directly under the top-level moov box.
-    /// </summary>
     public static List<byte[]> FindWidevinePsshData(byte[] initSegment)
     {
         var result = new List<byte[]>();
@@ -126,9 +119,6 @@ public static class Mp4MetadataHelper
         return result;
     }
 
-    /// <summary>
-    /// Wraps bare Widevine pssh data in a version 0 pssh box. Returns null when the input already is a pssh box or is empty.
-    /// </summary>
     public static byte[]? WrapBareWidevinePsshData(byte[] data)
     {
         if (data.Length == 0)
@@ -209,11 +199,7 @@ public static class Mp4MetadataHelper
     }
 }
 
-/// <summary>
-/// Serves small reads from a read-ahead window fetched with one Range request. A non-206 response means
-/// the server ignored Range, so its body is kept as the whole file.
-/// </summary>
-/// <param name="fetchRange">Requests length bytes at offset; returns the body (null on failure) and the status code.</param>
+// A non-206 response means the server ignored Range, so its body is kept as the whole file.
 public sealed class Mp4RangeReader(Func<long, int, (byte[]? Bytes, int Code)> fetchRange)
 {
     private const int ReadAheadBytes = 64 * 1024;

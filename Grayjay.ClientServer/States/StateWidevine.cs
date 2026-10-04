@@ -33,16 +33,9 @@ public static class StateWidevine
         }
     }
 
-    /// <summary>
-    /// Raised when protected playback goes from unavailable to available. Plugins snapshot
-    /// the supported features when their script is evaluated, so those evaluated earlier are stale.
-    /// </summary>
     public static event Action? PlaybackBecameAvailable;
 
-    /// <summary>
-    /// Marks the CDM as registered at browser startup (Linux hint file), which makes it usable
-    /// regardless of the component updater state.
-    /// </summary>
+    // A CDM registered at browser startup (Linux) is usable regardless of the component updater state.
     public static void SetCdmLoadedAtStartup(bool loaded)
     {
         bool becameAvailable;
@@ -61,9 +54,7 @@ public static class StateWidevine
         return _cdmLoadedAtStartup || status?.State == WidevineState.Ready;
     }
 
-    /// <summary>
-    /// Applies the status JustCef publishes once, after the component updater finishes.
-    /// </summary>
+    // Applies the status JustCef publishes once, after the component updater finishes.
     public static void SetStatus(WidevineStatus status)
     {
         bool becameAvailable;

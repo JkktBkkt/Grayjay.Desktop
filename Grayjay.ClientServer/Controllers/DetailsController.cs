@@ -61,16 +61,13 @@ namespace Grayjay.ClientServer.Controllers
             public RequestExecutor _videoRequestExecutor = null;
             public RequestExecutor _audioRequestExecutor = null;
             private readonly object _licenseExecutorLock = new object();
-            // Held across the plugin factory call, so a source never gets two wrappers that share one JS executor.
+            // Held across the plugin factory call, so each source gets one executor wrapper.
             private readonly object _licenseExecutorCreateLock = new object();
             private readonly Dictionary<IWidevineSource, RequestExecutor> _licenseRequestExecutors = new Dictionary<IWidevineSource, RequestExecutor>(ReferenceEqualityComparer.Instance);
             private readonly Dictionary<IWidevineSource, IReadOnlyList<byte[]>> _widevinePsshData = new Dictionary<IWidevineSource, IReadOnlyList<byte[]>>(ReferenceEqualityComparer.Instance);
             private readonly Dictionary<string, IWidevineSource> _licenseSessionSources = new Dictionary<string, IWidevineSource>();
 
-            /// <summary>
-            /// Returns the live license executor for this source, creating one per source like Android's per-track DRM callback.
-            /// Returns null when the video changed after <paramref name="generation"/> was read, so no executor outlives its video.
-            /// </summary>
+            // One executor per source; null when the video changed after generation was read.
             public RequestExecutor? GetOrCreateLicenseRequestExecutor(IWidevineSource source, long generation)
             {
                 lock (_licenseExecutorCreateLock)
@@ -117,7 +114,7 @@ namespace Grayjay.ClientServer.Controllers
                 }
                 if (oldExecutors.Count > 0)
                 {
-                    // A license request may hold an executor lock for the whole license call, so the next load does not wait on it.
+                    // A license call may still hold an executor lock, so the next load does not wait on it.
                     _ = Task.Run(() => CleanupLicenseRequestExecutors(oldExecutors));
                 }
             }
@@ -140,9 +137,6 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
-            /// <summary>
-            /// Stores psshData only when generation is still the current cache generation, and returns whether it did.
-            /// </summary>
             public bool TrySetWidevinePsshData(long generation, IWidevineSource source, IReadOnlyList<byte[]> psshData)
             {
                 lock (_widevinePsshData)
@@ -162,10 +156,7 @@ namespace Grayjay.ClientServer.Controllers
                     return _widevinePsshData.TryGetValue(source, out var psshData) ? psshData : null;
             }
 
-            /// <summary>
-            /// Records which source served the license of a CDM session, so its renewals reach the same license server.
-            /// Stores nothing and returns false when generation is no longer the current cache generation.
-            /// </summary>
+            // Routes renewals of a CDM session to the source that served its license.
             public bool TrySetLicenseSessionSource(long generation, byte[] sessionId, IWidevineSource source)
             {
                 lock (_widevinePsshData)
@@ -361,7 +352,7 @@ namespace Grayjay.ClientServer.Controllers
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
-                // Bumps the generation first, so a manifest or license request still in flight cannot register state after this.
+                // Bumps the generation first, so a request still in flight cannot register state after this.
                 ClearCachedDash();
                 ClearLicenseRequestExecutors();
                 ClearWidevineLicenseRouting();
@@ -383,8 +374,7 @@ namespace Grayjay.ClientServer.Controllers
         {
             var state = this.State().DetailsState;
             video = video ?? videoLocal;
-            // Bumped before and after the assignment: a request that reads the new video sees a newer generation,
-            // and a request that reads the new generation also reads the new video.
+            // Bumped before and after the assignment, so a request never pairs the new video with an old generation.
             state.ClearCachedDash();
             state.VideoLoaded = video;
             state.VideoLocal = videoLocal;
@@ -1595,10 +1585,7 @@ namespace Grayjay.ClientServer.Controllers
 
         private static readonly XNamespace CencNamespace = "urn:mpeg:cenc:2013";
 
-        /// <summary>
-        /// Wraps Widevine cenc:pssh values that carry only the pssh data in a pssh box.
-        /// EME rejects the bare data as CENC init data, which dash.js reports as a fatal DRM error.
-        /// </summary>
+        // EME rejects bare Widevine pssh data as CENC init data, so it is wrapped in a pssh box.
         public static void WrapBareWidevinePssh(XDocument document)
         {
             var root = document.Root ?? throw new InvalidDataException("Invalid DASH manifest");
@@ -1921,11 +1908,7 @@ namespace Grayjay.ClientServer.Controllers
             }
         }
 
-        /// <summary>
-        /// Picks the track whose license config serves this challenge. A renewal or release names its CDM session, which
-        /// routes to the track that served that session's license. A new request carries the PSSH data in plaintext
-        /// (also in privacy mode), so a unique match selects that track; otherwise video comes first.
-        /// </summary>
+        // Renewals route by CDM session and new requests by their PSSH data; otherwise video comes first.
         public static IWidevineSource? SelectWidevineLicenseSource(IWidevineSource? videoSource, IWidevineSource? audioSource, byte[] challenge, Func<IWidevineSource, IReadOnlyList<byte[]>?> psshDataFor, Func<byte[], IWidevineSource?> sourceForSession)
         {
             if (videoSource == null || audioSource == null || ReferenceEquals(videoSource, audioSource))
@@ -2497,10 +2480,7 @@ namespace Grayjay.ClientServer.Controllers
             return sourceVideo is IWidevineSource || sourceAudio is IWidevineSource;
         }
 
-        /// <summary>
-        /// Whether licenses for the audio track can be requested with the video's license config. Only Widevine URL pairs
-        /// route each license to its own track, so other pairs need the audio to share the video's config.
-        /// </summary>
+        // Only Widevine URL pairs route licenses per track, so other pairs must share the video's license config.
         public static bool SharesVideoLicenseConfig(IWidevineSource videoSource, IWidevineSource audioSource)
         {
             if (ReferenceEquals(videoSource, audioSource))
@@ -2517,10 +2497,7 @@ namespace Grayjay.ClientServer.Controllers
             return string.IsNullOrWhiteSpace(value) ? null : value;
         }
 
-        /// <summary>
-        /// Picks the automatic video and audio pair with matching DRM states, as Widevine can only be combined with Widevine URL audio.
-        /// A Widevine manifest carries its own audio, so it gets no separate audio track.
-        /// </summary>
+        // A Widevine manifest carries its own audio, so it gets no separate audio track.
         public static (int VideoIndex, int AudioIndex) SelectAutoSourcePair(List<IVideoSource> videoSourceList, List<IAudioSource>? audioSourceList, bool widevineAvailable, int desiredPixelCount, string? primaryLanguage)
         {
             var videoSourceCandidates = videoSourceList;

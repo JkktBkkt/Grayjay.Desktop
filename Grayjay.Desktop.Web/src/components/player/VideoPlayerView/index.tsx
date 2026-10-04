@@ -385,7 +385,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         if (casting && isCurrentlyCasting) {
             console.info("start casting because isCasting change");
             changeSource(undefined);
-            // Like Android, keep the local position until the device reports one, so a refused cast resumes here.
+            // Keep the local position until the device reports one, so a refused cast resumes here.
             setPosition(lastLocalPositionBeforeCast);
             stopHideControls();
 
@@ -487,7 +487,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         console.info("casting video ended");
     }));
 
-    // Like Android, only a time reported by the device moves the position; the last report may be stale.
+    // Only a time reported by the device moves the position; the last report may be stale.
     createEffect(on(casting.activeDevice.time, (time) => {
         if (!untrack(isCasting) || untrack(isScrubbing)) {
             return;
@@ -584,7 +584,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
     const play = () => {
         if (stoppedByDrmError) {
-            // Like ExoPlayer after a fatal error, stay stopped until the source is reloaded.
+            // After a fatal error, stay stopped until the source is reloaded.
             return;
         }
         if (dashPlayer) {
@@ -666,7 +666,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             setLoaderGameVisible(undefined);
             setIsPlaying(false);
             if (kind !== "generic") {
-                // Like ExoPlayer, stop at a DRM error instead of playing the unencrypted lead under the dialog.
+                // Stop at a DRM error instead of playing the unencrypted lead under the dialog.
                 stoppedByDrmError = true;
                 pause();
             }
@@ -1663,8 +1663,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             } catch (error) {
                 console.error("Failed to update cast playback", error);
                 if (error instanceof ExceptionModel) {
-                    // The backend refuses sources it cannot cast (DRM) with a dialog; like Android, stay in cast mode.
-                    // App dialogs render outside the fullscreen player, so leave fullscreen first.
+                    // The backend refuses DRM sources with a dialog; stay in cast mode and leave fullscreen so it shows.
                     await syncFullscreenToDom(false);
                     UIOverlay.overlayError(error);
                 } else {
