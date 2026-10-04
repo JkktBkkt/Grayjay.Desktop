@@ -752,6 +752,17 @@ namespace Grayjay.ClientServer.Controllers
             var sourceVideo = (videoIndex >= 0) ? video.Video.VideoSources[videoIndex] : null;
             var sourceAudio = (audioIndex >= 0 && video.Video is UnMuxedVideoDescriptor unmuxed) ? unmuxed.AudioSources[audioIndex] : null;
 
+            if (AnyWidevine(sourceVideo, sourceAudio))
+            {
+                throw new DialogException(new ExceptionModel()
+                {
+                    Type = ExceptionModel.EXCEPTION_GENERAL,
+                    Title = "Cannot download this video",
+                    Message = "DRM protected sources cannot be downloaded",
+                    CanRetry = false
+                });
+            }
+
             VideoDownload existing = StateDownloads.GetDownloadingVideo(video.ID);
             
             //TODO: Edgecases
@@ -2469,6 +2480,16 @@ namespace Grayjay.ClientServer.Controllers
                 CanRetry = true,
                 TypeName = nameof(ScriptCaptchaRequiredException)
             }, captchaException);
+        }
+
+        internal static DialogException CreateCastDrmException()
+        {
+            return new DialogException(new ExceptionModel()
+            {
+                Title = "Cannot cast this video",
+                Message = "DRM protected content cannot be cast",
+                CanRetry = false
+            });
         }
 
         internal static bool AnyWidevine(IVideoSource? sourceVideo, IAudioSource? sourceAudio)
