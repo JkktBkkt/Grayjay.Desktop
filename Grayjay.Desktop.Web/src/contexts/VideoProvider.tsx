@@ -39,6 +39,7 @@ export interface VideoContextValue {
     desiredMode: Accessor<VideoMode>;
     theatrePinned: Accessor<boolean>;
     volume: Accessor<number>;
+    reopenCount: Accessor<number>;
     //queueType watch later, playlist en queue of undefined
     actions: {
         openVideo: (video: IPlatformVideo, time?: Duration, videoState?: VideoState) => void;
@@ -75,6 +76,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
     const [desiredMode, setDesiredModeInternal] = createSignal<VideoMode>(VideoMode.Theatre);
     const [theatrePinned, setTheatrePinnedInternal] = createSignal<boolean>(true);
     const [volume, setVolumeInternal] = createSignal<number>(1);
+    const [reopenCount, setReopenCount] = createSignal(0);
     const shuffle = () => shuffledQueue() !== undefined;
     const queue = createMemo(() => shuffledQueue() ?? baseQueue());
     const video = createMemo(() => {
@@ -103,12 +105,17 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
         const videoLoadResult = await DetailsBackend.videoLoad(url);
+        const openVideoUrl = video()?.backendUrl ?? video()?.url;
+        const loadedVideoUrl = videoLoadResult.video.backendUrl ?? videoLoadResult.video.url;
         batch(() => {
             setIndex(0);
             setStartTime(time);
             setBaseQueue([ videoLoadResult.video ]);
             setShuffledQueue(undefined);
-
+            if (openVideoUrl !== undefined && openVideoUrl === loadedVideoUrl) {
+                // The load replaced the open video's sources, but the details view only reloads when the URL changes.
+                setReopenCount(count => count + 1);
+            }
         });
     };
     const sq = (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffleRequested?: boolean, videoState?: VideoState) => { 
@@ -276,6 +283,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         desiredMode,
         theatrePinned,
         volume,
+        reopenCount,
         actions: {
             setIndex: (i: number) => {
                 batch(() => {

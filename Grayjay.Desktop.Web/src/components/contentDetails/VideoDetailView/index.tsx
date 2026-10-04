@@ -16,7 +16,7 @@ import ic_close from '../../../assets/icons/icon24_close.svg';
 import store from '../../../assets/icons/icon24_store.svg';
 import more from '../../../assets/icons/icon_button_more.svg';
 import donate from '../../../assets/icons/icon24_donate.svg';
-import VideoPlayerView, { VideoPlayerViewHandle } from "../../player/VideoPlayerView";
+import VideoPlayerView, { PlaybackErrorKind, VideoPlayerViewHandle } from "../../player/VideoPlayerView";
 import { VideoMode, VideoState, useVideo } from "../../../contexts/VideoProvider";
 import ScrollContainer from "../../containers/ScrollContainer";
 import VirtualFlexibleArrayList from "../../containers/VirtualFlexibleArrayList";
@@ -115,6 +115,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     let isScrubbing = false;
     let position: Duration | undefined = undefined;
     let errorCounter: number = 0;
+    let licenseConflictReloaded = false;
     const video = useVideo();
     const focus = useFocus()!;
     const casting = useCasting()!;
@@ -163,6 +164,14 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             throw error;
         }
     });
+
+    createEffect(on(() => video?.reopenCount(), () => {
+        if (!untrack(() => video?.startTime())) {
+            // Source URLs can change on reload (UMP), so resume like reloadMedia does.
+            video?.actions.setStartTime(position);
+        }
+        videoLoadedResource.refetch();
+    }, { defer: true }));
 
     const [commentsPager$] = createResource<Pager<RefItem<ISerializedComment>>>(() => videoLoaded$(), async (videoLoaded: any) => (!videoLoaded) ? undefined : await DetailsBackend.commentsPager());
     const [videoChapters$, videoChaptersResource] = createResourceDefault(()=> currentVideo$()?.url, async (url)=>{
@@ -261,6 +270,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     createEffect(on(currentVideoUrl$, (url) => {
         console.info("Reset error counter because video source changed", { url, errorCounter });
         errorCounter = 0;
+        licenseConflictReloaded = false;
+        // A reload resumes at this position, so it must not carry over from the previous video.
+        position = undefined;
     }));
 
     const [videoSourceQualities$] = createResource<any | undefined>(()=> videoSource$()?.video && !videoSource$()?.videoIsLocal, async () => {
@@ -428,8 +440,8 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
     };
 
-    const handleError = (error: string, fatal: boolean, reloadable?: boolean) => {
-        console.info("Error occurred", { fatal, error });
+    const handleError = (error: string, fatal: boolean, kind: PlaybackErrorKind, reloadable?: boolean) => {
+        console.info("Error occurred", { fatal, error, kind, reloadable });
 
         if (!fatal) {
             return;
@@ -444,20 +456,36 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             videoLoadedResource.refetch();
         };
 
-        if (reloadable && errorCounter < 2) {
+        if (reloadable && kind === "drm-license") {
+            // Once per video: errorCounter resets when the unencrypted lead plays, so a lasting 409 would loop.
+            if (!licenseConflictReloaded) {
+                licenseConflictReloaded = true;
+                console.info("License URL is stale, reloading automatically", { error });
+                reloadMedia();
+                return;
+            }
+        } else if (reloadable && errorCounter < 2) {
             console.info("UMP stream expired, reloading automatically", { error });
             reloadMedia();
             return;
         }
 
         const nvi = nextVideoIndex();
-        if (nvi === undefined) {
-            console.error("Playback error: " + error, { errorCounter });
+        const isDrmError = kind === "drm-license" || kind === "drm";
+        const stopAndAsk = nvi === undefined || isDrmError;
+        if (stopAndAsk) {
+            console.error("Playback error: " + error, { errorCounter, kind });
             exitFullscreen();
+            let message = "An error occurred while playing the video, do you want to reload?";
+            if (kind === "drm-license") {
+                message = "The license server refused playback. Reload to try again?";
+            } else if (kind === "drm") {
+                message = "DRM playback failed. Reload to try again?";
+            }
             setTimeout(() => {
                 UIOverlay.overlayConfirm(
                     { yes: () => reloadMedia() },
-                    "An error occurred while playing the video, do you want to reload?"
+                    message
                 );
             }, 0);
         } else {
@@ -490,6 +518,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         const videoObj = videoLoaded$();
         if (!videoLoadedIsValid$()) {
             setVideoSource();
+            return;
+        }
+        if (videoLoaded$.loading) {
+            // Retained details are stale while a reload of the same video is pending.
             return;
         }
 

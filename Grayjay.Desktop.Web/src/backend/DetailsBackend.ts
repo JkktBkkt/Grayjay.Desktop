@@ -96,6 +96,14 @@ export interface IPostLoadResult {
     post: IPlatformPostDetails
 }
 
+export interface ISourceDrm {
+    keySystem: string;
+    licenseUrl: string;
+    serviceCertificate?: string;
+    certificateUrl?: string;
+    subtitleUrl?: string;
+}
+
 export interface ISourceDirectDescriptor {
     url: string;
     type: string;
@@ -105,4 +113,5 @@ export interface ISourceDirectDescriptor {
     videoIsLocal?: boolean;
     audioIsLocal?: boolean;
     subtitleIsLocal?: boolean;
+    drm?: ISourceDrm;
 }
