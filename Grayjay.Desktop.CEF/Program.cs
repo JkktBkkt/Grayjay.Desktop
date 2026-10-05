@@ -29,6 +29,7 @@ namespace Grayjay.Desktop
         private const int NewWindowTimeoutSeconds = 5;
         private static readonly TimeSpan SandboxedReadyTimeout = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan TimedOutProcessExitDelay = TimeSpan.FromSeconds(6);
+        private static int _widevineRestartDialogShown;
 
         private static bool IsProcessRunningByPath(string path, out Process? matchingProcess)
         {
@@ -299,8 +300,7 @@ namespace Grayjay.Desktop
                         break;
                     case WidevineState.RestartRequired:
                         Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
-                        await StateWindow.WaitForReadyAsync();
-                        StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
+                        await ShowWidevineRestartDialogAsync();
                         break;
                     case WidevineState.Unavailable when status.Reason == WidevineUnavailableReason.NotSupported:
                         Logger.i(nameof(Program), "Widevine is unavailable on this platform, protected content will not play.");
@@ -316,6 +316,31 @@ namespace Grayjay.Desktop
             catch (Exception e)
             {
                 Logger.w(nameof(Program), "Failed to get the Widevine status.", e);
+            }
+        }
+
+        // Plugins check DRM support when they load, so a CDM that becomes usable after they loaded needs a restart.
+        private static async Task ShowWidevineRestartDialogAsync()
+        {
+            if (Interlocked.Exchange(ref _widevineRestartDialogShown, 1) == 1)
+                return;
+
+            try
+            {
+                await StateWindow.WaitForReadyAsync();
+                _ = StateUI.Dialog(new StateUI.DialogDescriptor()
+                {
+                    Text = "Restart required for DRM playback",
+                    TextDetails = "The Widevine DRM component was installed but requires an application restart before it can be used.",
+                    Actions = new List<StateUI.DialogAction>()
+                    {
+                        new StateUI.DialogAction("Ok", () => { }, StateUI.ActionStyle.Primary)
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                Logger.w(nameof(Program), "Failed to show the Widevine restart dialog.", e);
             }
         }
 
@@ -655,6 +680,15 @@ namespace Grayjay.Desktop
                 Logger.i(nameof(Program), $"Main: Starting JustCefProcess finished ({startCefWatch.ElapsedMilliseconds}ms)");
 
                 StateWidevine.SetCdmLoadedAtStartup(widevineCdmPresentAtStartup);
+
+                // The CDM can become usable before plugins load (Windows first download); only plugins evaluated earlier need a restart.
+                StateWidevine.PlaybackBecameAvailable += () =>
+                {
+                    if (StateWidevine.ClientEvaluatedWithoutPlayback)
+                    {
+                        _ = ShowWidevineRestartDialogAsync();
+                    }
+                };
                 _ = MonitorWidevineAsync(cef);
                 if (OperatingSystem.IsLinux() && !isHeadless)
                     _ = LinuxSandbox.OfferAppArmorProfileAsync();
