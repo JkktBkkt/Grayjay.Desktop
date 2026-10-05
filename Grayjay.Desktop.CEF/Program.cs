@@ -142,13 +142,10 @@ namespace Grayjay.Desktop
             return string.IsNullOrWhiteSpace(cdmPath) ? null : cdmPath;
         }
 
-        // Mirrors JustCef's IsCdmPresent: Chromium on Linux registers this CDM at startup, before the component updater runs.
+        // Mirrors JustCef's IsCdmPresent: Chromium registers a cached CDM at startup, before the component updater runs.
         private static bool IsWidevineCdmPresentAtStartup(string rootCachePath, string? cdmPathSwitch)
         {
-            if (!OperatingSystem.IsLinux())
-                return false;
-
-            if (cdmPathSwitch != null && IsWidevineCdmDirectory(cdmPathSwitch))
+            if (OperatingSystem.IsLinux() && cdmPathSwitch != null && IsWidevineCdmDirectory(cdmPathSwitch))
                 return true;
 
             string baseDirectory = Path.Combine(rootCachePath, "WidevineCdm");
@@ -172,9 +169,22 @@ namespace Grayjay.Desktop
 
         private static bool IsWidevineCdmDirectory(string cdmDirectory)
         {
-            string platformDirectory = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "linux_arm64" : "linux_x64";
+            bool isArm64 = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+            string libraryPath;
+            if (OperatingSystem.IsWindows())
+            {
+                libraryPath = Path.Combine(isArm64 ? "win_arm64" : "win_x64", "widevinecdm.dll");
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                libraryPath = Path.Combine(isArm64 ? "mac_arm64" : "mac_x64", "libwidevinecdm.dylib");
+            }
+            else
+            {
+                libraryPath = Path.Combine(isArm64 ? "linux_arm64" : "linux_x64", "libwidevinecdm.so");
+            }
             return File.Exists(Path.Combine(cdmDirectory, "manifest.json"))
-                && File.Exists(Path.Combine(cdmDirectory, "_platform_specific", platformDirectory, "libwidevinecdm.so"));
+                && File.Exists(Path.Combine(cdmDirectory, "_platform_specific", libraryPath));
         }
 
         private static string? ReadWidevineCdmHint(string hintFile)
