@@ -43,7 +43,7 @@ const stringifyDashError = (error: unknown): string => {
     }
 };
 
-export type PlaybackErrorKind = "drm-license" | "drm" | "generic";
+export type PlaybackErrorKind = "drm-license" | "drm" | "drm-unsupported" | "generic";
 
 type DashErrorPayload = {
     code?: number;
@@ -152,6 +152,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     // License URLs carry the backend's video generation, so a reload of the same manifest gets a new one.
     let currentDrmKey: string | undefined;
     let stoppedByDrmError = false;
+    // A key system that worked once stays usable, so later DRM sources start without the check.
+    const verifiedKeySystems = new Set<string>();
+    let keySystemCheckId = 0;
     let loader: LoaderGameHandle | undefined;
     let currentTag = uuidv4();
 
@@ -793,6 +796,19 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         sideLoadedSubtitleTrack = trackElement;
     };
 
+    // Resolves when the key system can create media keys; audio-only and video-only configs both count.
+    const checkKeySystemAccess = async (keySystem: string): Promise<void> => {
+        if (!navigator.requestMediaKeySystemAccess) {
+            throw new Error("EME is not supported");
+        }
+        const robustness = keySystem === "com.widevine.alpha" ? "SW_SECURE_CRYPTO" : "";
+        const access = await navigator.requestMediaKeySystemAccess(keySystem, [
+            { initDataTypes: ["cenc"], videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"', robustness }] },
+            { initDataTypes: ["cenc"], audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"', robustness }] }
+        ]);
+        await access.createMediaKeys();
+    };
+
     const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, drm?: ISourceDrm) => {
         //TODO: Implement playWhenReady ?
         console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime, drm});
@@ -822,6 +838,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setIsAudioOnly(false);
         setIsPlaying(false);
         stoppedByDrmError = false;
+        keySystemCheckId++;
         frameRate = undefined;
 
         if (!untrack(isCasting))
@@ -880,6 +897,30 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
         setEndControlsVisible(false);
 
+        if (sourceUrl && mediaType && drm && !verifiedKeySystems.has(drm.keySystem)) {
+            // Without usable EME the players stall or report no streams, so the key system is checked first.
+            const checkId = keySystemCheckId;
+            setIsLoading(true);
+            checkKeySystemAccess(drm.keySystem).then(() => {
+                if (checkId !== keySystemCheckId) {
+                    return;
+                }
+                verifiedKeySystems.add(drm.keySystem);
+                startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume);
+            }, (error: unknown) => {
+                if (checkId !== keySystemCheckId) {
+                    return;
+                }
+                setIsLoading(false);
+                onError(`Key system ${drm.keySystem} is not available: ${String(error)}`, true, "drm-unsupported");
+            });
+            return;
+        }
+
+        startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume);
+    };
+
+    const startSource = (sourceUrl: string | undefined, mediaType: string | undefined, shouldResume: boolean | undefined, startTime: Duration | undefined, drm: ISourceDrm | undefined, currentVolume: number) => {
         if (sourceUrl && mediaType && videoElement) {
             setIsLoading(false);
 
@@ -1105,6 +1146,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     }
                     if (code === dashjs.MediaPlayer.errors.MEDIA_KEY_MESSAGE_LICENSER_ERROR_CODE) {
                         return "drm-license";
+                    }
+                    if (drm && code === dashjs.MediaPlayer.errors.MANIFEST_ERROR_ID_NOSTREAMS_CODE) {
+                        // A protected manifest reports no streams when the browser cannot decrypt it.
+                        return "drm";
                     }
                     return drmErrorCodes().includes(code) ? "drm" : "generic";
                 };

@@ -473,11 +473,28 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
 
         const nvi = nextVideoIndex();
-        const isDrmError = kind === "drm-license" || kind === "drm";
+        const isDrmError = kind === "drm-license" || kind === "drm" || kind === "drm-unsupported";
         const stopAndAsk = nvi === undefined || isDrmError;
         if (stopAndAsk) {
             console.error("Playback error: " + error, { errorCounter, kind });
             exitFullscreen();
+            if (kind === "drm-unsupported") {
+                // The desktop app gets the CDM later through its updater; a browser without EME never will.
+                const isDesktopApp = !!window.customElements?.get('justcef-view');
+                const exception = new ExceptionModel({
+                    type: "DrmUnavailable",
+                    title: "DRM playback not available",
+                    message: isDesktopApp
+                        ? "This source requires Widevine DRM, which is not installed or still downloading. Try again in a moment."
+                        : "This browser cannot play protected content. Enable DRM/EME in the browser settings or use a browser with Widevine.",
+                    code: "",
+                    canRetry: isDesktopApp
+                });
+                setTimeout(() => {
+                    UIOverlay.overlayError(exception, isDesktopApp ? { retry: () => reloadMedia() } : undefined);
+                }, 0);
+                return;
+            }
             let message = "An error occurred while playing the video, do you want to reload?";
             if (kind === "drm-license") {
                 message = "The license server refused playback. Reload to try again?";
