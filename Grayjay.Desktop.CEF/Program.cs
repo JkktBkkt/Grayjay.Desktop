@@ -205,39 +205,31 @@ namespace Grayjay.Desktop
         {
             try
             {
-                bool everRegistered = false;
-
-                for (int i = 0; i < 12; i++)
+                var status = await cef.GetWidevineStatusAsync();
+                switch (status.State)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-
-                    var status = await cef.GetWidevineStatusAsync();
-                    everRegistered |= status.Registered;
-
-                    if (!status.Installed)
-                        continue;
-
-                    if (!status.RequiresRestart)
-                    {
+                    case WidevineState.Ready:
                         Logger.i(nameof(Program), $"Widevine CDM {status.Version} is active.");
-                        return;
-                    }
-
-                    Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
-
-                    await StateWindow.WaitForReadyAsync();
-                    StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
-                    return;
+                        break;
+                    case WidevineState.RestartRequired:
+                        Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
+                        await StateWindow.WaitForReadyAsync();
+                        StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
+                        break;
+                    case WidevineState.Unavailable when status.Reason == WidevineUnavailableReason.NotSupported:
+                        Logger.i(nameof(Program), "Widevine is unavailable on this platform, protected content will not play.");
+                        break;
+                    default:
+                        Logger.i(nameof(Program), $"The Widevine CDM is unavailable ({status.Reason}: {status.Detail}), protected content will not play.");
+                        break;
                 }
-
-                if (everRegistered)
-                    Logger.i(nameof(Program), "The Widevine CDM did not install, protected content will not play.");
-                else
-                    Logger.i(nameof(Program), "Widevine is unavailable on this platform, protected content will not play.");
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception e)
             {
-                Logger.w(nameof(Program), "Failed to query the Widevine status.", e);
+                Logger.w(nameof(Program), "Failed to get the Widevine status.", e);
             }
         }
 
