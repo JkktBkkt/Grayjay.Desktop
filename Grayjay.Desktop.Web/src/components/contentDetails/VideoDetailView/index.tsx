@@ -241,7 +241,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     };
     const formatDashAudioTrackName = (track?: DashAudioTrack) => track ? formatAudioTrackName(track) : "";
     const isPreferredAudioLanguage = (language: string) => primarySubtag(language) == primarySubtag(preferredAudioLanguage$() ?? navigator.language);
-    createEffect(on(() => `${videoSource$()?.url}|${videoSource$()?.video}|${videoSource$()?.videoIsLocal}`, () => {
+    // A memo, so a subtitle or audio change that keeps the same video source does not clear the track menus.
+    const videoSourceKey$ = createMemo(() => `${videoSource$()?.url}|${videoSource$()?.video}|${videoSource$()?.videoIsLocal}`);
+    createEffect(on(videoSourceKey$, () => {
         setUmpVideoFormats([]);
         setUmpAudioFormats([]);
         setUmpVideoKey(undefined);
