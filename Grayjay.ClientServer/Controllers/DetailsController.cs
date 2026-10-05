@@ -1739,7 +1739,7 @@ namespace Grayjay.ClientServer.Controllers
             for (int trackIndex = 0; trackIndex < tracks.Count; trackIndex++)
             {
                 var track = tracks[trackIndex];
-                var metaData = probes[trackIndex].MetaData;
+                var ranges = probes[trackIndex].Ranges;
                 if (!state.DetailsState.TrySetWidevinePsshData(generation, track.Source, probes[trackIndex].WidevinePsshData))
                     throw new SupersededDashRequestException();
                 var modifierId = track.Modifier != null ? ProxyController.GetOrCreateModifierId(state, track.Modifier, track.Url) : null;
@@ -1758,14 +1758,16 @@ namespace Grayjay.ClientServer.Controllers
                     });
                     adaptationSet.WithRepresentation(representationIdString, track.RepresentationParameters, representation =>
                     {
-                        representation.WithSegmentBase(proxiedUrl, metaData.FileInitStart.Value, metaData.FileInitEnd.Value, metaData.FileIndexStart.Value, metaData.FileIndexEnd.Value);
+                        representation.WithSegmentBase(proxiedUrl, ranges.InitStart, ranges.InitEnd, ranges.IndexStart, ranges.IndexEnd);
                     });
                 });
             }
             return dashBuilder.Build();
         }
 
-        private static (StreamMetaData MetaData, IReadOnlyList<byte[]> WidevinePsshData) FetchMp4Metadata(string url, IRequestModifier? modifier)
+        private readonly record struct Mp4SegmentRanges(int InitStart, int InitEnd, int IndexStart, int IndexEnd);
+
+        private static (Mp4SegmentRanges Ranges, IReadOnlyList<byte[]> WidevinePsshData) FetchMp4Metadata(string url, IRequestModifier? modifier)
         {
             const int maxFullBodyBytes = 32 * 1024 * 1024;
             const int maxPsshScanBytes = 4 * 1024 * 1024;
@@ -1796,7 +1798,7 @@ namespace Grayjay.ClientServer.Controllers
 
             var reader = new Mp4RangeReader(FetchRange);
             var metaData = Mp4MetadataHelper.FindOnDemandRanges(reader.Read);
-            if (metaData == null || metaData.FileIndexStart == null || metaData.FileIndexEnd == null)
+            if (metaData is not { FileInitStart: int initStart, FileInitEnd: int initEnd, FileIndexStart: int indexStart, FileIndexEnd: int indexEnd })
             {
                 throw new DialogException(new ExceptionModel()
                 {
@@ -1808,10 +1810,10 @@ namespace Grayjay.ClientServer.Controllers
                 });
             }
 
-            int initLength = metaData.FileInitEnd.Value + 1;
+            int initLength = initEnd + 1;
             var initSegment = initLength <= maxPsshScanBytes ? reader.Read(0, initLength) : null;
             var widevinePsshData = initSegment != null ? Mp4MetadataHelper.FindWidevinePsshData(initSegment) : new List<byte[]>();
-            return (metaData, widevinePsshData);
+            return (new Mp4SegmentRanges(initStart, initEnd, indexStart, indexEnd), widevinePsshData);
         }
 
         [HttpPost]
@@ -2969,7 +2971,7 @@ namespace Grayjay.ClientServer.Controllers
         public class SourceDrm
         {
             public string KeySystem { get; set; } = "com.widevine.alpha";
-            public string LicenseUrl { get; set; }
+            public required string LicenseUrl { get; set; }
             [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
             public string? ServiceCertificate { get; set; }
             [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml.Linq;
 using Grayjay.ClientServer.Controllers;
@@ -144,8 +145,15 @@ public class Mp4MetadataHelperTests
         var method = typeof(DetailsController).GetMethod("FetchMp4Metadata", BindingFlags.NonPublic | BindingFlags.Static)!;
         try
         {
-            var result = ((StreamMetaData MetaData, IReadOnlyList<byte[]> WidevinePsshData))method.Invoke(null, new object?[] { url, null })!;
-            return result.MetaData;
+            var ranges = ((ITuple)method.Invoke(null, new object?[] { url, null })!)[0]!;
+            int ReadRange(string name) => (int)ranges.GetType().GetProperty(name)!.GetValue(ranges)!;
+            return new StreamMetaData()
+            {
+                FileInitStart = ReadRange("InitStart"),
+                FileInitEnd = ReadRange("InitEnd"),
+                FileIndexStart = ReadRange("IndexStart"),
+                FileIndexEnd = ReadRange("IndexEnd")
+            };
         }
         catch (TargetInvocationException ex) when (ex.InnerException != null)
         {
