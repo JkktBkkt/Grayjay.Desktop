@@ -1880,7 +1880,7 @@ namespace Grayjay.ClientServer.Controllers
                     headers.Add("Content-Type", "application/octet-stream");
                     var res = ModifierHttp.PostBytes(new ManagedHttpClient(), widevineSource.LicenseUri, challenge, modifier, headers);
                     if (!res.IsOk)
-                        return StatusCode(502, $"License server returned [{res.Code}]");
+                        return StatusCode(LicenseServerFailureStatus(res.Code), $"License server returned [{res.Code}]");
                     license = res.Bytes;
                 }
 
@@ -1929,6 +1929,23 @@ namespace Grayjay.ClientServer.Controllers
             if (audioMatches && !videoMatches)
                 return audioSource;
             return videoSource;
+        }
+
+        /// <summary>
+        /// Maps a failed license server response to the status returned to the player. Client errors pass through so
+        /// players do not retry them; 409 is reserved for stale license URLs and becomes 403.
+        /// </summary>
+        public static int LicenseServerFailureStatus(int upstreamCode)
+        {
+            if (upstreamCode == StatusCodes.Status409Conflict)
+            {
+                return StatusCodes.Status403Forbidden;
+            }
+            if (upstreamCode >= 400 && upstreamCode < 500)
+            {
+                return upstreamCode;
+            }
+            return StatusCodes.Status502BadGateway;
         }
 
         private static bool ChallengeContainsPsshData(byte[] challenge, IReadOnlyList<byte[]>? psshData)
