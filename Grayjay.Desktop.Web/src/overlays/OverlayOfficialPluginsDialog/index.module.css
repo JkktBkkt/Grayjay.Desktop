@@ -1,7 +1,8 @@
 
 
 .container {
-    width: 500px;
+    width: min(780px, calc(100vw - 40px));
+    box-sizing: border-box;
     position: relative;
     max-height: calc(100vh - 40px);
     padding-top: 20px;
@@ -9,18 +10,22 @@
     padding-right: 20px;
     padding-bottom: 20px;
     border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
     scrollbar-color: #555 #333;
     scrollbar-width: thin;
-    overflow-y: auto;
     border: 1px solid #2E2E2E;
     background: #141414;
     box-shadow: 0px 1.648px 3.148px 0px rgba(0, 0, 0, 0.10), 0px 7.252px 6.519px 0px rgba(0, 0, 0, 0.16), 0px 17.8px 13px 0px rgba(0, 0, 0, 0.21), 0px 34.281px 25.481px 0px rgba(0, 0, 0, 0.26), 0px 57.685px 46.852px 0px rgba(0, 0, 0, 0.32), 0px 89px 80px 0px rgba(0, 0, 0, 0.42);
 }
 
 .dialogHeader {
-    height: 55px;
+    flex-shrink: 0;
+    min-height: 55px;
     margin-bottom: 10px;
     margin-left: 16px;
+    margin-right: 44px;
     margin-top: 10px;
 }
 .dialogHeader .headerText {
@@ -50,6 +55,22 @@
 .closeButton img {
     width: 24px;
     height: 24px;
+}
+
+.body {
+    flex: 1 1 auto;
+    min-height: 150px;
+    overflow-y: auto;
+    scrollbar-color: #555 #333;
+    scrollbar-width: thin;
+}
+
+.footer {
+    flex-shrink: 0;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    margin-top: 10px;
+    text-align: center;
 }
 
 .sources{
@@ -85,9 +106,19 @@
     padding-left: 3px;
     height: 35px;
     padding-right: 3px;
-    display:table-cell;
-    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
     width: 120px;
+}
+.source .nameText {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
 }
 
 .source:hover {
@@ -111,10 +142,12 @@
 
 .error {
     width: 100%;
+    box-sizing: border-box;
     margin-top: 5px;
     background-color: rgba(0, 0, 0, .2);
     padding: 5px;
     text-align: center;
     color: red;
     border-radius: 10px;
+    overflow-wrap: anywhere;
 }

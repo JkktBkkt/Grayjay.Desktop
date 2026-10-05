@@ -59,6 +59,10 @@ const OverlayOfficialPluginsDialog: Component<OverlayOfficialPluginsDialogProps>
       }
     }
 
+    function displayName(config: ISourceConfig) {
+      return (config.name != "PeerTube") ? config.name : "FUTO PeerTube";
+    }
+
     function toggleSource(source: ISourceConfig){
       if(!selected$())
         return;
@@ -121,54 +125,55 @@ const OverlayOfficialPluginsDialog: Component<OverlayOfficialPluginsDialogProps>
               <img src={iconClose} />
             </div>
           </div>
-          <div>
-            <For each={errors$()}>{error =>
-              <div class={styles.error}>
-                {error}
+          <div class={styles.body}>
+            <div>
+              <For each={errors$()}>{error =>
+                <div class={styles.error}>
+                  {error}
+                </div>
+              }</For>
+            </div>
+            <div class={styles.sources} style="position: relative;">
+              <For each={sources$()}>{ config =>
+                <div class={styles.source} onClick={()=>toggleSource(config)} use:focusable={{
+                onPress: () => toggleSource(config),
+                onBack: globalBack
+              }}>
+                  <div class={styles.checkContainer}>
+                    <Checkbox value={selected$().indexOf(config.id) >= 0} onChecked={(val)=>{toggleSource(config)}}
+                      style={{height: "100%", width: "100%"}}
+                      checkBoxStyle={{height: "100%", width: "100%"}}
+                      checkStyle={{height: "90%", width: "90%"}} />
+                  </div>
+                  <div class={styles.imageContainer}>
+                    <img class={styles.image} src={config.absoluteIconUrl} />
+                  </div>
+                  <div class={styles.name} title={displayName(config)}>
+                    <span class={styles.nameText}>{displayName(config)}</span>
+                  </div>
+                </div>
+              }</For>
+              <div classList={{[styles.source]: true, [styles.otherButton]: true}} onClick={()=>installPeertubeSource()}>
+                  <div class={styles.imageContainer}>
+                    <img class={styles.image} src="https://plugins.grayjay.app/PeerTube/peertube.png" />
+                  </div>
+                  <div class={styles.name} style="font-size: 12px">
+                    <span class={styles.nameText}>{"PeerTube Instance"}</span>
+                  </div>
               </div>
-            }</For>
-          </div>
-          <div class={styles.sources} style="position: relative;">
-            <For each={sources$()}>{ config =>
-              <div class={styles.source} onClick={()=>toggleSource(config)} use:focusable={{ 
-              onPress: () => toggleSource(config), 
-              onBack: globalBack
-            }}>
-                <div class={styles.checkContainer}>
-                  <Checkbox value={selected$().indexOf(config.id) >= 0} onChecked={(val)=>{toggleSource(config)}} 
-                    style={{height: "100%", width: "100%"}}
-                    checkBoxStyle={{height: "100%", width: "100%"}}
-                    checkStyle={{height: "90%", width: "90%"}} />
-                </div>
-                <div class={styles.imageContainer}>
-                  <img class={styles.image} src={config.absoluteIconUrl} />
-                </div>
-                <div class={styles.name}>
-                  {(config.name != "PeerTube") ? config.name : "FUTO PeerTube"}
-                </div>
-              </div>
-            }</For>
-            <div classList={{[styles.source]: true, [styles.otherButton]: true}} onClick={()=>installPeertubeSource()}>
-                <div class={styles.imageContainer}>
-                  <img class={styles.image} src="https://plugins.grayjay.app/PeerTube/peertube.png" />
-                </div>
-                <div class={styles.name} style="font-size: 12px">
-                  {"PeerTube Instance"}
-                </div>
             </div>
           </div>
-          
-          <div style="height: 1px; background-color: rgba(255, 255, 255, 0.09); margin-top: 10px; margin-bottom: 10px;"></div>
-            <div style="text-align: center">
-                <Button text={"Install Selected"}
-                  onClick={()=>selected$() && selected$().length > 0 && install()}
-                  style={{"margin-left": "10px", cursor: ("pointer")}} 
-                  color={((selected$() && selected$().length > 0) ? "linear-gradient(267deg, #01D6E6 -100.57%, #0182E7 90.96%)" : "")}
-                  focusableOpts={{
-                    onPress: install,
-                    onBack: globalBack
-                  }} />
-            </div>
+
+          <div class={styles.footer}>
+              <Button text={"Install Selected"}
+                onClick={()=>selected$() && selected$().length > 0 && install()}
+                style={{"margin-left": "10px", cursor: ("pointer")}}
+                color={((selected$() && selected$().length > 0) ? "linear-gradient(267deg, #01D6E6 -100.57%, #0182E7 90.96%)" : "")}
+                focusableOpts={{
+                  onPress: install,
+                  onBack: globalBack
+                }} />
+          </div>
         </Show>
         <Show when={installing$()}>
           <div class={styles.dialogHeader}>
