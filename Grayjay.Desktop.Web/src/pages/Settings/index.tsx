@@ -5,7 +5,7 @@ import { Backend } from '../../backend/Backend';
 import StateGlobal from '../../state/StateGlobal';
 import iconThumb from '../../assets/icons/icon_thumb.svg'
 import SourceDetails from '../subpages/SourceDetails';
-import SettingsContainer from '../../components/containers/SettingsContainer';
+import SettingsContainer, { isGroupVisible } from '../../components/containers/SettingsContainer';
 import { SettingsBackend } from '../../backend/SettingsBackend';
 import Button from '../../components/buttons/Button';
 import { ImportBackend } from '../../backend/ImportBackend';
@@ -69,6 +69,19 @@ const SettingsPage: Component<SettingsPageProps> = (props) => {
         return false;
     });
 
+    const visibleGroups$ = createMemo(() =>
+        (settings$()?.fields ?? [])
+            .filter(field => field.type == 'group')
+            .filter(field => isGroupVisible(field as ISettingsFieldGroup, showAdvanced$()))
+    );
+
+    createEffect(() => {
+        const selectedGroup = filterGroup$();
+        if (selectedGroup && !visibleGroups$().some(group => group.property == selectedGroup)) {
+            setFilterGroup(undefined);
+        }
+    });
+
     function findAdvancedField(fields: ISettingsField[]): ISettingsField | undefined {
         if(!fields)
             return undefined;
@@ -103,7 +116,7 @@ const SettingsPage: Component<SettingsPageProps> = (props) => {
               }}>
                 All
               </div>
-              <For each={settings$()?.fields?.filter(x=>x.type == 'group') ?? []}>{(item, i) => 
+              <For each={visibleGroups$()}>{(item, i) => 
                 <div classList={{[styles.settingsMenuItem]: true, [styles.active]: item.property == filterGroup$()}} onClick={()=>setFilterGroup(item.property)} use:focusable={{
                   onPress: () => setFilterGroup(item.property),
                   onBack: globalBack,

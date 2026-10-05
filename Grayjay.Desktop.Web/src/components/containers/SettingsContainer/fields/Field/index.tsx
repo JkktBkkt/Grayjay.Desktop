@@ -11,7 +11,7 @@ import FieldDropDown from '../FieldDropDown';
 import { ISettingsFieldToggle } from '../../../../../backend/models/settings/fields/SettingsFieldToggle';
 import { ISettingsFieldDropDown } from '../../../../../backend/models/settings/fields/SettingsFieldDropDown';
 import { parseBool } from '../../../../../utility';
-import { SettingsContainerParent } from '../..';
+import { SettingsContainerParent, isGroupVisible } from '../..';
 import UIOverlay from '../../../../../state/UIOverlay';
 import warning from '../../../../../assets/icons/icon_warning.svg';
 import { Direction } from '../../../../../nav';
@@ -92,7 +92,7 @@ const Field: Component<FieldProps> = (props) => {
 
     return (
         <div class={styles.container}>
-            <Show when={isVisible$() && (!props.field.advanced || !!props.showAdvanced) && (props.field.type != "group" || !!props.showAdvanced ||  (props.field as ISettingsFieldGroup).fields.find(x=>!x.advanced))}>
+            <Show when={isVisible$() && (!props.field.advanced || !!props.showAdvanced) && (props.field.type != "group" || isGroupVisible(props.field as ISettingsFieldGroup, !!props.showAdvanced))}>
                 <Switch>
                     <Match when={props.field.type == "group"}>
                         <FieldGroup field={props.field as ISettingsFieldGroup} value={props.parentObject[props.field.property]}

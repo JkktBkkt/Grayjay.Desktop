@@ -42,6 +42,13 @@ export interface IFieldChangedEvent {
     newValue: any
 }
 
+export function isGroupVisible(group: ISettingsFieldGroup, showAdvanced: boolean): boolean {
+    if (showAdvanced) {
+        return true;
+    }
+    return !group.advanced && !!group.fields?.some(field => !field.advanced);
+}
+
 const SettingsContainer: Component<SettingsContainerProps> = (props) => {
     let object = createMemo(()=>(props.settings) ? new SettingsContainerParent(props.settings) : undefined);
     let existing: ISettingsObject | undefined = undefined;
