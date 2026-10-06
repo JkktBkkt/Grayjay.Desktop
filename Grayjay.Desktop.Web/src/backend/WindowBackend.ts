@@ -1,3 +1,4 @@
+import Globals from "../globals";
 import { Backend } from "./Backend";
 import { IPlatformVideo } from "./models/content/IPlatformVideo";
 
@@ -12,6 +13,11 @@ export abstract class WindowBackend {
 
     static async ready(): Promise<boolean> {
         return await Backend.GET("/window/Ready");
+    }
+
+    // A beacon cannot set headers, so the window id goes in the query.
+    static unload(): void {
+        navigator.sendBeacon("/window/Unload?windowId=" + encodeURIComponent(Globals.WindowID));
     }
 
     static async delay(ms: number): Promise<boolean> {
