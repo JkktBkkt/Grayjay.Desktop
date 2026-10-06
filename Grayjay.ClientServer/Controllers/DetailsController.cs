@@ -2218,13 +2218,6 @@ namespace Grayjay.ClientServer.Controllers
                 var videoSourceList = video.Video.VideoSources.Cast<IVideoSource>().ToList();
                 var audioSourceList = (video.Video is UnMuxedVideoDescriptor unmuxed) ? unmuxed.AudioSources.Cast<IAudioSource>().ToList() : null;
 
-                bool hasWidevineSources = videoSourceList.Any(source => source is IWidevineSource)
-                    || (audioSourceList?.Any(source => source is IWidevineSource) ?? false);
-                if (hasWidevineSources && !StateWidevine.IsPlaybackAvailable)
-                {
-                    await StateWidevine.RefreshAsync();
-                }
-
                 (var bestVideoSourceIndex, var bestAudioSourceIndex) = SelectAutoSourcePair(videoSourceList, audioSourceList, StateWidevine.IsPlaybackAvailable,
                     GrayjaySettings.Instance.Playback.GetPreferredQualityPixelCount(), GrayjaySettings.Instance.Playback.GetPrimaryLanguage());
 
@@ -2306,7 +2299,7 @@ namespace Grayjay.ClientServer.Controllers
             bool anyWidevine = AnyWidevine(sourceVideo, sourceAudio);
             if (anyWidevine)
             {
-                await EnsureWidevinePlaybackAvailableAsync();
+                EnsureWidevinePlaybackAvailable();
             }
             // DRM DASH manifests carry no subtitles, so those descriptors name a WebVTT URL for the player to side-load.
             SourceDescriptor WithDrm(SourceDescriptor descriptor, bool sideLoadSubtitle = false)
@@ -2601,22 +2594,28 @@ namespace Grayjay.ClientServer.Controllers
             return IsWidevineUrlSource(sourceVideo) && IsWidevineUrlSource(sourceAudio);
         }
 
-        private static async Task EnsureWidevinePlaybackAvailableAsync()
+        private static void EnsureWidevinePlaybackAvailable()
         {
             if (StateWidevine.IsPlaybackAvailable)
                 return;
 
-            await StateWidevine.RefreshAsync();
-            if (StateWidevine.IsPlaybackAvailable)
-                return;
-
             var status = StateWidevine.Status;
-            if (status?.RequiresRestart == true)
+            if (status?.State == JustCef.WidevineState.RestartRequired)
             {
                 throw new DialogException(new ExceptionModel()
                 {
                     Title = "Restart required for DRM playback",
                     Message = "The Widevine DRM component was installed but requires an application restart before it can be used.",
+                    CanRetry = false
+                });
+            }
+
+            if (status?.State == JustCef.WidevineState.Unavailable)
+            {
+                throw new DialogException(new ExceptionModel()
+                {
+                    Title = "DRM playback not available",
+                    Message = "This source requires Widevine DRM, which is not available on this system.",
                     CanRetry = false
                 });
             }
