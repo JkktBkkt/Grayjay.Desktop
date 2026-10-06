@@ -454,6 +454,13 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             return;
         }
 
+        // The load releases the old video's play token first, so its player can fail after the user moved on.
+        if (DetailsBackend.isNewestVideoLoadPending()) {
+            console.info("Ignoring a playback error while another video loads", { error, kind });
+            return;
+        }
+        const erroredSource = videoSource$();
+
         errorCounter++;
         console.info("Error counter", { errorCounter });
 
@@ -496,6 +503,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                     canRetry: isDesktopApp
                 });
                 setTimeout(() => {
+                    if (videoSource$() !== erroredSource) {
+                        return;
+                    }
                     UIOverlay.overlayError(exception, isDesktopApp ? { retry: () => reloadMedia() } : undefined);
                 }, 0);
                 return;
@@ -507,6 +517,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
                 message = "DRM playback failed. Reload to try again?";
             }
             setTimeout(() => {
+                if (videoSource$() !== erroredSource) {
+                    return;
+                }
                 UIOverlay.overlayConfirm(
                     { yes: () => reloadMedia() },
                     message
