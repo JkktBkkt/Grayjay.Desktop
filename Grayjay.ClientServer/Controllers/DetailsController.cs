@@ -513,7 +513,7 @@ namespace Grayjay.ClientServer.Controllers
             PlaybackTracker? tracker = null;
             try
             {
-                tracker = video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null;
+                tracker = video?.GetPlaybackTracker() ?? (video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null);
             }
             catch (Exception ex)
             {
