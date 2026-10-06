@@ -148,9 +148,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             return undefined;
         }
 
+        const preloaded = video?.actions.takePreloadedVideoLoad(url);
         try {
             return await UIOverlay.catchDialogExceptions(async ()=>{
-                const result = await DetailsBackend.videoLoad(url);
+                const result = preloaded ?? await DetailsBackend.videoLoad(url);
                 if (result.superseded) {
                     // A newer load or a close owns the view now.
                     return undefined;
