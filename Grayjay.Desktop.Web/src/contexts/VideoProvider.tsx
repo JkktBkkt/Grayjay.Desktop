@@ -105,6 +105,10 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
         const videoLoadResult = await DetailsBackend.videoLoad(url);
+        if (videoLoadResult.superseded) {
+            return;
+        }
+
         const openVideoUrl = video()?.backendUrl ?? video()?.url;
         const loadedVideoUrl = videoLoadResult.video.backendUrl ?? videoLoadResult.video.url;
         batch(() => {
@@ -231,6 +235,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         });
     };
     const closeVideo = () => {
+        if (index() !== undefined || DetailsBackend.isNewestVideoLoadPending()) {
+            DetailsBackend.videoClose().catch((error) => console.warn("Failed to release the playback tracker", error));
+        }
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);

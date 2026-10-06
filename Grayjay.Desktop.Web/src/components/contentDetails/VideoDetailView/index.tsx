@@ -150,7 +150,11 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
 
         try {
             return await UIOverlay.catchDialogExceptions(async ()=>{
-                const result = (!url) ? null : (await DetailsBackend.videoLoad(url));
+                const result = await DetailsBackend.videoLoad(url);
+                if (result.superseded) {
+                    // A newer load or a close owns the view now.
+                    return undefined;
+                }
                 setVideoLocal(result?.local);
                 console.info("set video", { url, video: result?.video, local: result?.local });
                 return result?.video;

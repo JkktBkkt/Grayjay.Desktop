@@ -27,6 +27,19 @@ public class WindowStateRemovalTests
     }
 
     [TestMethod]
+    public void RemoveState_RejectsLaterVideoLoads()
+    {
+        var windowId = Guid.NewGuid().ToString();
+        var state = Context(windowId).GetState();
+        Assert.IsTrue(state.DetailsState.TryBeginVideoLoad(10, out _));
+
+        StateWindow.RemoveState(windowId);
+
+        Assert.IsFalse(state.DetailsState.IsCurrentVideoRequest(10));
+        Assert.IsFalse(state.DetailsState.TryBeginVideoLoad(11, out _));
+    }
+
+    [TestMethod]
     public void RemoveState_UnknownId_DoesNothing()
     {
         var windowId = Guid.NewGuid().ToString();

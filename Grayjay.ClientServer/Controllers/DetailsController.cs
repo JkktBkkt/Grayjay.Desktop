@@ -33,6 +33,7 @@ using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -54,6 +55,136 @@ namespace Grayjay.ClientServer.Controllers
             public Subscription VideoSubscription { get; set; }
             public DBHistoryIndex VideoHistoryIndex { get; set; }
             public PlaybackTracker VideoPlaybackTracker { get; set; }
+
+            private long _latestVideoRequestId = 0;
+            private long _committedVideoRequestId = 0;
+            private bool _disposed = false;
+            private readonly object _videoLoadsLock = new object();
+
+            private PlaybackTracker? TakePlaybackTracker()
+            {
+                var tracker = VideoPlaybackTracker;
+                VideoPlaybackTracker = null;
+                return tracker;
+            }
+
+            /// <summary>
+            /// Starts a video load and takes the current tracker, so its token is released before the plugin loads the next video.
+            /// A load older than the latest load or close is rejected.
+            /// </summary>
+            public bool TryBeginVideoLoad(long requestId, out PlaybackTracker? previousTracker)
+            {
+                lock (_videoLoadsLock)
+                {
+                    previousTracker = null;
+                    if (_disposed || requestId < _latestVideoRequestId)
+                    {
+                        return false;
+                    }
+
+                    _latestVideoRequestId = requestId;
+                    previousTracker = TakePlaybackTracker();
+                    return true;
+                }
+            }
+
+            /// <summary>
+            /// Reloads the committed video; rejected once a newer load or a close was requested.
+            /// </summary>
+            public bool TryBeginReload(out long requestId, [NotNullWhen(true)] out string? url, out PlaybackTracker? previousTracker)
+            {
+                lock (_videoLoadsLock)
+                {
+                    requestId = _committedVideoRequestId;
+                    url = null;
+                    previousTracker = null;
+                    if (_disposed || _latestVideoRequestId != _committedVideoRequestId || VideoLoaded == null)
+                    {
+                        return false;
+                    }
+
+                    url = VideoLoaded.Url;
+                    previousTracker = TakePlaybackTracker();
+                    return true;
+                }
+            }
+
+            public bool IsCurrentVideoRequest(long requestId)
+            {
+                lock (_videoLoadsLock)
+                {
+                    return !_disposed && requestId == _latestVideoRequestId;
+                }
+            }
+
+            /// <summary>
+            /// Applies a finished load only if no newer load, close or dispose happened since it began.
+            /// On success the previous tracker is returned so the caller concludes it outside the lock.
+            /// </summary>
+            public bool TryCommitVideoLoad(long requestId, PlatformVideoDetails? video, VideoLocal? videoLocal, PlaybackTracker? tracker, out PlaybackTracker? previousTracker)
+            {
+                lock (_videoLoadsLock)
+                {
+                    previousTracker = null;
+                    if (_disposed || requestId != _latestVideoRequestId)
+                    {
+                        return false;
+                    }
+
+                    // Bumped before the assignment (and again by the caller), so a request never pairs the new video with an old generation.
+                    _committedVideoRequestId = requestId;
+                    ClearCachedDash();
+                    VideoLoaded = video;
+                    VideoLocal = videoLocal;
+                    previousTracker = TakePlaybackTracker();
+                    VideoPlaybackTracker = tracker;
+                    return true;
+                }
+            }
+
+            /// <summary>
+            /// Supersedes every load started before this close and takes the current tracker.
+            /// A close older than the latest load is ignored, as that load was requested after it.
+            /// </summary>
+            public PlaybackTracker? CloseVideo(long requestId)
+            {
+                lock (_videoLoadsLock)
+                {
+                    if (requestId < _latestVideoRequestId)
+                    {
+                        return null;
+                    }
+
+                    _latestVideoRequestId = requestId;
+                    return TakePlaybackTracker();
+                }
+            }
+
+            private PlaybackTracker? MarkDisposed()
+            {
+                lock (_videoLoadsLock)
+                {
+                    _disposed = true;
+                    return TakePlaybackTracker();
+                }
+            }
+
+            public static void ConcludePlaybackTracker(PlaybackTracker? tracker, string context)
+            {
+                if (tracker == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    tracker.onConcluded();
+                }
+                catch (Exception ex)
+                {
+                    Logger.w(nameof(DetailsState), $"Failed to conclude the playback tracker ({context}): " + ex.Message, ex);
+                }
+            }
 
             public string? UmpPlaybackId { get; set; }
             public int UmpCastHeight { get; set; } = -1;
@@ -349,6 +480,7 @@ namespace Grayjay.ClientServer.Controllers
 
             public void Dispose()
             {
+                ConcludePlaybackTracker(MarkDisposed(), "dispose");
                 LiveChatManager?.Stop();
                 LiveChatManager = null;
                 ReleaseUmpPlayback();
@@ -370,14 +502,29 @@ namespace Grayjay.ClientServer.Controllers
 
         static ManagedHttpClient _qualityClient = new ManagedHttpClient();
 
-        private void ChangeVideo(PlatformVideoDetails video, VideoLocal videoLocal)
+        private bool ChangeVideo(long requestId, PlatformVideoDetails video, VideoLocal videoLocal)
         {
             var state = this.State().DetailsState;
+            if (!state.IsCurrentVideoRequest(requestId))
+            {
+                return false;
+            }
             video = video ?? videoLocal;
-            // Bumped before and after the assignment, so a request never pairs the new video with an old generation.
-            state.ClearCachedDash();
-            state.VideoLoaded = video;
-            state.VideoLocal = videoLocal;
+            PlaybackTracker? tracker = null;
+            try
+            {
+                tracker = video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null;
+            }
+            catch (Exception ex)
+            {
+                Logger.e(nameof(DetailsController), "Failed to get Playback tracker", ex);
+            }
+            if (!state.TryCommitVideoLoad(requestId, video, videoLocal, tracker, out var previousTracker))
+            {
+                DetailsState.ConcludePlaybackTracker(tracker, "superseded load");
+                return false;
+            }
+            DetailsState.ConcludePlaybackTracker(previousTracker, "video change");
             state.ClearCachedDash();
             state.ReleaseUmpPlayback();
             state.UmpCastHeight = -1;
@@ -387,16 +534,6 @@ namespace Grayjay.ClientServer.Controllers
             state.ClearDashSourceSessions();
             state.VideoSubscription = StateSubscriptions.GetSubscription(video?.Author?.Url ?? videoLocal?.Author?.Url);
             state.VideoHistoryIndex = video != null ? StateHistory.GetHistoryByVideo(video, true) : null;
-            state.VideoPlaybackTracker?.onConcluded();
-            try
-            {
-                state.VideoPlaybackTracker = video != null ? StatePlatform.GetPlaybackTracker(video.Url) : null;
-            }
-            catch (Exception ex)
-            {
-                state.VideoPlaybackTracker = null;
-                Logger.e(nameof(DetailsController), "Failed to get Playback tracker", ex);
-            }
             state._lastWatchPositionChange = DateTime.MinValue;
             state._lastWatchPosition = 0;
 
@@ -471,6 +608,7 @@ namespace Grayjay.ClientServer.Controllers
                 }
             }
 
+            return true;
         }
 
         private void ChangePost(PlatformPostDetails post)
@@ -567,9 +705,47 @@ namespace Grayjay.ClientServer.Controllers
         }
 
         [HttpGet]
-        public VideoLoadResult VideoLoad(string url)
+        public VideoLoadResult VideoLoad(string url, long requestId)
+        {
+            var state = this.State().DetailsState;
+            if (!state.TryBeginVideoLoad(requestId, out var previousTracker))
+            {
+                Logger.i(nameof(DetailsController), "Skipping a superseded video load: " + url);
+                return VideoLoadResult.CreateSuperseded();
+            }
+            DetailsState.ConcludePlaybackTracker(previousTracker, "next video load");
+            return LoadVideo(url, requestId);
+        }
+
+        // Returns false when the reload was rejected or superseded, so the caller must not use the loaded video.
+        private bool ReloadCommittedVideo()
+        {
+            var state = this.State().DetailsState;
+            if (!state.TryBeginReload(out var requestId, out var url, out var previousTracker))
+            {
+                Logger.i(nameof(DetailsController), "Skipping a reload of a video that is no longer current");
+                return false;
+            }
+            DetailsState.ConcludePlaybackTracker(previousTracker, "reload");
+            return !LoadVideo(url, requestId).Superseded;
+        }
+
+        private VideoLoadResult LoadVideo(string url, long requestId)
         {
             Logger.i(nameof(DetailsController), "Loading: " + url);
+            var state = this.State().DetailsState;
+            VideoLoadResult Superseded(Exception? error = null)
+            {
+                if (error == null)
+                {
+                    Logger.i(nameof(DetailsController), "Discarding a superseded video load: " + url);
+                }
+                else
+                {
+                    Logger.w(nameof(DetailsController), "Discarding a superseded video load that failed: " + url, error);
+                }
+                return VideoLoadResult.CreateSuperseded();
+            }
             VideoLocal local = StateDownloads.GetDownloadedVideo(url);
             IPlatformContentDetails contentDetails = null;
             Exception contentDetailsException = null;
@@ -579,6 +755,10 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptUnavailableException unex)
             {
+                if (!state.IsCurrentVideoRequest(requestId))
+                {
+                    return Superseded(unex);
+                }
                 throw new DialogException(new ExceptionModel()
                 {
                     Type = ExceptionModel.EXCEPTION_SCRIPT,
@@ -590,6 +770,10 @@ namespace Grayjay.ClientServer.Controllers
             }
             catch(ScriptCaptchaRequiredException captchaEx)
             {
+                if (!state.IsCurrentVideoRequest(requestId))
+                {
+                    return Superseded(captchaEx);
+                }
                 throw CreateCaptchaDialogException("video", captchaEx);
             }
             catch(Exception ex)
@@ -603,15 +787,24 @@ namespace Grayjay.ClientServer.Controllers
 
             if (contentDetails is PlatformVideoDetails video)
             {
-                ChangeVideo(video, local);
+                if (!ChangeVideo(requestId, video, local))
+                {
+                    return Superseded();
+                }
             }
             else if (local != null)
             {
-                ChangeVideo(null, local);
+                if (!ChangeVideo(requestId, null, local))
+                {
+                    return Superseded();
+                }
             }
             else if (contentDetails == null)
             {
-                ChangeVideo(null, null);
+                if (!ChangeVideo(requestId, null, null))
+                {
+                    return Superseded(contentDetailsException);
+                }
                 Logger.e(nameof(DetailsController), "Failed to load video", contentDetailsException);
                 if (contentDetailsException is TargetInvocationException targetInvocationException && targetInvocationException.InnerException != null)
                     contentDetailsException = targetInvocationException.InnerException;
@@ -619,7 +812,10 @@ namespace Grayjay.ClientServer.Controllers
             }
             else
             {
-                ChangeVideo(null, null);
+                if (!ChangeVideo(requestId, null, null))
+                {
+                    return Superseded();
+                }
                 throw new DialogException(new ExceptionModel()
                 {
                     Type = ExceptionModel.EXCEPTION_GENERAL,
@@ -629,12 +825,17 @@ namespace Grayjay.ClientServer.Controllers
                 });
             }
 
-            var state = this.State().DetailsState;
             return new VideoLoadResult()
             {
                 Video = state.VideoLoaded,
                 Local = state.VideoLocal
             };
+        }
+
+        [HttpGet]
+        public void VideoClose(long requestId)
+        {
+            DetailsState.ConcludePlaybackTracker(this.State().DetailsState.CloseVideo(requestId), "close");
         }
 
         [HttpGet]
@@ -826,8 +1027,10 @@ namespace Grayjay.ClientServer.Controllers
         {
             var state = this.State();
             var underlying = state.DetailsState.VideoLoaded?.GetUnderlyingObject();
-            if (!videoIsLocal && !audioIsLocal && underlying != null && GrayjayPlugin.GetEnginePlugin(underlying.Engine) == null)
-                VideoLoad(state.DetailsState.VideoLoaded.Url);
+            if (!videoIsLocal && !audioIsLocal && underlying != null && GrayjayPlugin.GetEnginePlugin(underlying.Engine) == null && !ReloadCommittedVideo())
+            {
+                return StatusCode(409, "The video changed while the DASH manifest was generated");
+            }
             try
             {
                 (var taskGenerateSourceDash, var promiseMetadata) = GenerateSourceDash(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, new ProxySettings(isLoopback));
@@ -840,7 +1043,10 @@ namespace Grayjay.ClientServer.Controllers
             catch (ScriptReloadRequiredException reloadEx)
             {
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                if (!ReloadCommittedVideo())
+                {
+                    return StatusCode(409, "The video changed while the DASH manifest was generated");
+                }
                 return await SourceDash(videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal, isLoopback, tag);
             }
             catch (Exception ex)
@@ -1137,7 +1343,10 @@ namespace Grayjay.ClientServer.Controllers
                 if (retried)
                     throw;
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                if (!ReloadCommittedVideo())
+                {
+                    return StatusCode(409, "The video changed while the DASH manifest was generated");
+                }
                 var reloadedSources = state.DetailsState.VideoLoaded?.Video?.VideoSources;
                 if (videoIndex >= 0 && (reloadedSources == null || videoIndex >= reloadedSources.Length))
                     throw new InvalidDataException("Video source is no longer available after reload");
@@ -1649,7 +1858,10 @@ namespace Grayjay.ClientServer.Controllers
                 if (retried)
                     throw;
                 await StatePlatform.HandleReloadRequired(reloadEx);
-                this.VideoLoad(state.DetailsState.VideoLoaded.Url);
+                if (!ReloadCommittedVideo())
+                {
+                    return StatusCode(409, "The video changed while the DASH manifest was generated");
+                }
                 var reloadedDescriptor = state.DetailsState.VideoLoaded?.Video;
                 if (videoIndex >= 0 && (reloadedDescriptor?.VideoSources == null || videoIndex >= reloadedDescriptor.VideoSources.Length))
                 {
@@ -2932,6 +3144,10 @@ namespace Grayjay.ClientServer.Controllers
         {
             public PlatformVideoDetails Video { get; set; }
             public VideoLocal Local { get; set; }
+            // Set when a newer load or a close replaced this load, so the caller ignores it.
+            public bool Superseded { get; set; }
+
+            public static VideoLoadResult CreateSuperseded() => new VideoLoadResult() { Superseded = true };
         }
 
         public class PostLoadResult
