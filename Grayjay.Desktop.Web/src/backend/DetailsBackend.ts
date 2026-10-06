@@ -25,8 +25,10 @@ export abstract class DetailsBackend {
         return await Backend.GET("/details/PostCurrent");
     }
 
-    static async videoLoad(url: string): Promise<IVideoLoadResult> {
-        const requestId = ++lastVideoRequestId;
+    static nextVideoRequestId(): number {
+        return ++lastVideoRequestId;
+    }
+    static async videoLoad(url: string, requestId: number = DetailsBackend.nextVideoRequestId()): Promise<IVideoLoadResult> {
         pendingVideoRequestIds.add(requestId);
         try {
             const result: IVideoLoadResult = await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url) + "&requestId=" + requestId);

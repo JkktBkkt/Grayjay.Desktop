@@ -27,6 +27,7 @@ import CustomButton from "../../buttons/CustomButton";
 import CommentView from "../../CommentView";
 import { createResourceDefault, getBestThumbnail, preventDragDrop, proxyImage, sanitzeHtml, toHumanNowDiffString, toHumanNowDiffStringMinDay, toHumanNumber, formatAudioSourceName, getDefaultPlaybackSpeed, formatDuration, getPrimaryAudioLanguage, getPreferOriginalAudio } from "../../../utility";
 import { DetailsBackend } from "../../../backend/DetailsBackend";
+import { IPlatformVideoDetails } from "../../../backend/models/contentDetails/IPlatformVideoDetails";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import SubscribeButton from "../../buttons/SubscribeButton";
 import SettingsMenu, { Menu, MenuItem, IMenuItemGroup, IMenuItemOption, MenuItemButton, IMenuFilter } from "../../menus/Overlays/SettingsMenu";
@@ -551,6 +552,16 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
     });
 
+    // An open by URL releases this video's play token when its load begins, so only a new load may play it again.
+    let releasedVideo: IPlatformVideoDetails | undefined;
+    createEffect(on(() => video?.urlOpenCount(), () => {
+        releasedVideo = videoLoaded$();
+        if (videoSource$()) {
+            video?.actions.setStartTime(position);
+            setVideoSource();
+        }
+    }, { defer: true }));
+
     createEffect(async () => {
         const videoObj = videoLoaded$();
         if (!videoLoadedIsValid$()) {
@@ -566,17 +577,18 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         if (!videoObj || !videoObj.video)
             return;
 
+        const isStale = () => videoLoaded$() !== videoObj || !videoLoadedIsValid$() || videoObj === releasedVideo;
         let tryFetchSourceAuto = async ()=>{
             await UIOverlay.catchDialogExceptions(async ()=>{
-                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                    if (isStale()) return;
                     let sourceAuto;
                     try {
                         sourceAuto = await DetailsBackend.sourceAuto(videoObj.url);
                     } catch (error) {
-                        if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                        if (isStale()) return;
                         throw error;
                     }
-                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                    if (isStale()) return;
                     console.info("source auto", sourceAuto);
                     setVideoSource({
                         url: videoObj?.url,
@@ -637,6 +649,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     }
 
     const handlePositionChanged = (p: Duration) => {
+        // The player reports 0 when its source is cleared; a reload must still resume where the video was.
+        if (!videoSource$()) {
+            return;
+        }
         position = p;
     };
     

@@ -40,6 +40,7 @@ export interface VideoContextValue {
     theatrePinned: Accessor<boolean>;
     volume: Accessor<number>;
     reopenCount: Accessor<number>;
+    urlOpenCount: Accessor<number>;
     //queueType watch later, playlist en queue of undefined
     actions: {
         openVideo: (video: IPlatformVideo, time?: Duration, videoState?: VideoState) => void;
@@ -78,6 +79,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
     const [theatrePinned, setTheatrePinnedInternal] = createSignal<boolean>(true);
     const [volume, setVolumeInternal] = createSignal<number>(1);
     const [reopenCount, setReopenCount] = createSignal(0);
+    const [urlOpenCount, setUrlOpenCount] = createSignal(0);
     const shuffle = () => shuffledQueue() !== undefined;
     const queue = createMemo(() => shuffledQueue() ?? baseQueue());
     const video = createMemo(() => {
@@ -108,7 +110,18 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         const desiredVideoState = videoState ?? VideoState.Maximized;
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
-        const videoLoadResult = await DetailsBackend.videoLoad(url);
+        const requestId = DetailsBackend.nextVideoRequestId();
+        setUrlOpenCount(count => count + 1);
+        let videoLoadResult: IVideoLoadResult;
+        try {
+            videoLoadResult = await DetailsBackend.videoLoad(url, requestId);
+        } catch (error) {
+            if (index() !== undefined && DetailsBackend.isNewestVideoRequest(requestId)) {
+                // The failed load released the open video's play token, so the view loads it again.
+                setReopenCount(count => count + 1);
+            }
+            throw error;
+        }
         if (videoLoadResult.superseded) {
             return;
         }
@@ -310,6 +323,7 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         theatrePinned,
         volume,
         reopenCount,
+        urlOpenCount,
         actions: {
             setIndex: (i: number) => {
                 batch(() => {
