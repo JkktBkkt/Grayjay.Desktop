@@ -28,6 +28,7 @@ namespace Grayjay.Desktop
         private const int NewWindowTimeoutSeconds = 5;
         private static readonly TimeSpan SandboxedReadyTimeout = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan TimedOutProcessExitDelay = TimeSpan.FromSeconds(6);
+        private static int _widevineRestartDialogShown;
 
         private static bool IsProcessRunningByPath(string path, out Process? matchingProcess)
         {
@@ -126,6 +127,21 @@ namespace Grayjay.Desktop
             return null;
         }
 
+        // Uses the last occurrence, so the value matches what reaches CEF through ReconstructArgs.
+        private static string? FindWidevineCdmPathArg(string[] args)
+        {
+            const string cdmPathSwitch = "--widevine-cdm-path=";
+            string? cdmPath = null;
+            foreach (var arg in args)
+            {
+                if (arg.StartsWith(cdmPathSwitch, StringComparison.Ordinal))
+                {
+                    cdmPath = arg.Substring(cdmPathSwitch.Length).Trim('"');
+                }
+            }
+            return string.IsNullOrWhiteSpace(cdmPath) ? null : cdmPath;
+        }
+
         private static async Task<JustCefProcess> StartCefProcessAsync(string startArgs, Action<JustCefProcess>? configure = null, TimeSpan? readyTimeout = null)
         {
             const int maxAttempts = 3;
@@ -206,6 +222,7 @@ namespace Grayjay.Desktop
             try
             {
                 var status = await cef.GetWidevineStatusAsync();
+                StateWidevine.SetStatus(status);
                 switch (status.State)
                 {
                     case WidevineState.Ready:
@@ -213,8 +230,7 @@ namespace Grayjay.Desktop
                         break;
                     case WidevineState.RestartRequired:
                         Logger.i(nameof(Program), $"Widevine CDM {status.Version} was installed and takes effect after a restart.");
-                        await StateWindow.WaitForReadyAsync();
-                        StateUI.Toast("Protected playback", "Restart Grayjay to finish enabling playback of protected content.");
+                        await ShowWidevineRestartDialogAsync();
                         break;
                     case WidevineState.Unavailable when status.Reason == WidevineUnavailableReason.NotSupported:
                         Logger.i(nameof(Program), "Widevine is unavailable on this platform, protected content will not play.");
@@ -230,6 +246,31 @@ namespace Grayjay.Desktop
             catch (Exception e)
             {
                 Logger.w(nameof(Program), "Failed to get the Widevine status.", e);
+            }
+        }
+
+        // Plugins check DRM support when they load, so a CDM that becomes usable after they loaded needs a restart.
+        private static async Task ShowWidevineRestartDialogAsync()
+        {
+            if (Interlocked.Exchange(ref _widevineRestartDialogShown, 1) == 1)
+                return;
+
+            try
+            {
+                await StateWindow.WaitForReadyAsync();
+                _ = StateUI.Dialog(new StateUI.DialogDescriptor()
+                {
+                    Text = "Restart required for DRM playback",
+                    TextDetails = "The Widevine DRM component was installed but requires an application restart before it can be used.",
+                    Actions = new List<StateUI.DialogAction>()
+                    {
+                        new StateUI.DialogAction("Ok", () => { }, StateUI.ActionStyle.Primary)
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                Logger.w(nameof(Program), "Failed to show the Widevine restart dialog.", e);
             }
         }
 
@@ -529,11 +570,20 @@ namespace Grayjay.Desktop
                 string rootCacheDirCmd = "--root-cache-path=\"" + rootCachePath + "\" ";
                 Logger.i(nameof(Program), "Root cache path: " + rootCachePath);
 
-                string? systemCdmPath = FindSystemWidevineCdm();
-                if (systemCdmPath != null)
+                // A --widevine-cdm-path from the command line replaces the detected system CDM, so CEF gets one switch.
+                string? cdmPathSwitch = FindWidevineCdmPathArg(args);
+                if (cdmPathSwitch != null)
                 {
-                    Logger.i(nameof(Program), "Found a system Widevine CDM at " + systemCdmPath);
-                    rootCacheDirCmd += "--widevine-cdm-path=\"" + systemCdmPath + "\" ";
+                    Logger.i(nameof(Program), "Using the Widevine CDM path from the command line: " + cdmPathSwitch);
+                }
+                else
+                {
+                    cdmPathSwitch = FindSystemWidevineCdm();
+                    if (cdmPathSwitch != null)
+                    {
+                        Logger.i(nameof(Program), "Found a system Widevine CDM at " + cdmPathSwitch);
+                        rootCacheDirCmd += "--widevine-cdm-path=\"" + cdmPathSwitch + "\" ";
+                    }
                 }
 
                 if (OperatingSystem.IsLinux())
@@ -557,6 +607,14 @@ namespace Grayjay.Desktop
                 PackageBrowser.Process = cef;
                 Logger.i(nameof(Program), $"Main: Starting JustCefProcess finished ({startCefWatch.ElapsedMilliseconds}ms)");
 
+                // The CDM can become usable before plugins load (Windows first download); only plugins evaluated earlier need a restart.
+                StateWidevine.PlaybackBecameAvailable += () =>
+                {
+                    if (StateWidevine.ClientEvaluatedWithoutPlayback)
+                    {
+                        _ = ShowWidevineRestartDialogAsync();
+                    }
+                };
                 _ = MonitorWidevineAsync(cef);
                 if (OperatingSystem.IsLinux() && !isHeadless)
                     _ = LinuxSandbox.OfferAppArmorProfileAsync();

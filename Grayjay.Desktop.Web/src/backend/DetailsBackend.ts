@@ -11,6 +11,11 @@ import { IVideoLocal } from "./models/downloads/IVideoLocal";
 import { Pager } from "./models/pagers/Pager";
 
 
+// The backend applies only the newest load or close per window.
+// Ids only grow within a page: every page load gets a new WindowID and so a new backend state.
+let lastVideoRequestId = 0;
+const pendingVideoRequestIds = new Set<number>();
+
 export abstract class DetailsBackend {
 
     static async postLoad(url: string): Promise<IPostLoadResult> {
@@ -20,8 +25,27 @@ export abstract class DetailsBackend {
         return await Backend.GET("/details/PostCurrent");
     }
 
-    static async videoLoad(url: string): Promise<IVideoLoadResult> {
-        return await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url));
+    static nextVideoRequestId(): number {
+        return ++lastVideoRequestId;
+    }
+    static async videoLoad(url: string, requestId: number = DetailsBackend.nextVideoRequestId()): Promise<IVideoLoadResult> {
+        pendingVideoRequestIds.add(requestId);
+        try {
+            const result: IVideoLoadResult = await Backend.GET("/details/VideoLoad?url=" + encodeURIComponent(url) + "&requestId=" + requestId);
+            // A load or close sent after this one owns the view, even when its response arrives first.
+            return DetailsBackend.isNewestVideoRequest(requestId) ? { ...result, requestId } : { ...result, requestId, superseded: true };
+        } finally {
+            pendingVideoRequestIds.delete(requestId);
+        }
+    }
+    static async videoClose(): Promise<void> {
+        await Backend.GET("/details/VideoClose?requestId=" + (++lastVideoRequestId));
+    }
+    static isNewestVideoRequest(requestId: number): boolean {
+        return requestId === lastVideoRequestId;
+    }
+    static isNewestVideoLoadPending(): boolean {
+        return pendingVideoRequestIds.has(lastVideoRequestId);
     }
     static async videoCurrent(): Promise<PagerResult<IPlatformVideoDetails>> {
         return await Backend.GET("/details/VideoCurrent");
@@ -90,10 +114,21 @@ export abstract class DetailsBackend {
 
 export interface IVideoLoadResult {
     video: IPlatformVideoDetails,
-    local: IVideoLocal
+    local: IVideoLocal,
+    superseded?: boolean,
+    // Set by DetailsBackend.videoLoad, not by the backend.
+    requestId?: number
 }
 export interface IPostLoadResult {
     post: IPlatformPostDetails
+}
+
+export interface ISourceDrm {
+    keySystem: string;
+    licenseUrl: string;
+    serviceCertificate?: string;
+    certificateUrl?: string;
+    subtitleUrl?: string;
 }
 
 export interface ISourceDirectDescriptor {
@@ -105,4 +140,5 @@ export interface ISourceDirectDescriptor {
     videoIsLocal?: boolean;
     audioIsLocal?: boolean;
     subtitleIsLocal?: boolean;
+    drm?: ISourceDrm;
 }

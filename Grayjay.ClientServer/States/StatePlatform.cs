@@ -150,7 +150,7 @@ namespace Grayjay.Desktop.POC.Port.States
                     if (isEnabled)
                     {
                         _enabledClients.Add(newClient);
-                        newClient.Initialize();
+                        InitializeClient(newClient);
                     }
                     _availableClients.Add(newClient);
                 }
@@ -162,6 +162,33 @@ namespace Grayjay.Desktop.POC.Port.States
             });
             OnDevSourceChanged?.Invoke();
             return devId;
+        }
+
+        /// <summary>
+        /// Evaluates the plugin script, noting for the Widevine restart prompt whether DRM was available at that point.
+        /// </summary>
+        internal static void InitializeClient(GrayjayPlugin client)
+        {
+            StateWidevine.NoteClientEvaluating(GetClientScript(client));
+            client.Initialize();
+        }
+
+        private static string? GetClientScript(GrayjayPlugin client)
+        {
+            if (client is DevGrayjayPlugin devClient)
+            {
+                return devClient.DevScript;
+            }
+
+            try
+            {
+                return StatePlugins.GetPluginScript(client.Config.ID);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(nameof(StatePlatform), $"Could not read the script of [{client.Config.Name}] for the Widevine check: {ex.Message}");
+                return null;
+            }
         }
 
 
@@ -851,7 +878,7 @@ namespace Grayjay.Desktop.POC.Port.States
                                 bool isNew = false;
                                 if (removed.RemoveAll(it => it == client) == 0)
                                 {
-                                    client.Initialize();
+                                    InitializeClient(client);
                                     isNew = true;
                                 }
 
@@ -933,7 +960,7 @@ namespace Grayjay.Desktop.POC.Port.States
                             try
                             {
                                 bool isNew = false;
-                                client.Initialize();
+                                InitializeClient(client);
 
                                 _enabledClients.Add(client);
                                 if (isNew)

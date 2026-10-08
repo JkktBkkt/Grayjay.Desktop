@@ -157,6 +157,9 @@ namespace Grayjay.ClientServer.Controllers
             var mediaAddress = activeDevice.MediaAddress;
             var settings = new ProxySettings(false, shouldProxy, proxyAddress: mediaAddress, exposeLocalAsAny: true);
             var (video, audio, subtitle) = DetailsController.GetSources(state, videoIndex, audioIndex, subtitleIndex, videoIsLocal, audioIsLocal, subtitleIsLocal);
+            // Checked here because the progressive path below remuxes sources without going through GenerateSourceProxy.
+            if (DetailsController.AnyWidevine(video, audio))
+                throw DetailsController.CreateCastDrmException();
             var progressive = (video is LocalVideoSource || video is VideoUrlSource)
                 && (video.Container == "video/mp4" || video.Container == "video/webm");
             var castBase = $"http://{mediaAddress.ToUrlAddress()}:{GrayjayCastingServer.Instance.BaseUri!.Port}";

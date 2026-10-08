@@ -222,6 +222,11 @@ namespace Grayjay.ClientServer.Models.Downloads
                 SubtitleSourceLive = null;
             }
 
+            if (VideoSource is IWidevineSource || AudioSource is IWidevineSource)
+            {
+                throw new DownloadException("DRM protected sources cannot be downloaded", false);
+            }
+
             //The following exceptions seem contradictory for certain cases.
             //if (Video == null && VideoDetails == null) //Include query options?
             //    throw new InvalidDataException("Missing information for download to complete");
@@ -252,6 +257,11 @@ namespace Grayjay.ClientServer.Models.Downloads
                     var videoSources = new List<IVideoSource>();
                     foreach (var source in VideoHelper.ExpandUMPVideoSources(original.Video.VideoSources))
                     {
+                        if (source is IWidevineSource)
+                        {
+                            continue;
+                        }
+
                         if (source is HLSManifestSource hlsManifestSource)
                         {
                             try

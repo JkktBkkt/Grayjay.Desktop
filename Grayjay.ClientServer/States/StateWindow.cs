@@ -97,18 +97,20 @@ public static class StateWindow
             return _states.Values.ToList();
         }
     }
-    public static WindowState GetState(this HttpContext context)
+    public static string? GetWindowId(HttpContext context)
     {
         string id = (context.Request.Headers.ContainsKey("WindowID") ? context.Request.Headers["WindowID"].FirstOrDefault() : null);
+        if (id == null && context.Request.Query.ContainsKey("windowId"))
+            id = context.Request.Query["windowId"].FirstOrDefault();
+        return id;
+    }
+    public static WindowState GetState(this HttpContext context)
+    {
+        string id = GetWindowId(context);
         if(id == null)
         {
-            if (context.Request.Query.ContainsKey("windowId"))
-                id = context.Request.Query["windowId"].FirstOrDefault();
-            else
-            {
-                Logger.e(nameof(StateWindow), "Attempted to use a backend method that required a window id without id (" + context.Request.Path + ")");
-                id = _defaultID;
-            }
+            Logger.e(nameof(StateWindow), "Attempted to use a backend method that required a window id without id (" + context.Request.Path + ")");
+            id = _defaultID;
         }
         WindowState state = null;
         lock (_states)
@@ -124,6 +126,19 @@ public static class StateWindow
     public static WindowState State(this ControllerBase controller)
     {
         return GetState(controller.HttpContext);
+    }
+
+    public static void RemoveState(string id)
+    {
+        WindowState? state;
+        lock (_states)
+        {
+            if (!_states.Remove(id, out state))
+                return;
+        }
+
+        state.Dispose();
+        Logger.i(nameof(StateWindow), "Disposed the state of window " + id);
     }
 
     public static void Shutdown()

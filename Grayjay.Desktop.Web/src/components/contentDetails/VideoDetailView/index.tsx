@@ -16,7 +16,7 @@ import ic_close from '../../../assets/icons/icon24_close.svg';
 import store from '../../../assets/icons/icon24_store.svg';
 import more from '../../../assets/icons/icon_button_more.svg';
 import donate from '../../../assets/icons/icon24_donate.svg';
-import VideoPlayerView, { VideoPlayerViewHandle } from "../../player/VideoPlayerView";
+import VideoPlayerView, { PlaybackErrorKind, VideoPlayerViewHandle } from "../../player/VideoPlayerView";
 import { VideoMode, VideoState, useVideo } from "../../../contexts/VideoProvider";
 import ScrollContainer from "../../containers/ScrollContainer";
 import VirtualFlexibleArrayList from "../../containers/VirtualFlexibleArrayList";
@@ -27,6 +27,7 @@ import CustomButton from "../../buttons/CustomButton";
 import CommentView from "../../CommentView";
 import { createResourceDefault, getBestThumbnail, preventDragDrop, proxyImage, sanitzeHtml, toHumanNowDiffString, toHumanNowDiffStringMinDay, toHumanNumber, formatAudioSourceName, getDefaultPlaybackSpeed, formatDuration, getPrimaryAudioLanguage, getPreferOriginalAudio } from "../../../utility";
 import { DetailsBackend } from "../../../backend/DetailsBackend";
+import { IPlatformVideoDetails } from "../../../backend/models/contentDetails/IPlatformVideoDetails";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import SubscribeButton from "../../buttons/SubscribeButton";
 import SettingsMenu, { Menu, MenuItem, IMenuItemGroup, IMenuItemOption, MenuItemButton, IMenuFilter } from "../../menus/Overlays/SettingsMenu";
@@ -115,6 +116,7 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     let isScrubbing = false;
     let position: Duration | undefined = undefined;
     let errorCounter: number = 0;
+    let licenseConflictReloaded = false;
     const video = useVideo();
     const focus = useFocus()!;
     const casting = useCasting()!;
@@ -147,9 +149,14 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             return undefined;
         }
 
+        const preloaded = video?.actions.takePreloadedVideoLoad(url);
         try {
             return await UIOverlay.catchDialogExceptions(async ()=>{
-                const result = (!url) ? null : (await DetailsBackend.videoLoad(url));
+                const result = preloaded ?? await DetailsBackend.videoLoad(url);
+                if (result.superseded) {
+                    // A newer load or a close owns the view now.
+                    return undefined;
+                }
                 setVideoLocal(result?.local);
                 console.info("set video", { url, video: result?.video, local: result?.local });
                 return result?.video;
@@ -163,6 +170,14 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             throw error;
         }
     });
+
+    createEffect(on(() => video?.reopenCount(), () => {
+        if (!untrack(() => video?.startTime())) {
+            // Source URLs can change on reload (UMP), so resume like reloadMedia does.
+            video?.actions.setStartTime(position);
+        }
+        videoLoadedResource.refetch();
+    }, { defer: true }));
 
     const [commentsPager$] = createResource<Pager<RefItem<ISerializedComment>>>(() => videoLoaded$(), async (videoLoaded: any) => (!videoLoaded) ? undefined : await DetailsBackend.commentsPager());
     const [videoChapters$, videoChaptersResource] = createResourceDefault(()=> currentVideo$()?.url, async (url)=>{
@@ -232,7 +247,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     };
     const formatDashAudioTrackName = (track?: DashAudioTrack) => track ? formatAudioTrackName(track) : "";
     const isPreferredAudioLanguage = (language: string) => primarySubtag(language) == primarySubtag(preferredAudioLanguage$() ?? navigator.language);
-    createEffect(on(() => `${videoSource$()?.url}|${videoSource$()?.video}|${videoSource$()?.videoIsLocal}`, () => {
+    // A memo, so a subtitle or audio change that keeps the same video source does not clear the track menus.
+    const videoSourceKey$ = createMemo(() => `${videoSource$()?.url}|${videoSource$()?.video}|${videoSource$()?.videoIsLocal}`);
+    createEffect(on(videoSourceKey$, () => {
         setUmpVideoFormats([]);
         setUmpAudioFormats([]);
         setUmpVideoKey(undefined);
@@ -261,6 +278,9 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     createEffect(on(currentVideoUrl$, (url) => {
         console.info("Reset error counter because video source changed", { url, errorCounter });
         errorCounter = 0;
+        licenseConflictReloaded = false;
+        // A reload resumes at this position, so it must not carry over from the previous video.
+        position = undefined;
     }));
 
     const [videoSourceQualities$] = createResource<any | undefined>(()=> videoSource$()?.video && !videoSource$()?.videoIsLocal, async () => {
@@ -428,12 +448,19 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
     };
 
-    const handleError = (error: string, fatal: boolean, reloadable?: boolean) => {
-        console.info("Error occurred", { fatal, error });
+    const handleError = (error: string, fatal: boolean, kind: PlaybackErrorKind, reloadable?: boolean) => {
+        console.info("Error occurred", { fatal, error, kind, reloadable });
 
         if (!fatal) {
             return;
         }
+
+        // The load releases the old video's play token first, so its player can fail after the user moved on.
+        if (DetailsBackend.isNewestVideoLoadPending()) {
+            console.info("Ignoring a playback error while another video loads", { error, kind });
+            return;
+        }
+        const erroredSource = videoSource$();
 
         errorCounter++;
         console.info("Error counter", { errorCounter });
@@ -444,20 +471,59 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
             videoLoadedResource.refetch();
         };
 
-        if (reloadable && errorCounter < 2) {
+        if (reloadable && kind === "drm-license") {
+            // Once per video: errorCounter resets when the unencrypted lead plays, so a lasting 409 would loop.
+            if (!licenseConflictReloaded) {
+                licenseConflictReloaded = true;
+                console.info("License URL is stale, reloading automatically", { error });
+                reloadMedia();
+                return;
+            }
+        } else if (reloadable && errorCounter < 2) {
             console.info("UMP stream expired, reloading automatically", { error });
             reloadMedia();
             return;
         }
 
         const nvi = nextVideoIndex();
-        if (nvi === undefined) {
-            console.error("Playback error: " + error, { errorCounter });
+        const isDrmError = kind === "drm-license" || kind === "drm" || kind === "drm-unsupported";
+        const stopAndAsk = nvi === undefined || isDrmError;
+        if (stopAndAsk) {
+            console.error("Playback error: " + error, { errorCounter, kind });
             exitFullscreen();
+            if (kind === "drm-unsupported") {
+                // The desktop app gets the CDM later through its updater; a browser without EME never will.
+                const isDesktopApp = !!window.customElements?.get('justcef-view');
+                const exception = new ExceptionModel({
+                    type: "DrmUnavailable",
+                    title: "DRM playback not available",
+                    message: isDesktopApp
+                        ? "This source requires Widevine DRM, which is not installed or still downloading. Try again in a moment."
+                        : "This browser cannot play protected content. Enable DRM/EME in the browser settings or use a browser with Widevine.",
+                    code: "",
+                    canRetry: isDesktopApp
+                });
+                setTimeout(() => {
+                    if (videoSource$() !== erroredSource) {
+                        return;
+                    }
+                    UIOverlay.overlayError(exception, isDesktopApp ? { retry: () => reloadMedia() } : undefined);
+                }, 0);
+                return;
+            }
+            let message = "An error occurred while playing the video, do you want to reload?";
+            if (kind === "drm-license") {
+                message = "The license server refused playback. Reload to try again?";
+            } else if (kind === "drm") {
+                message = "DRM playback failed. Reload to try again?";
+            }
             setTimeout(() => {
+                if (videoSource$() !== erroredSource) {
+                    return;
+                }
                 UIOverlay.overlayConfirm(
                     { yes: () => reloadMedia() },
-                    "An error occurred while playing the video, do you want to reload?"
+                    message
                 );
             }, 0);
         } else {
@@ -486,10 +552,24 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         }
     });
 
+    // An open by URL releases this video's play token when its load begins, so only a new load may play it again.
+    let releasedVideo: IPlatformVideoDetails | undefined;
+    createEffect(on(() => video?.urlOpenCount(), () => {
+        releasedVideo = videoLoaded$();
+        if (videoSource$()) {
+            video?.actions.setStartTime(position);
+            setVideoSource();
+        }
+    }, { defer: true }));
+
     createEffect(async () => {
         const videoObj = videoLoaded$();
         if (!videoLoadedIsValid$()) {
             setVideoSource();
+            return;
+        }
+        if (videoLoaded$.loading) {
+            // Retained details are stale while a reload of the same video is pending.
             return;
         }
 
@@ -497,17 +577,18 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
         if (!videoObj || !videoObj.video)
             return;
 
+        const isStale = () => videoLoaded$() !== videoObj || !videoLoadedIsValid$() || videoObj === releasedVideo;
         let tryFetchSourceAuto = async ()=>{
             await UIOverlay.catchDialogExceptions(async ()=>{
-                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                    if (isStale()) return;
                     let sourceAuto;
                     try {
                         sourceAuto = await DetailsBackend.sourceAuto(videoObj.url);
                     } catch (error) {
-                        if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                        if (isStale()) return;
                         throw error;
                     }
-                    if (videoLoaded$() !== videoObj || !videoLoadedIsValid$()) return;
+                    if (isStale()) return;
                     console.info("source auto", sourceAuto);
                     setVideoSource({
                         url: videoObj?.url,
@@ -568,6 +649,10 @@ const VideoDetailView: Component<VideoDetailsProps> = (props) => {
     }
 
     const handlePositionChanged = (p: Duration) => {
+        // The player reports 0 when its source is cleared; a reload must still resume where the video was.
+        if (!videoSource$()) {
+            return;
+        }
         position = p;
     };
     

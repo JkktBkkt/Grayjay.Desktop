@@ -13,6 +13,11 @@ namespace Grayjay.ClientServer
             public bool IsOk => Code >= 200 && Code < 300;
         }
 
+        public readonly record struct BoundedBytesResult(int Code, byte[] Bytes, bool LimitExceeded)
+        {
+            public bool IsOk => Code >= 200 && Code < 300;
+        }
+
         public readonly record struct StreamResult(string FinalUrl, int Code, long ContentLength, Stream Stream)
         {
             public bool IsOk => Code >= 200 && Code < 300;
@@ -37,6 +42,24 @@ namespace Grayjay.ClientServer
             IRequestModifier? modifier = null,
             HttpHeaders? headers = null,
             bool decodeContent = false)
+            => SendBytes(client, "GET", url, null, modifier, headers, decodeContent);
+
+        public static BytesResult PostBytes(
+            ManagedHttpClient client,
+            string url,
+            byte[] body,
+            IRequestModifier? modifier = null,
+            HttpHeaders? headers = null)
+            => SendBytes(client, "POST", url, body, modifier, headers, true);
+
+        private static BytesResult SendBytes(
+            ManagedHttpClient client,
+            string method,
+            string url,
+            byte[]? body,
+            IRequestModifier? modifier,
+            HttpHeaders? headers,
+            bool decodeContent)
         {
             headers ??= new HttpHeaders();
             var modified = modifier?.ModifyRequest(url, headers);
@@ -50,8 +73,9 @@ namespace Grayjay.ClientServer
                 var res = Libcurl.Perform(new Libcurl.Request
                 {
                     Url = finalUrl,
-                    Method = "GET",
+                    Method = method,
                     Headers = ToHeaderList(finalHeaders),
+                    Body = body,
                     ImpersonateTarget = impersonate
                 });
                 if (res.EffectiveUrl != null)
@@ -61,17 +85,51 @@ namespace Grayjay.ClientServer
                 return new BytesResult(finalUrl, code, res.BodyBytes ?? Array.Empty<byte>());
             }
 
-            var resp = client.GET(finalUrl, finalHeaders);
+            var resp = (body != null)
+                ? client.Request(method, finalUrl, body, finalHeaders)
+                : client.GET(finalUrl, finalHeaders);
             if (resp.Url != null)
                 finalUrl = resp.Url;
 
             if (resp.Body == null)
                 return new BytesResult(finalUrl, resp.Code, Array.Empty<byte>());
 
-            var body = resp.Body.AsBytes();
+            var responseBody = resp.Body.AsBytes();
             if (decodeContent && resp.Headers != null)
-                body = DecodeContent(resp.Headers, body);
-            return new BytesResult(finalUrl, resp.Code, body);
+                responseBody = DecodeContent(resp.Headers, responseBody);
+            return new BytesResult(finalUrl, resp.Code, responseBody);
+        }
+
+        public static BoundedBytesResult GetBytesBounded(
+            ManagedHttpClient client,
+            string url,
+            IRequestModifier? modifier,
+            HttpHeaders? headers,
+            long maxBytes)
+        {
+            var res = GetStream(client, url, modifier, headers);
+            using var responseStream = res.Stream;
+
+            if (res.ContentLength > maxBytes)
+                return new BoundedBytesResult(res.Code, Array.Empty<byte>(), true);
+
+            using var buffered = new MemoryStream();
+            var chunk = new byte[64 * 1024];
+            long total = 0;
+            while (true)
+            {
+                int read = responseStream.Read(chunk, 0, chunk.Length);
+                if (read <= 0)
+                    break;
+
+                total += read;
+                if (total > maxBytes)
+                    return new BoundedBytesResult(res.Code, Array.Empty<byte>(), true);
+
+                buffered.Write(chunk, 0, read);
+            }
+
+            return new BoundedBytesResult(res.Code, buffered.ToArray(), false);
         }
 
         public static byte[] DecodeContent(HttpHeaders headers, byte[] body)
@@ -164,10 +222,18 @@ namespace Grayjay.ClientServer
             }
 
             var resp = client.GET(finalUrl, finalHeaders);
+            var contentLength = ReadContentLength(resp.Headers);
             if (resp.Body == null)
-                return new StreamResult(finalUrl, resp.Code, resp.ContentLength, Stream.Null);
+                return new StreamResult(finalUrl, resp.Code, contentLength, Stream.Null);
 
-            return new StreamResult(finalUrl, resp.Code, resp.ContentLength, resp.Body.AsStream()) { Headers = resp.Headers };
+            return new StreamResult(finalUrl, resp.Code, contentLength, resp.Body.AsStream()) { Headers = resp.Headers };
+        }
+
+        private static long ReadContentLength(HttpHeaders headers)
+        {
+            if (headers.TryGetFirst("content-length", out var value) && long.TryParse(value, out var contentLength))
+                return contentLength;
+            return 0;
         }
     }
 }
