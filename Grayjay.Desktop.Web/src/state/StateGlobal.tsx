@@ -183,6 +183,13 @@ function createState() {
     };
 
 
+    // A page restored from the back-forward cache keeps its backend state.
+    window.addEventListener("pagehide", (event) => {
+        if (!event.persisted) {
+            WindowBackend.unload();
+        }
+    });
+
     //Lets assume when global is returned, next tick frontend is ready-ish
     setTimeout(()=>{
         try {

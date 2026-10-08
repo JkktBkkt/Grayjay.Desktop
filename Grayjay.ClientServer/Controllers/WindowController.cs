@@ -51,6 +51,15 @@ namespace Grayjay.ClientServer.Controllers
         }
 
 
+        // Sent by the page on pagehide. Does not use State(), which would create the state again.
+        [HttpPost]
+        public void Unload()
+        {
+            var id = StateWindow.GetWindowId(HttpContext);
+            if (id != null)
+                StateWindow.RemoveState(id);
+        }
+
         [HttpGet]
         public async Task<bool> Delay(int ms)
         {

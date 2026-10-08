@@ -1,5 +1,6 @@
 ﻿using Grayjay.ClientServer.Controllers;
 using Grayjay.Desktop.POC;
+using Grayjay.Desktop.POC.Port.States;
 using Grayjay.Engine;
 using System.Net;
 
@@ -58,7 +59,7 @@ namespace Grayjay.ClientServer.Pooling
                     };
                     reserved.OnToast += (a, b) => StateUI.Toast($"[{a.Name}] " + b);
 
-                    reserved.Initialize();
+                    StatePlatform.InitializeClient(reserved);
                     _pool[reserved] = _poolCounter;
                 }
                 else

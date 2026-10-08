@@ -6,7 +6,7 @@ import { IPlatformVideo } from "../backend/models/content/IPlatformVideo";
 import { Duration } from "luxon";
 import { SettingsBackend } from "../backend/SettingsBackend";
 import StateWebsocket from "../state/StateWebsocket";
-import { DetailsBackend } from "../backend/DetailsBackend";
+import { DetailsBackend, IVideoLoadResult } from "../backend/DetailsBackend";
 import UIOverlay from "../state/UIOverlay";
 
 export enum VideoState {
@@ -39,6 +39,8 @@ export interface VideoContextValue {
     desiredMode: Accessor<VideoMode>;
     theatrePinned: Accessor<boolean>;
     volume: Accessor<number>;
+    reopenCount: Accessor<number>;
+    urlOpenCount: Accessor<number>;
     //queueType watch later, playlist en queue of undefined
     actions: {
         openVideo: (video: IPlatformVideo, time?: Duration, videoState?: VideoState) => void;
@@ -57,6 +59,7 @@ export interface VideoContextValue {
         setTheatrePinned: (pinned: boolean) => void;
         setVolume: (volume: number) => void;
         setStartTime: (startTime: Duration | undefined) => void;
+        takePreloadedVideoLoad: (url: string) => IVideoLoadResult | undefined;
     }
 };
 
@@ -75,6 +78,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
     const [desiredMode, setDesiredModeInternal] = createSignal<VideoMode>(VideoMode.Theatre);
     const [theatrePinned, setTheatrePinnedInternal] = createSignal<boolean>(true);
     const [volume, setVolumeInternal] = createSignal<number>(1);
+    const [reopenCount, setReopenCount] = createSignal(0);
+    const [urlOpenCount, setUrlOpenCount] = createSignal(0);
     const shuffle = () => shuffledQueue() !== undefined;
     const queue = createMemo(() => shuffledQueue() ?? baseQueue());
     const video = createMemo(() => {
@@ -86,6 +91,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
 
         return q[i];
     })
+
+    // Kept until the view takes it; valid only while its load is still the newest request.
+    let preloadedVideoLoad: IVideoLoadResult | undefined;
 
     const openVideo = (v: IPlatformVideo, time?: Duration, videoState?: VideoState) => { 
         const desiredVideoState = videoState ?? VideoState.Maximized;
@@ -102,14 +110,49 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         const desiredVideoState = videoState ?? VideoState.Maximized;
         if (state() !== desiredVideoState)
             setState(desiredVideoState);
-        const videoLoadResult = await DetailsBackend.videoLoad(url);
+        const requestId = DetailsBackend.nextVideoRequestId();
+        setUrlOpenCount(count => count + 1);
+        let videoLoadResult: IVideoLoadResult;
+        try {
+            videoLoadResult = await DetailsBackend.videoLoad(url, requestId);
+        } catch (error) {
+            if (index() !== undefined && DetailsBackend.isNewestVideoRequest(requestId)) {
+                // The failed load released the open video's play token, so the view loads it again.
+                setReopenCount(count => count + 1);
+            }
+            throw error;
+        }
+        if (videoLoadResult.superseded) {
+            return;
+        }
+
+        const openVideoUrl = video()?.backendUrl ?? video()?.url;
+        const loadedVideoUrl = videoLoadResult.video.backendUrl ?? videoLoadResult.video.url;
+        preloadedVideoLoad = videoLoadResult;
         batch(() => {
             setIndex(0);
             setStartTime(time);
             setBaseQueue([ videoLoadResult.video ]);
             setShuffledQueue(undefined);
-
+            if (openVideoUrl !== undefined && openVideoUrl === loadedVideoUrl) {
+                // The load replaced the open video's sources, but the details view only reloads when the URL changes.
+                setReopenCount(count => count + 1);
+            }
         });
+    };
+    const takePreloadedVideoLoad = (url: string): IVideoLoadResult | undefined => {
+        const preloaded = preloadedVideoLoad;
+        if (!preloaded || preloaded.requestId === undefined || !DetailsBackend.isNewestVideoRequest(preloaded.requestId)) {
+            preloadedVideoLoad = undefined;
+            return undefined;
+        }
+
+        if ((preloaded.video.backendUrl ?? preloaded.video.url) !== url) {
+            return undefined;
+        }
+
+        preloadedVideoLoad = undefined;
+        return preloaded;
     };
     const sq = (index: number, queue: IPlatformVideo[], repeat?: boolean, shuffleRequested?: boolean, videoState?: VideoState) => { 
         if (index < 0 || index >= queue.length) {
@@ -224,6 +267,9 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         });
     };
     const closeVideo = () => {
+        if (index() !== undefined || DetailsBackend.isNewestVideoLoadPending()) {
+            DetailsBackend.videoClose().catch((error) => console.warn("Failed to release the playback tracker", error));
+        }
         batch(()=>{
             console.log("Closing video");
             setIndex(undefined);
@@ -276,6 +322,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
         desiredMode,
         theatrePinned,
         volume,
+        reopenCount,
+        urlOpenCount,
         actions: {
             setIndex: (i: number) => {
                 batch(() => {
@@ -300,7 +348,8 @@ export const VideoProvider: ParentComponent<VideoContextProps> = (props) => {
             setTheatrePinned,
             setVolume,
             refetchWatchLater,
-            setStartTime
+            setStartTime,
+            takePreloadedVideoLoad
         }
     };
 
