@@ -42,16 +42,16 @@ internal sealed class QemuGuest : IPlaybackGuest
             WorkingDirectory = runtime.Directory, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
-        string console = Path.Combine(logs, "console.log").Replace(",", ",,");
+        string console = FilePath(Path.Combine(logs, "console.log")).Replace(",", ",,");
         string pipeName = "grayjay-cdm-" + Guid.NewGuid().ToString("N");
         foreach (string argument in new[] {
             "-nodefaults", "-no-user-config", "-no-reboot", "-machine", accelerator == "whpx" ? "q35,smm=off" : "q35",
             "-accel", accelerator == "tcg" ? "tcg,thread=multi,tb-size=16" : accelerator,
             "-cpu", accelerator == "hvf" ? "host" : "max", "-smp", "1", "-m", "256",
-            "-kernel", runtime.Kernel, "-initrd", runtime.Initramfs,
+            "-kernel", FilePath(runtime.Kernel), "-initrd", FilePath(runtime.Initramfs),
             "-append", "console=ttyS0 rdinit=/init panic=-1",
             "-display", "none", "-monitor", "none", "-nic", "none",
-            "-L", Path.Combine(runtime.Directory, "data"),
+            "-L", "data",
             "-chardev", "file,id=boot,path=" + console, "-device", "isa-serial,chardev=boot",
             "-device", "virtio-serial-pci", "-chardev", OperatingSystem.IsWindows() ? "pipe,id=cdm,path=" + pipeName : "stdio,id=cdm,signal=off",
             "-device", "virtserialport,chardev=cdm,nr=1,name=grayjay.cdm" }) start.ArgumentList.Add(argument);
@@ -200,6 +200,13 @@ internal sealed class QemuGuest : IPlaybackGuest
     {
         try { stream?.Dispose(); }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+    }
+    private static string FilePath(string path) => OperatingSystem.IsWindows() ? WindowsFilePath(Path.GetFullPath(path)) : path;
+    internal static string WindowsFilePath(string path)
+    {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal)) return path;
+        if (path.StartsWith(@"\\", StringComparison.Ordinal)) return @"\\?\UNC\" + path[2..];
+        return @"\\?\" + path;
     }
     internal static string PreferredAccelerator => OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64
         ? "whpx" : OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? "hvf" : "tcg";

@@ -6,6 +6,14 @@ internal static class PlaybackTests
 {
     internal static async Task RunAsync()
     {
+        string longBootPath = @"C:\Users\Bank\Downloads\artifacts (4)\Grayjay.Desktop.CEF\bin\Release\net8.0\win-x64\Grayjay.Desktop-win-x64-v19\playback-components\boot\"
+            + new string('a', 64) + "-" + new string('b', 64) + ".cpio.gz";
+        Check(longBootPath.Length > 260 && QemuGuest.WindowsFilePath(longBootPath) == @"\\?\" + longBootPath,
+            "long Windows boot image paths use the extended path namespace");
+        string extended = @"\\?\C:\guest\boot.cpio.gz";
+        Check(QemuGuest.WindowsFilePath(extended) == extended, "extended Windows paths are preserved");
+        Check(QemuGuest.WindowsFilePath(@"\\server\share\guest\boot.cpio.gz") == @"\\?\UNC\server\share\guest\boot.cpio.gz",
+            "Windows network paths use the extended UNC namespace");
         string pipeName = "gj-" + Guid.NewGuid().ToString("N")[..8];
         using (var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
         using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
