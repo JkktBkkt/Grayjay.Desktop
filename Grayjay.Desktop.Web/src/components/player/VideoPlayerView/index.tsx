@@ -24,6 +24,10 @@ import { FocusableOptions, InputSource } from '../../../nav';
 import { SettingsBackend } from '../../../backend/SettingsBackend';
 import ExceptionModel from '../../../backend/exceptions/ExceptionModel';
 import UIOverlay from '../../../state/UIOverlay';
+import { preparePlayback } from '../LinuxCdm/Prepare';
+import { PlaybackSession } from '../LinuxCdm/Session';
+import { createHelperHls } from '../LinuxCdm/Hls';
+import { attachHelperDash } from '../LinuxCdm/Dash';
 
 // dash.js error payloads can reference themselves (a segment request carries its representation), which JSON.stringify rejects.
 const stringifyDashError = (error: unknown): string => {
@@ -157,6 +161,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     let keySystemCheckId = 0;
     let loader: LoaderGameHandle | undefined;
     let currentTag = uuidv4();
+    let setupCancellation: AbortController | undefined;
+    let helperCleanup: (() => void) | undefined;
 
     createEffect(() => {
         if (isPlaying()) {
@@ -328,6 +334,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     const changeSourceToSetSource = async (source: SourceSelected | undefined) => {
         const selectionTag = uuidv4();
         currentTag = selectionTag;
+        setupCancellation?.abort();
+        const setup = setupCancellation = new AbortController();
         setLoaderGameVisible(undefined);
 
         console.info("source", source);
@@ -378,9 +386,15 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
         console.info("change source because changeSourceToSetSource call");
         try {
-            changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time, descriptor.drm);
+            const helper = descriptor.drm?.keySystem === 'com.widevine.alpha' &&
+                ['application/dash+xml', 'application/vnd.apple.mpegurl', 'application/x-mpegURL'].includes(descriptor.type)
+                ? await preparePlayback(setup.signal) : false;
+            if (currentTag !== selectionTag) return;
+            changeSource(descriptor.url, descriptor.type, source.shouldResume, source.time, descriptor.drm, helper);
         } catch (ex) {
+            if (currentTag !== selectionTag || (ex instanceof DOMException && ex.name === 'AbortError')) return;
             console.error("Failed to load source", ex);
+            onError(String(ex), true, 'drm');
         }
     };
 
@@ -809,7 +823,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         await access.createMediaKeys();
     };
 
-    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, drm?: ISourceDrm) => {
+    const changeSource = (sourceUrl?: string, mediaType?: string, shouldResume?: boolean, startTime?: Duration, drm?: ISourceDrm, helper = false) => {
         //TODO: Implement playWhenReady ?
         console.info("changeSource", {sourceUrl, mediaType, shouldResume, startTime, drm});
 
@@ -856,6 +870,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
         setSideLoadedSubtitle(undefined);
 
         const currentVolume = currentVolume$();
+        helperCleanup?.();
+        helperCleanup = undefined;
         if (dashPlayer) {
             try {
                 dashPlayer.destroy();
@@ -897,7 +913,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
         setEndControlsVisible(false);
 
-        if (sourceUrl && mediaType && drm && !verifiedKeySystems.has(drm.keySystem)) {
+        if (sourceUrl && mediaType && drm && !helper && !verifiedKeySystems.has(drm.keySystem)) {
             // Without usable EME the players stall or report no streams, so the key system is checked first.
             const checkId = keySystemCheckId;
             setIsLoading(true);
@@ -906,7 +922,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     return;
                 }
                 verifiedKeySystems.add(drm.keySystem);
-                startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume);
+                startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume, helper);
             }, (error: unknown) => {
                 if (checkId !== keySystemCheckId) {
                     return;
@@ -917,10 +933,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             return;
         }
 
-        startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume);
+        startSource(sourceUrl, mediaType, shouldResume, startTime, drm, currentVolume, helper);
     };
 
-    const startSource = (sourceUrl: string | undefined, mediaType: string | undefined, shouldResume: boolean | undefined, startTime: Duration | undefined, drm: ISourceDrm | undefined, currentVolume: number) => {
+    const startSource = (sourceUrl: string | undefined, mediaType: string | undefined, shouldResume: boolean | undefined, startTime: Duration | undefined, drm: ISourceDrm | undefined, currentVolume: number, helper: boolean) => {
         if (sourceUrl && mediaType && videoElement) {
             setIsLoading(false);
 
@@ -1179,7 +1195,10 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                     return chosenTrack ? [chosenTrack.mediaInfo] : tracks;
                 });
 
-                if (drm) {
+                if (helper && drm) {
+                    const session = new PlaybackSession(drm, error => onError(error, true, 'drm'));
+                    helperCleanup = attachHelperDash(dashPlayer, session, error => onError(error, true, 'drm'));
+                } else if (drm) {
                     dashPlayer.setProtectionData({
                         [drm.keySystem]: {
                             serverURL: absoluteUrl(drm.licenseUrl),
@@ -1275,8 +1294,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 videoElement
                 
                 const hlsBaseConfig = { startPosition: -1 };
-                hlsPlayer = drm
-                    ? new Hls({
+                hlsPlayer = helper && drm
+                    ? createHelperHls(new PlaybackSession(drm, error => onError(error, true, 'drm')))
+                    : drm ? new Hls({
                         ...hlsBaseConfig,
                         emeEnabled: true,
                         drmSystems: {
@@ -1526,6 +1546,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
 
     onCleanup(async () => {
         currentTag = uuidv4();
+        setupCancellation?.abort();
         changeSource(undefined, undefined, undefined);
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
         stopHideControls();
