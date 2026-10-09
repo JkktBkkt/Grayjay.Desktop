@@ -46,7 +46,8 @@ internal sealed class QemuGuest : IPlaybackGuest
         string pipeName = "grayjay-cdm-" + Guid.NewGuid().ToString("N");
         foreach (string argument in new[] {
             "-nodefaults", "-no-user-config", "-no-reboot", "-machine", accelerator == "whpx" ? "q35,smm=off" : "q35",
-            "-accel", accelerator == "tcg" ? "tcg,thread=multi,tb-size=16" : accelerator,
+            // WHPX's in-kernel interrupt controller intermittently drops the virtio-serial interrupt, so the guest stops receiving commands
+            "-accel", accelerator == "tcg" ? "tcg,thread=multi,tb-size=16" : accelerator == "whpx" ? "whpx,kernel-irqchip=off" : accelerator,
             "-cpu", accelerator == "hvf" ? "host" : "max", "-smp", "1", "-m", "256",
             "-kernel", FilePath(runtime.Kernel), "-initrd", FilePath(runtime.Initramfs),
             "-append", "console=ttyS0 rdinit=/init panic=-1",

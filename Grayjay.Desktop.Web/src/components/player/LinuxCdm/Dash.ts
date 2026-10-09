@@ -51,8 +51,11 @@ export function attachHelperDash(player: MediaPlayerClass, session: PlaybackSess
             }
             return response;
         } catch (error) {
+            // A segment still in flight when the source changes is aborted by session.close(); failing it would make
+            // the old player raise a download error over the next video
+            if (disposed) return response;
             console.error('Protected segment failed', String(error));
-            if (!disposed) onError(String(error));
+            onError(String(error));
 
             response.status = 500; response.data = undefined; return response;
         }
