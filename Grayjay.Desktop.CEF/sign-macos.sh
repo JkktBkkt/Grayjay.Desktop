@@ -92,6 +92,9 @@ build_sign_notarize() {
 
     echo "Signing..."
     for path in "${PATHS_TO_SIGN[@]}"; do
+        if [ "$path" = "$APP_PATH/Contents/MacOS/Grayjay" ]; then
+            continue
+        fi
         sign_path "$path" || exit 1
     done
 
