@@ -32,7 +32,7 @@ export function call<T = any>(method: string, token: string, data?: unknown, ses
 export async function capabilities(): Promise<{ enabled: boolean; ready: boolean }> {
     try {
         const value = await bridge()?.call('linuxCdm.capabilities', null);
-        return { enabled: value?.enabled === true && value.protocol === 2, ready: value?.ready === true };
+        return { enabled: value?.enabled === true && value.protocol === 3, ready: value?.ready === true };
     } catch { return { enabled: false, ready: false }; }
 }
 export function toBase64(data: Uint8Array): string {

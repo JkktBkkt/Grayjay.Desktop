@@ -30,9 +30,9 @@ with tempfile.TemporaryDirectory(prefix='grayjay-playback-stage-') as temporary:
                 if path.is_file() and mode:
                     path.chmod(mode)
     guest = staged / 'guest'
-    if json.loads((guest / 'image.json').read_text())['protocol'] != 2:
+    if json.loads((guest / 'image.json').read_text())['protocol'] != 3:
         raise ValueError('Guest protocol is incompatible')
-    metadata = {'version': '1', 'protocol': 2,
+    metadata = {'version': '1', 'protocol': 3,
                 'kernelSha256': hashlib.sha256((guest / 'vmlinuz').read_bytes()).hexdigest(),
                 'initramfsSha256': hashlib.sha256((guest / 'initramfs.cpio.gz').read_bytes()).hexdigest()}
     (guest / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')

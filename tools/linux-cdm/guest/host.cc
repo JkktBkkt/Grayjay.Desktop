@@ -71,7 +71,7 @@ public:
     cdm::Buffer* Allocate(uint32_t bytes) override { return bytes <= MaxPayload ? new Buffer(bytes) : nullptr; }
     void SetTimer(int64_t delay, void* context) override { timers.push_back({Clock::now() + std::chrono::milliseconds(std::max<int64_t>(0, delay)), context}); }
     cdm::Time GetCurrentWallTime() override { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
-    void OnInitialized(bool success) override { emit("{\"event\":\"initialized\",\"protocol\":2,\"success\":" + std::string(success ? "true}" : "false}")); }
+    void OnInitialized(bool success) override { emit("{\"event\":\"initialized\",\"protocol\":3,\"success\":" + std::string(success ? "true}" : "false}")); }
     void OnResolveKeyStatusPromise(uint32_t id, cdm::KeyStatus status) override { emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + ",\"status\":" + std::to_string(status) + "}"); }
     void OnResolveNewSessionPromise(uint32_t id, const char* session, uint32_t length) override {
         emit("{\"event\":\"created\",\"id\":" + std::to_string(id) + ",\"session\":" + quote(encode(session, length)) + "}");
@@ -235,6 +235,10 @@ int main(int argc, char** argv) {
                     if (!(line >> second)) throw std::runtime_error("Missing license response");
                     auto session = decode(first), data = decode(second);
                     host.cdm->UpdateSession(id, reinterpret_cast<const char*>(session.data()), session.size(), data.data(), data.size());
+                }
+                else if (command == "CLOSE") {
+                    auto session = decode(first);
+                    host.cdm->CloseSession(id, reinterpret_cast<const char*>(session.data()), session.size());
                 }
                 else if (command == "FRAGMENT") host.fragment(id, first);
                 else throw std::runtime_error("Unknown playback command");

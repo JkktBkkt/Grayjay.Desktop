@@ -7,6 +7,7 @@ parser.add_argument('--runtime', type=Path, required=True)
 parser.add_argument('--guest', type=Path, required=True)
 parser.add_argument('--cdm', type=Path, required=True)
 parser.add_argument('--wine-image')
+parser.add_argument('--reuse', action='store_true')
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 b64 = lambda value: base64.b64encode(value).decode()
@@ -59,14 +60,16 @@ with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
         threading.Thread(target=read, daemon=True).start()
         threading.Thread(target=heartbeat, daemon=True).start()
         try:
-            sent = False
+            sent = False; rounds = 0; active_session = None; closing = None; missing_key = False
             while True:
                 line = lines.get(timeout=45)
                 if line is None: raise RuntimeError('Guest stopped: ' + (root / 'stderr.log').read_text()[-1500:])
                 event = json.loads(line)
                 if event['event'] == 'initialized':
-                    assert event['protocol'] == 2 and event['success']; report['initialized'] = True
+                    assert event['protocol'] == 3 and event['success']; report['initialized'] = True
                     send('SESSION 1 ' + pssh)
+                elif event['event'] == 'created':
+                    active_session = event['session']
                 elif event['event'] == 'message':
                     request = urllib.request.Request('https://proxy.uat.widevine.com/proxy', data=base64.b64decode(event['data']), headers={'Content-Type': 'application/octet-stream'})
                     with urllib.request.urlopen(request, timeout=30) as response:
@@ -75,8 +78,20 @@ with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
                 elif event['event'] == 'keys' and 0 in event['statuses'] and not sent:
                     sent = True; send('FRAGMENT 3 ' + b64(struct.pack('>I', at) + media))
                 elif event['event'] == 'fragment':
+                    if missing_key: raise RuntimeError('Closed license still decrypts media')
                     assert event['samples'] == 1290; assert len(base64.b64decode(event['data'])) == len(media) - at
-                    report['decryptedSamples'] = event['samples']; report['success'] = True; send('QUIT'); break
+                    rounds += 1; report['decryptedSamples'] = event['samples']; report['rounds'] = rounds
+                    if args.reuse and rounds < 2:
+                        closing = active_session; send('CLOSE 4 ' + closing)
+                    else:
+                        report['success'] = True; send('QUIT'); break
+                elif event['event'] == 'closed' and event['session'] == closing:
+                    report['closedPreviousSession'] = True; closing = None; missing_key = True
+                    send('FRAGMENT 5 ' + b64(struct.pack('>I', at) + media))
+                elif event['event'] == 'error' and event.get('id') == 5 and missing_key:
+                    assert 'could not decrypt' in event['message'], event
+                    report['closedKeysReleased'] = True; missing_key = False; sent = False
+                    send('SESSION 1 ' + pssh)
                 elif event['event'] in ('error', 'rejected'): raise RuntimeError(event['message'])
             process.wait(timeout=5)
         except Exception as error:

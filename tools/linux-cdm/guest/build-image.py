@@ -63,9 +63,9 @@ with gzip.open(out/'initramfs.cpio.gz','wb',compresslevel=6) as stream:
 licenses=out/'licenses';licenses.mkdir(exist_ok=True)
 for source,name in [('/build/COPYING.LGPLv2.1','FFmpeg-LGPL-2.1.txt'),('/usr/share/doc/busybox-static/copyright','BusyBox-copyright.txt'),('/usr/share/doc/linux-image-'+kernel.name+'/copyright','Linux-copyright.txt'),('/usr/share/doc/libc6/copyright','glibc-copyright.txt'),('/usr/share/doc/libstdc++6/copyright','libstdc++-copyright.txt'),('/usr/share/doc/libgcc-s1/copyright','libgcc-copyright.txt')]:
  if pathlib.Path(source).exists():shutil.copy2(source,licenses/name)
-metadata={'protocol':2,'kernel':kernel.name,'ffmpeg':'5.1.10','cdm_interface':10,'network':False,'persistent_disk':False,'bundled_cdm':False}
+metadata={'protocol':3,'kernel':kernel.name,'ffmpeg':'5.1.10','cdm_interface':10,'network':False,'persistent_disk':False,'bundled_cdm':False}
 (out/'image.json').write_text(json.dumps(metadata,indent=2))
-(out/'bundle.json').write_text(json.dumps({'version':'1','protocol':2,'kernelSha256':hashlib.sha256((out/'vmlinuz').read_bytes()).hexdigest(),'initramfsSha256':hashlib.sha256((out/'initramfs.cpio.gz').read_bytes()).hexdigest()},indent=2)+'\n')
+(out/'bundle.json').write_text(json.dumps({'version':'1','protocol':3,'kernelSha256':hashlib.sha256((out/'vmlinuz').read_bytes()).hexdigest(),'initramfsSha256':hashlib.sha256((out/'initramfs.cpio.gz').read_bytes()).hexdigest()},indent=2)+'\n')
 (licenses/'debian-packages.txt').write_text(subprocess.check_output(['dpkg-query','-W','-f=${binary:Package}\t${Version}\t${source:Package}\t${source:Version}\n'],text=True))
 with zipfile.ZipFile(out/'guest-linux-x64.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
  for p in [out/'vmlinuz',out/'initramfs.cpio.gz',out/'image.json',out/'bundle.json']+sorted(licenses.rglob('*')):

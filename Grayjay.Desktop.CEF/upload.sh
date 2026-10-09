@@ -35,7 +35,6 @@ upload() {
 upload "osx-x64"
 upload "osx-arm64"
 
-# Announce the version only after both architectures have uploaded successfully.
 printf '%s\n' "$VERSION" > VersionLastMacOS.json
 scp "VersionLastMacOS.json" "$HOST:$REMOTE_DIR/"
 

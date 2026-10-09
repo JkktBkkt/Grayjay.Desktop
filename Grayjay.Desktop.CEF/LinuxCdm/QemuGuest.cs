@@ -9,14 +9,15 @@ using System.Security.Principal;
 
 namespace Grayjay.Desktop.CEF.LinuxCdm;
 
-internal sealed class QemuGuest : IAsyncDisposable
+internal sealed class QemuGuest : IPlaybackGuest
 {
     private readonly PlayerRuntime runtime;
     private readonly string logs;
     private readonly Func<JsonElement, Task> callback;
     private readonly CancellationTokenSource stop = new();
     private readonly SemaphoreSlim writer = new(1, 1);
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> pending = new();
+    private sealed record PendingRequest(TaskCompletionSource<JsonElement> Completion, Action<JsonElement>? OnResponse);
+    private readonly ConcurrentDictionary<int, PendingRequest> pending = new();
     private readonly Channel<JsonElement> events = Channel.CreateUnbounded<JsonElement>();
     private readonly TaskCompletionSource<bool> initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<Task> workers = [];
@@ -24,12 +25,15 @@ internal sealed class QemuGuest : IAsyncDisposable
     private NamedPipeClientStream? pipe;
     private StreamReader? input;
     private StreamWriter? output;
-    private int nextId, disposed;
+    private int nextId, disposed, failed;
     private string lastDiagnostic = "";
     internal QemuGuest(PlayerRuntime runtime, string logs, Func<JsonElement, Task> callback)
     { this.runtime = runtime; this.logs = logs; this.callback = callback; }
 
-    internal async Task StartAsync(string accelerator, CancellationToken cancellation)
+    public bool IsRunning => Volatile.Read(ref failed) == 0 && Volatile.Read(ref disposed) == 0 &&
+        initialized.Task.IsCompletedSuccessfully && initialized.Task.Result;
+
+    public async Task StartAsync(string accelerator, CancellationToken cancellation)
     {
         if (!RuntimeAssets.Supported) throw new PlatformNotSupportedException();
         Directory.CreateDirectory(logs);
@@ -90,8 +94,12 @@ internal sealed class QemuGuest : IAsyncDisposable
                 {
                     if (pending.TryRemove(message.GetProperty("id").GetInt32(), out var request))
                     {
-                        if (kind is "rejected" or "error") request.TrySetException(new InvalidOperationException(message.GetProperty("message").GetString()));
-                        else request.TrySetResult(message);
+                        if (kind is "rejected" or "error") request.Completion.TrySetException(new InvalidOperationException(message.GetProperty("message").GetString()));
+                        else
+                        {
+                            try { request.OnResponse?.Invoke(message); request.Completion.TrySetResult(message); }
+                            catch (Exception e) { request.Completion.TrySetException(e); }
+                        }
                     }
                 }
                 else await events.Writer.WriteAsync(message, stop.Token);
@@ -99,8 +107,9 @@ internal sealed class QemuGuest : IAsyncDisposable
             failure = new IOException("Protected playback stopped unexpectedly." + (string.IsNullOrEmpty(lastDiagnostic) ? "" : " " + lastDiagnostic));
         }
         catch (Exception e) { failure = e; }
+        Interlocked.Exchange(ref failed, 1);
         initialized.TrySetException(failure);
-        foreach (var request in pending.Values) request.TrySetException(failure);
+        foreach (var request in pending.Values) request.Completion.TrySetException(failure);
         if (!stop.IsCancellationRequested)
         {
             await events.Writer.WriteAsync(JsonSerializer.SerializeToElement(new { @event = "fatal", message = failure.Message }));
@@ -132,13 +141,14 @@ internal sealed class QemuGuest : IAsyncDisposable
         }
         catch (Exception e) when (stop.IsCancellationRequested || e is IOException or ObjectDisposedException) { }
     }
-    internal async Task<JsonElement> RequestAsync(string command, string data, CancellationToken cancellation)
+    public async Task<JsonElement> RequestAsync(string command, string data, CancellationToken cancellation, Action<JsonElement>? onResponse = null)
     {
+        if (!IsRunning) throw new IOException("Protected playback guest is not running.");
         if (data.Length > 48 * 1024 * 1024 || data.Contains('\n') || data.Contains('\r'))
             throw new InvalidDataException("Invalid playback request.");
         int id = Interlocked.Increment(ref nextId);
         var request = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
-        pending[id] = request;
+        pending[id] = new(request, onResponse);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, stop.Token);
         linked.CancelAfter(TimeSpan.FromSeconds(45));
         try
@@ -181,10 +191,15 @@ internal sealed class QemuGuest : IAsyncDisposable
             if (pipe is not null)
             {
                 input?.Dispose();
-                try { output?.Dispose(); } catch (IOException) { }
+                DisposePipeWriter(output);
             }
 
         }
+    }
+    internal static void DisposePipeWriter(StreamWriter? stream)
+    {
+        try { stream?.Dispose(); }
+        catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
     internal static string PreferredAccelerator => OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64
         ? "whpx" : OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? "hvf" : "tcg";

@@ -9,20 +9,20 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly RuntimeAssets assets;
     private readonly string cache;
-    private readonly ConcurrentDictionary<int, WindowSession> windows = new();
+    private readonly ConcurrentDictionary<int, PlaybackGuestSession> windows = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> setups = new();
     private readonly CancellationTokenSource stop = new();
     internal LinuxCdmBridge(string cache) { this.cache = cache; assets = new(cache); }
     internal static LinuxCdmBridge? Create(string cache) => RuntimeAssets.Supported ? new(cache) : null;
-    private sealed class WindowSession
+    private PlaybackGuestSession ForWindow(JustCefWindow window) => windows.GetOrAdd(window.Identifier, identifier =>
     {
-        internal readonly SemaphoreSlim Lifecycle = new(1, 1);
-        internal QemuGuest? Guest;
-        internal string? Token;
-    }
-    private WindowSession ForWindow(JustCefWindow window) => windows.GetOrAdd(window.Identifier, identifier =>
-    {
-        var session = new WindowSession();
+        var session = new PlaybackGuestSession(
+            cancellation => assets.EnsureAsync(_ => Task.CompletedTask, cancellation),
+            (runtime, callback) => new QemuGuest(runtime,
+                Path.Combine(cache, "logs", identifier + "-" + Guid.NewGuid().ToString("N")), callback),
+            async (token, message) => await window.CallBridgeRpcAsync("linuxCdm.event",
+                JsonSerializer.Serialize(new { token, @event = message }, Json)).WaitAsync(TimeSpan.FromSeconds(10), stop.Token),
+            stop.Token);
         window.OnClose += () => { _ = CloseWindowAsync(window.Identifier); };
         window.OnFrameLoadStart += info => { if (info.IsMainFrame) _ = CloseWindowAsync(window.Identifier, remove: false); };
         return session;
@@ -55,75 +55,45 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
         var session = ForWindow(window);
         if (method == "linuxCdm.start")
         {
-            await session.Lifecycle.WaitAsync(stop.Token);
-            try
-            {
-                if (session.Guest is not null) await session.Guest.DisposeAsync();
-                session.Guest = null; session.Token = token;
-                var runtime = await assets.EnsureAsync(_ => Task.CompletedTask, stop.Token);
-                var logDirectory = Path.Combine(cache, "logs", window.Identifier + "-" + Guid.NewGuid().ToString("N"));
-                bool running = false;
-                Func<JsonElement, Task> callback = async message =>
-                {
-                    if (session.Token == token && (running || message.GetProperty("event").GetString() != "fatal"))
-                        await window.CallBridgeRpcAsync("linuxCdm.event", JsonSerializer.Serialize(new { token, @event = message }, Json))
-                            .WaitAsync(TimeSpan.FromSeconds(10), stop.Token);
-                };
-                string accelerator = QemuGuest.PreferredAccelerator;
-                var guest = new QemuGuest(runtime, logDirectory, callback);
-                session.Guest = guest;
-                try { await guest.StartAsync(accelerator, stop.Token); }
-                catch when (accelerator != "tcg" && !stop.IsCancellationRequested)
-                {
-                    await guest.DisposeAsync();
-                    guest = new(runtime, logDirectory, callback);
-                    session.Guest = guest;
-                    await guest.StartAsync("tcg", stop.Token);
-                }
-                session.Guest = guest;
-                running = true;
-                return "true";
-            }
-            catch { session.Token = null; if (session.Guest is not null) await session.Guest.DisposeAsync(); session.Guest = null; throw; }
-            finally { session.Lifecycle.Release(); }
+            string certificate = payload.TryGetProperty("data", out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()! : "";
+            await session.StartAsync(token, certificate);
+            return "true";
         }
         if (method == "linuxCdm.close")
         {
-            await session.Lifecycle.WaitAsync(stop.Token);
-            try
-            {
-                if (session.Token == token)
-                { session.Token = null; if (session.Guest is not null) await session.Guest.DisposeAsync(); session.Guest = null; }
-                return "true";
-            }
-            finally { session.Lifecycle.Release(); }
+            await session.CloseAsync(token);
+            return "true";
         }
-        if (session.Token != token || session.Guest is null) throw new InvalidOperationException("Playback session is no longer active.");
         string data = payload.GetProperty("data").GetString() ?? throw new ArgumentException("Missing CDM request data.");
         string command = method switch
         {
-            "linuxCdm.session" => "SESSION", "linuxCdm.certificate" => "CERT", "linuxCdm.fragment" => "FRAGMENT",
+            "linuxCdm.session" => "SESSION", "linuxCdm.fragment" => "FRAGMENT",
             "linuxCdm.update" => "UPDATE", _ => throw new ArgumentException("Unknown protected playback method.")
         };
+        string? licenseSession = null;
         if (command == "UPDATE")
         {
             string id = payload.GetProperty("session").GetString()!;
-            _ = Convert.FromBase64String(id); data = id + " " + data;
+            _ = Convert.FromBase64String(id); licenseSession = id; data = id + " " + data;
         }
-        return (await session.Guest.RequestAsync(command, data, stop.Token)).GetRawText();
+        return (await session.RequestAsync(token, command, data, licenseSession)).GetRawText();
     }
     private async Task CloseWindowAsync(int id, bool remove = true)
     {
         foreach (var pair in setups) if (pair.Key.StartsWith(id + ":", StringComparison.Ordinal)) pair.Value.Cancel();
         if (!windows.TryGetValue(id, out var session)) return;
-        await session.Lifecycle.WaitAsync();
-        try
-        { session.Token = null; if (session.Guest is not null) await session.Guest.DisposeAsync(); session.Guest = null; if (remove) windows.TryRemove(id, out _); }
-        finally { session.Lifecycle.Release(); }
+        if (remove)
+        {
+            windows.TryRemove(id, out _);
+            await session.DisposeAsync();
+        }
+        else await session.StopAsync();
     }
     public async ValueTask DisposeAsync()
     {
         stop.Cancel();
         await Task.WhenAll(windows.Keys.Select(id => CloseWindowAsync(id)));
+        await assets.DisposeAsync();
     }
 }

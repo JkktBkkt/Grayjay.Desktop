@@ -11,14 +11,12 @@ export function createHelperHls(session: PlaybackSession): Hls {
                 const transform = async () => {
                     if (disposed || stats.aborted) return;
                     if (typeof response.data === 'string' && response.data.startsWith('#EXTM3U')) {
-                        const keys: Promise<void>[] = [];
                         response.data = response.data.split('\n').filter(line => {
                             if (!/^#EXT-X-(?:SESSION-)?KEY:/.test(line) || !/edef8ba9-79d6-4ace-a3c8-27dcd51d21ed/i.test(line)) return true;
                             const data = line.match(/URI="data:[^,]*;base64,([^\"]+)"/i);
                             if (!data) throw new Error('Unsupported Widevine initialization data.');
-                            keys.push(session.ensureKey(fromBase64(data[1]))); return false;
+                            session.requestKey(fromBase64(data[1])); return false;
                         }).join('\n');
-                        await Promise.all(keys);
                     } else if (response.data instanceof ArrayBuffer && 'frag' in ctx) {
                         const frag = (ctx as FragmentLoaderContext).frag;
                         const bytes = new Uint8Array(response.data);

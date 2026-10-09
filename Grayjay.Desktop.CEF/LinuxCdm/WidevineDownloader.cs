@@ -5,8 +5,18 @@ using System.Text.Json;
 
 namespace Grayjay.Desktop.CEF.LinuxCdm;
 
-internal sealed class WidevineDownloader(string cache)
+internal sealed class WidevineDownloader : IAsyncDisposable
 {
+    private readonly string cache;
+    private readonly SemaphoreSlim install = new(1, 1);
+    private readonly CancellationTokenSource stop = new();
+    private readonly object updates = new();
+    private readonly Func<Func<DownloadProgress, Task>, CancellationToken, Task<InstalledCdm>> fetch;
+    private Task? updateTask;
+    internal WidevineDownloader(string cache,
+        Func<Func<DownloadProgress, Task>, CancellationToken, Task<InstalledCdm>>? fetch = null)
+    { this.cache = cache; this.fetch = fetch ?? FetchLatestAsync; }
+
     internal InstalledCdm? Cached()
     {
         try
@@ -20,25 +30,58 @@ internal sealed class WidevineDownloader(string cache)
     }
     internal async Task<InstalledCdm> EnsureAsync(Func<DownloadProgress, Task> progress, CancellationToken cancellation)
     {
-        InstalledCdm? current = Cached();
-        bool cached = current is not null && await VerifiedDownload.MatchesAsync(current.Path, current.Sha256, cancellation);
-        string checkedAt = Path.Combine(cache, "checked-at.txt");
-        if (cached && File.Exists(checkedAt) && DateTime.UtcNow - File.GetLastWriteTimeUtc(checkedAt) < TimeSpan.FromDays(1)) return current!;
-        using var update = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        if (cached) update.CancelAfter(TimeSpan.FromSeconds(10));
+        var cached = Cached();
+        if (cached is not null && await VerifiedDownload.MatchesAsync(cached.Path, cached.Sha256, cancellation))
+        {
+            ScheduleUpdate();
+            return cached;
+        }
+        await install.WaitAsync(cancellation);
         try
         {
-            var installed = await FetchLatestAsync(progress, update.Token);
-            await File.WriteAllTextAsync(checkedAt, installed.Version, cancellation);
+            var current = Cached();
+            if (current is not null && await VerifiedDownload.MatchesAsync(current.Path, current.Sha256, cancellation))
+            {
+                ScheduleUpdate();
+                return current;
+            }
+            var installed = await fetch(progress, cancellation);
+            await File.WriteAllTextAsync(Path.Combine(cache, "checked-at.txt"), installed.Version, cancellation);
             return installed;
         }
-        catch (Exception e) when (cached && !cancellation.IsCancellationRequested &&
-            e is HttpRequestException or IOException or OperationCanceledException or InvalidDataException or InvalidOperationException or JsonException)
+        finally { install.Release(); }
+    }
+    private void ScheduleUpdate()
+    {
+        lock (updates)
         {
-
-            Console.Error.WriteLine("Playback component update unavailable: " + e.Message);
-            return current!;
+            if (stop.IsCancellationRequested || updateTask is { IsCompleted: false }) return;
+            string checkedAt = Path.Combine(cache, "checked-at.txt");
+            if (File.Exists(checkedAt) && DateTime.UtcNow - File.GetLastWriteTimeUtc(checkedAt) < TimeSpan.FromDays(1)) return;
+            updateTask = Task.Run(UpdateAsync);
         }
+    }
+    private async Task UpdateAsync()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        bool acquired = false;
+        try
+        {
+            await install.WaitAsync(timeout.Token); acquired = true;
+            await File.WriteAllTextAsync(Path.Combine(cache, "checked-at.txt"), "checking", timeout.Token);
+            var installed = await fetch(_ => Task.CompletedTask, timeout.Token);
+            await File.WriteAllTextAsync(Path.Combine(cache, "checked-at.txt"), installed.Version, timeout.Token);
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception e) { Console.Error.WriteLine("Playback component update unavailable: " + e.Message); }
+        finally { if (acquired) install.Release(); }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        Task? task;
+        lock (updates) { stop.Cancel(); task = updateTask; }
+        if (task is not null) await task;
     }
     private async Task<InstalledCdm> FetchLatestAsync(Func<DownloadProgress, Task> progress, CancellationToken cancellation)
     {

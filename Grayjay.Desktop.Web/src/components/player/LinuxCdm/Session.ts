@@ -24,14 +24,15 @@ export class PlaybackSession {
         void this.started.catch(error => this.fail(error));
     }
     private async start() {
-        await call('start', this.token); this.cancel.signal.throwIfAborted();
         let certificate = this.drm.serviceCertificate;
         if (!certificate && this.drm.certificateUrl) {
             const response = await fetch(new URL(this.drm.certificateUrl, location.href), { signal: this.cancel.signal });
             if (!response.ok) throw new Error('Playback certificate HTTP ' + response.status);
             certificate = toBase64(new Uint8Array(await response.arrayBuffer()));
         }
-        if (certificate) await call('certificate', this.token, certificate);
+        this.cancel.signal.throwIfAborted();
+        await call('start', this.token, certificate ?? '');
+        this.cancel.signal.throwIfAborted();
     }
     private key(id: string) {
         let value = this.keys.get(id);
@@ -64,6 +65,9 @@ export class PlaybackSession {
             void task.catch(error => this.fail(error));
         } else if (event.event === 'closed') this.key(event.session).reject(new Error('The playback license closed.'));
     }
+    requestKey(data: Uint8Array) {
+        void this.ensureKey(data).catch(error => this.fail(error));
+    }
     async ensureKey(data: Uint8Array) {
         const encoded = toBase64(data);
         let request = this.requests.get(encoded);
@@ -86,7 +90,7 @@ export class PlaybackSession {
     }
     async initialize(data: Uint8Array) {
         assertSupportedEncryption(data);
-        await Promise.all(initializationData(data).map(pssh => this.ensureKey(pssh)));
+        for (const pssh of initializationData(data)) this.requestKey(pssh);
         this.check();
         return clearEncryptionMetadata(data);
     }

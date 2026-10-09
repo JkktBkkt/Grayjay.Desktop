@@ -18,7 +18,7 @@ def asset(name):
 runtimes = {rid: asset('runtime-' + rid + '.zip') for rid in ('osx-arm64', 'osx-x64', 'win-x64')}
 
 runtimes['win-arm64'] = runtimes['win-x64']
-manifest = {'version': '1', 'protocol': 2, 'guest': asset('guest-linux-x64.zip'), 'runtimes': runtimes}
+manifest = {'version': '1', 'protocol': 3, 'guest': asset('guest-linux-x64.zip'), 'runtimes': runtimes}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(manifest, indent=2) + '\n')
 print(args.output)

@@ -2,9 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace Grayjay.Desktop.CEF.LinuxCdm;
 
-internal sealed class RuntimeAssets
+internal sealed class RuntimeAssets : IAsyncDisposable
 {
-    internal const int ProtocolVersion = 2;
+    internal const int ProtocolVersion = 3;
     internal const string Release = "1";
     private readonly string cache;
     private readonly string applicationDirectory;
@@ -38,4 +38,5 @@ internal sealed class RuntimeAssets
         }
         finally { prepare.Release(); }
     }
+    public ValueTask DisposeAsync() => widevine.DisposeAsync();
 }

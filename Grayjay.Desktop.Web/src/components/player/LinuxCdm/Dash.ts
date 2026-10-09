@@ -16,10 +16,9 @@ export function attachHelperDash(player: MediaPlayerClass, session: PlaybackSess
                 const document = new DOMParser().parseFromString(response.data, 'application/xml');
                 if (document.getElementsByTagName('parsererror').length) throw new Error('Invalid DASH manifest.');
                 const protection = Array.from(document.getElementsByTagNameNS('*', 'ContentProtection'));
-                const keys = protection.filter(element => /edef8ba9/i.test(element.getAttribute('schemeIdUri') ?? ''))
+                protection.filter(element => /edef8ba9/i.test(element.getAttribute('schemeIdUri') ?? ''))
                     .flatMap(element => Array.from(element.getElementsByTagNameNS('*', 'pssh')))
-                    .map(element => session.ensureKey(fromBase64(element.textContent?.trim() ?? '')));
-                await Promise.all(keys);
+                    .forEach(element => session.requestKey(fromBase64(element.textContent?.trim() ?? '')));
                 for (const element of protection) element.remove();
 
                 for (const element of Array.from(document.getElementsByTagNameNS('*', 'AdaptationSet'))) {
