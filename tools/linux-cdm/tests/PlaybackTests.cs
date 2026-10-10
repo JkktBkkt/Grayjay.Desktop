@@ -1,42 +1,41 @@
 using System.Text.Json;
-using System.IO.Pipes;
 using Grayjay.Desktop.CEF.LinuxCdm;
 
 internal static class PlaybackTests
 {
     internal static async Task RunAsync()
     {
-        string longBootPath = @"C:\Users\Bank\Downloads\artifacts (4)\Grayjay.Desktop.CEF\bin\Release\net8.0\win-x64\Grayjay.Desktop-win-x64-v19\playback-components\boot\"
-            + new string('a', 64) + "-" + new string('b', 64) + ".cpio.gz";
-        Check(longBootPath.Length > 260 && QemuGuest.WindowsFilePath(longBootPath) == @"\\?\" + longBootPath,
-            "long Windows boot image paths use the extended path namespace");
-        string extended = @"\\?\C:\guest\boot.cpio.gz";
-        Check(QemuGuest.WindowsFilePath(extended) == extended, "extended Windows paths are preserved");
-        Check(QemuGuest.WindowsFilePath(@"\\server\share\guest\boot.cpio.gz") == @"\\?\UNC\server\share\guest\boot.cpio.gz",
-            "Windows network paths use the extended UNC namespace");
-        string pipeName = "gj-" + Guid.NewGuid().ToString("N")[..8];
-        using (var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
-        using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
-        {
-            var connection = server.WaitForConnectionAsync();
-            await client.ConnectAsync(2000); await connection;
-            var output = new StreamWriter(client, leaveOpen: true);
-            output.Write("buffered command");
-            client.Dispose();
-            QemuGuest.DisposePipeWriter(output);
-            Check(true, "disposing buffered output tolerates an already closed named pipe");
-        }
         var guests = new List<FakeGuest>();
         var events = new List<(string Token, string Event)>();
         var runtime = new PlayerRuntime("runtime", "qemu", "kernel", "image");
+        var warmedGuests = new List<FakeGuest>();
+        var warmPreparation = new TaskCompletionSource<PlayerRuntime>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using (var warmed = new PlaybackGuestSession(_ => warmPreparation.Task,
+            (_, callback) => { var guest = new FakeGuest(callback); warmedGuests.Add(guest); return guest; },
+            (_, _) => throw new Exception("Warmup must not send playback events"), default, "tcg"))
+        {
+            var warmup = warmed.WarmupAsync();
+            var playback = warmed.StartAsync("warm", "Y2VydA==");
+            warmPreparation.SetResult(runtime);
+            await Task.WhenAll(warmup, playback);
+            Check(warmedGuests.Count == 1 && warmedGuests[0].Certificate == "Y2VydA==",
+                "playback joins background warmup and applies its certificate without rebooting");
+            await warmed.WarmupAsync();
+            Check(warmedGuests.Count == 1, "repeat warmup preserves active playback");
+            await warmed.StopAsync();
+            await warmed.WarmupAsync();
+            await warmed.StartAsync("warm-again", "");
+            Check(warmedGuests.Count == 2 && warmedGuests[0].Disposed && warmedGuests[1].Certificate is null,
+                "reload discards the warmed helper and a fresh helper accepts uncertified playback");
+        }
         var fallbackGuests = new List<FakeGuest>();
         await using (var fallback = new PlaybackGuestSession(_ => Task.FromResult(runtime),
             (_, callback) => { var guest = new FakeGuest(callback) { FailStart = fallbackGuests.Count == 0 }; fallbackGuests.Add(guest); return guest; },
-            (_, _) => Task.CompletedTask, default, "whpx"))
+            (_, _) => Task.CompletedTask, default, "hvf"))
         {
             await fallback.StartAsync("fallback", "");
             Check(fallbackGuests.Count == 2 && fallbackGuests[0].Disposed &&
-                fallbackGuests[0].Accelerator == "whpx" && fallbackGuests[1].Accelerator == "tcg" && fallbackGuests[1].IsRunning,
+                fallbackGuests[0].Accelerator == "hvf" && fallbackGuests[1].Accelerator == "tcg" && fallbackGuests[1].IsRunning,
                 "unavailable WHPX is disposed and retried with software emulation");
         }
         var preparation = new TaskCompletionSource<PlayerRuntime>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -44,6 +43,7 @@ internal static class PlaybackTests
             (_, callback) => { var guest = new FakeGuest(callback); guests.Add(guest); return guest; },
             (token, message) => { events.Add((token, message.GetProperty("event").GetString()!)); return Task.CompletedTask; },
             default);
+        Check(guests.Count == 0, "creating a window session does not launch a protected playback helper");
         var start = session.StartAsync("one", "");
         Check(!start.IsCompleted, "playback waits for component preparation");
         preparation.SetResult(runtime); await start;
@@ -107,7 +107,7 @@ internal static class PlaybackTests
         public Task StartAsync(string accelerator, CancellationToken cancellation)
         {
             Accelerator = accelerator;
-            if (FailStart) throw new IOException("WHPX: No accelerator found");
+            if (FailStart) throw new IOException("HVF: No accelerator found");
             Running = true; return Task.CompletedTask;
         }
         public async Task<JsonElement> RequestAsync(string command, string data, CancellationToken cancellation, Action<JsonElement>? onResponse = null)

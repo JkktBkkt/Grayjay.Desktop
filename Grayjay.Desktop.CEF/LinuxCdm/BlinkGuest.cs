@@ -1,15 +1,16 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Channels;
+using System.Text;
 
 namespace Grayjay.Desktop.CEF.LinuxCdm;
 
-internal sealed class QemuGuest : IPlaybackGuest
+internal sealed class BlinkGuest : IPlaybackGuest
 {
     private readonly PlayerRuntime runtime;
     private readonly string logs;
+    private readonly ulong memoryLimitBytes;
     private readonly Func<JsonElement, Task> callback;
     private readonly CancellationTokenSource stop = new();
     private readonly SemaphoreSlim writer = new(1, 1);
@@ -19,40 +20,27 @@ internal sealed class QemuGuest : IPlaybackGuest
     private readonly TaskCompletionSource<bool> initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<Task> workers = [];
     private Process? process;
+    private WindowsPlaybackProcess? child;
     private StreamReader? input;
     private StreamWriter? output;
     private int nextId, disposed, failed;
     private string lastDiagnostic = "";
-    internal QemuGuest(PlayerRuntime runtime, string logs, Func<JsonElement, Task> callback)
-    { this.runtime = runtime; this.logs = logs; this.callback = callback; }
+    internal BlinkGuest(PlayerRuntime runtime, string logs, Func<JsonElement, Task> callback, ulong memoryLimitBytes = 0)
+    { this.runtime = runtime; this.logs = logs; this.callback = callback; this.memoryLimitBytes = memoryLimitBytes; }
 
     public bool IsRunning => Volatile.Read(ref failed) == 0 && Volatile.Read(ref disposed) == 0 &&
         initialized.Task.IsCompletedSuccessfully && initialized.Task.Result;
 
     public async Task StartAsync(string accelerator, CancellationToken cancellation)
     {
-        if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("QEMU playback is supported only on macOS.");
+        if (!RuntimeAssets.Supported) throw new PlatformNotSupportedException();
         Directory.CreateDirectory(logs);
-        var start = new ProcessStartInfo(runtime.Executable)
-        {
-            WorkingDirectory = runtime.Directory, UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
-        };
-        string console = FilePath(Path.Combine(logs, "console.log")).Replace(",", ",,");
-        foreach (string argument in new[] {
-            "-nodefaults", "-no-user-config", "-no-reboot", "-machine", "q35",
-            "-accel", accelerator == "tcg" ? "tcg,thread=multi,tb-size=16" : accelerator,
-            "-cpu", accelerator == "hvf" ? "host" : "max", "-smp", "1", "-m", "256",
-            "-kernel", FilePath(runtime.Kernel), "-initrd", FilePath(runtime.Initramfs),
-            "-append", "console=ttyS0 rdinit=/init panic=-1",
-            "-display", "none", "-monitor", "none", "-nic", "none",
-            "-L", "data",
-            "-chardev", "file,id=boot,path=" + console, "-device", "isa-serial,chardev=boot",
-            "-device", "virtio-serial-pci", "-chardev", "stdio,id=cdm,signal=off",
-            "-device", "virtserialport,chardev=cdm,nr=1,name=grayjay.cdm" }) start.ArgumentList.Add(argument);
-        process = Process.Start(start) ?? throw new IOException("Could not start protected playback.");
+        if (!OperatingSystem.IsWindows() || runtime.GuestRoot is null) throw new PlatformNotSupportedException();
+        child = WindowsPlaybackProcess.Start(runtime.Executable, runtime.Directory,
+            new[] { "-C", CygwinPath(runtime.GuestRoot), "/usr/local/bin/cdm-host", "/opt/widevine/libwidevinecdm.so" }, memoryLimitBytes);
+        process = child.Process;
         workers.Add(DiagnosticsAsync());
-        input = process.StandardOutput; output = process.StandardInput;
+        input = child.Output; output = child.Input;
         workers.Add(ReadAsync()); workers.Add(DispatchAsync());
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, stop.Token);
         if (!await initialized.Task.WaitAsync(TimeSpan.FromSeconds(30), linked.Token))
@@ -112,8 +100,8 @@ internal sealed class QemuGuest : IPlaybackGuest
         try
         {
             await using var log = new StreamWriter(Path.Combine(logs, "runtime.log"), append: true);
-            while (await process!.StandardError.ReadLineAsync(stop.Token) is { } line)
-            { lastDiagnostic = line.Length <= 500 ? line : line[..500]; await log.WriteLineAsync(line); }
+            while (await child!.Error.ReadLineAsync(stop.Token) is { } line)
+            { lastDiagnostic = line.Length <= 500 ? line : line[..500]; await log.WriteLineAsync(line); await log.FlushAsync(); Console.WriteLine(line); }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
     }
@@ -135,7 +123,7 @@ internal sealed class QemuGuest : IPlaybackGuest
         var request = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         pending[id] = new(request, onResponse);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, stop.Token);
-        linked.CancelAfter(TimeSpan.FromSeconds(45));
+        linked.CancelAfter(TimeSpan.FromSeconds(180));
         try
         {
             await SendAsync(command + " " + id + " " + data, linked.Token);
@@ -169,11 +157,19 @@ internal sealed class QemuGuest : IPlaybackGuest
         finally
         {
             stop.Cancel();
-            try { await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(3)); }
+            try
+            {
+                await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(3));
+            }
             catch (Exception e) when (e is OperationCanceledException or TimeoutException or IOException) { }
-            process?.Dispose();
+            finally { child?.Dispose(); }
+
         }
     }
-    private static string FilePath(string path) => path;
-    internal static string PreferredAccelerator => OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? "hvf" : "tcg";
+    internal static string CygwinPath(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (full.Length < 3 || full[1] != ':' || full[2] != '\\') throw new NotSupportedException("CDM runtime requires a local drive path.");
+        return "/cygdrive/" + char.ToLowerInvariant(full[0]) + full[2..].Replace('\\', '/');
+    }
 }

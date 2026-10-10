@@ -5,6 +5,16 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Grayjay.Desktop.CEF.LinuxCdm;
 
+if (args.Length >= 2 && args[0] == "--blink-reference")
+{
+    await BlinkPlaybackTests.RunAsync(Path.GetFullPath(args[1]), args.Length > 2 ? int.Parse(args[2]) : 4);
+    return;
+}
+if (args.Contains("--job-owner")) { await ProcessJobTests.RunOwnerAsync(); return; }
+if (args.Contains("--native-child")) { await WindowsPlaybackProcessTests.ChildAsync(args); return; }
+await WindowsPlaybackProcessTests.RunAsync();
+await ProcessJobTests.RunAsync();
+
 static void Check(bool condition, string name)
 {
     if (!condition) throw new Exception(name);
@@ -46,14 +56,22 @@ byte[] Archive(string name, string contents)
 }
 try
 {
+    await CdmRootTests.RunAsync(root);
     await PlaybackTests.RunAsync();
     await DownloadUpdateTests.RunAsync(root);
     void Fixture(string app, bool mac)
     {
         string root = mac ? Path.Combine(app, "..", "Resources", "playback") : Path.Combine(app, "playback");
         string runtime = mac ? root : Path.Combine(root, "runtime");
-        string executable = mac ? Path.Combine(app, "..", "Helpers", "qemu-system-x86_64") : Path.Combine(runtime, "qemu-system-x86_64.exe");
+        string executable = mac ? Path.Combine(app, "..", "Helpers", "qemu-system-x86_64") : Path.Combine(runtime, "blink.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!); File.WriteAllText(executable, "signed executable");
+        if (!mac)
+        {
+            File.WriteAllText(Path.Combine(runtime, "cygwin1.dll"), "runtime");
+            File.WriteAllText(Path.Combine(runtime, "blink-runtime.json"), JsonSerializer.Serialize(new {
+                version="1", protocol=3, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))),
+                cygwinSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("runtime"))) }));
+        }
         Directory.CreateDirectory(Path.Combine(runtime, "data")); File.WriteAllText(Path.Combine(runtime, "data", "bios-256k.bin"), "firmware");
         string guest = Path.Combine(root, "guest"); Directory.CreateDirectory(guest);
         File.WriteAllBytes(Path.Combine(guest, "vmlinuz"), [1,2,3]); File.WriteAllBytes(Path.Combine(guest, "initramfs.cpio.gz"), [4,5,6]);

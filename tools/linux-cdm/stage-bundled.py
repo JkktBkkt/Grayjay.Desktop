@@ -38,11 +38,28 @@ with tempfile.TemporaryDirectory(prefix='grayjay-playback-stage-') as temporary:
     (guest / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')
     for rid in ('osx-arm64', 'osx-x64', 'win-x64'):
         runtime = staged / 'runtimes' / rid
-        executable = runtime / ('qemu-system-x86_64.exe' if rid.startswith('win-') else 'qemu-system-x86_64')
-        if not executable.is_file() or not (runtime / 'data/bios-256k.bin').is_file() or not (runtime / 'runtime.json').is_file():
-            raise ValueError('Incomplete runtime: ' + rid)
-        if rid.startswith('osx-'):
+        if rid == 'win-x64':
+            for path in runtime.rglob('*'):
+                if path.is_file() and path.relative_to(runtime).as_posix() not in (
+                        'blink.exe', 'cygwin1.dll', 'blink-runtime.json') and not path.is_relative_to(runtime / 'licenses/blink'):
+                    raise ValueError('Unexpected Windows runtime file: ' + str(path))
+            manifest = json.loads((runtime / 'blink-runtime.json').read_text())
+            if manifest['version'] != '1' or manifest['protocol'] != 3:
+                raise ValueError('Incompatible Blink runtime')
+            for filename, key in [('blink.exe', 'blinkSha256'), ('cygwin1.dll', 'cygwinSha256')]:
+                if hashlib.sha256((runtime / filename).read_bytes()).hexdigest() != manifest[key]:
+                    raise ValueError('Damaged Blink runtime: ' + filename)
+        else:
+            executable = runtime / 'qemu-system-x86_64'
+            if not executable.is_file() or not (runtime / 'data/bios-256k.bin').is_file() or not (runtime / 'runtime.json').is_file():
+                raise ValueError('Incomplete runtime: ' + rid)
             executable.chmod(0o755)
     args.output.mkdir(parents=True, exist_ok=True)
+    # Merging would retain obsolete Windows QEMU executables and DLLs.
+    destination = (args.output / 'runtimes/win-x64').resolve()
+    if not destination.is_relative_to(args.output.resolve()):
+        raise ValueError('Windows runtime destination escapes the output directory')
+    if destination.exists():
+        shutil.rmtree(destination)
     shutil.copytree(staged, args.output, dirs_exist_ok=True)
 print('Staged playback dependencies:', args.output)

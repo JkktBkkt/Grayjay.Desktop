@@ -18,12 +18,14 @@ export class PlaybackSession {
     private readonly unlisten: () => void;
     private failure?: Error;
     private closed = false;
-    constructor(private readonly drm: ISourceDrm, private readonly onError: (error: string) => void) {
+    constructor(private readonly drm: ISourceDrm, private readonly onError: (error: string) => void,
+        private readonly onProgress?: (message: string) => void) {
         this.unlisten = listen(this.token, event => this.event(event));
         this.started = this.start();
         void this.started.catch(error => this.fail(error));
     }
     private async start() {
+        this.progress('Starting protected playback…');
         let certificate = this.drm.serviceCertificate;
         if (!certificate && this.drm.certificateUrl) {
             const response = await fetch(new URL(this.drm.certificateUrl, location.href), { signal: this.cancel.signal });
@@ -33,6 +35,10 @@ export class PlaybackSession {
         this.cancel.signal.throwIfAborted();
         await call('start', this.token, certificate ?? '');
         this.cancel.signal.throwIfAborted();
+        this.progress('Acquiring playback license…');
+    }
+    private progress(message: string) {
+        if (!this.closed && !this.failure) this.onProgress?.(message);
     }
     private key(id: string) {
         let value = this.keys.get(id);
@@ -98,6 +104,7 @@ export class PlaybackSession {
         assertSupportedEncryption(fragment);
         await this.started;
         await Promise.all(this.requests.values()); this.check();
+        this.progress('Preparing media for playback…');
         const wire = new Uint8Array(4 + init.length + fragment.length);
         new DataView(wire.buffer).setUint32(0, init.length); wire.set(init, 4); wire.set(fragment, 4 + init.length);
         const result = await call<{ data: string; samples: number }>('fragment', this.token, toBase64(wire));

@@ -148,6 +148,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     const [isCasting, setIsCasting] = createSignal(casting?.activeDevice.device() ? true : false);
     const [isAudioOnly, setIsAudioOnly] = createSignal(false);
     const [isLoading, setIsLoading] = createSignal(true);
+    const [protectedPlaybackMessage, setProtectedPlaybackMessage] = createSignal<string>();
     const [resumePositionVisible, setResumePositionVisible] = createSignal(false);
     const [endControlsVisible$, setEndControlsVisible] = createSignal(false);
     const [loaderGameVisible$, setLoaderGameVisible] = createSignal<number>();
@@ -680,6 +681,8 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     const onError = (error: string, fatal: boolean, kind: PlaybackErrorKind = "generic", reloadable?: boolean) => {
         props.onError?.(error, fatal, kind, reloadable);
         if (fatal) {
+            setIsLoading(false);
+            setProtectedPlaybackMessage(undefined);
             setLoaderGameVisible(undefined);
             setIsPlaying(false);
             if (kind !== "generic") {
@@ -899,6 +902,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             videoElement.src = "";
             videoElement.onerror = null;
             videoElement.onloadedmetadata = null;
+            videoElement.onloadeddata = null;
             videoElement.ontimeupdate = null;
             videoElement.onplay = null;
             videoElement.onpause = null;
@@ -937,8 +941,15 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
     };
 
     const startSource = (sourceUrl: string | undefined, mediaType: string | undefined, shouldResume: boolean | undefined, startTime: Duration | undefined, drm: ISourceDrm | undefined, currentVolume: number, helper: boolean) => {
+        setProtectedPlaybackMessage(undefined);
         if (sourceUrl && mediaType && videoElement) {
-            setIsLoading(false);
+            setIsLoading(helper && !!drm);
+            if (helper && drm) {
+                videoElement.onloadeddata = () => {
+                    setIsLoading(false);
+                    setProtectedPlaybackMessage(undefined);
+                };
+            }
 
             if (mediaType === 'application/dash+xml' && !videoElement.canPlayType(mediaType)) {
                 dashPlayer = dashjs.MediaPlayer().create();
@@ -1196,7 +1207,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 });
 
                 if (helper && drm) {
-                    const session = new PlaybackSession(drm, error => onError(error, true, 'drm'));
+                    const session = new PlaybackSession(drm, error => onError(error, true, 'drm'), setProtectedPlaybackMessage);
                     helperCleanup = attachHelperDash(dashPlayer, session, error => onError(error, true, 'drm'));
                 } else if (drm) {
                     dashPlayer.setProtectionData({
@@ -1295,7 +1306,7 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
                 
                 const hlsBaseConfig = { startPosition: -1 };
                 hlsPlayer = helper && drm
-                    ? createHelperHls(new PlaybackSession(drm, error => onError(error, true, 'drm')))
+                    ? createHelperHls(new PlaybackSession(drm, error => onError(error, true, 'drm'), setProtectedPlaybackMessage))
                     : drm ? new Hls({
                         ...hlsBaseConfig,
                         emeEnabled: true,
@@ -1855,6 +1866,9 @@ const VideoPlayerView: Component<VideoProps> = (props) => {
             <Show when={isLoading() && !isCasting()}>
                 <div class={styles.loader}>
                     <CircleLoader />
+                    <Show when={protectedPlaybackMessage()}>
+                        <div class={styles.protectedPlaybackStatus} role="status">{protectedPlaybackMessage()}</div>
+                    </Show>
                 </div>
                 <Show when={props.loaderUI}>
                     {props.loaderUI}

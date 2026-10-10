@@ -31,6 +31,13 @@ internal sealed class RuntimeAssets : IAsyncDisposable
             await bundle.VerifyGuestAsync(cancellation);
             var cdm = await widevine.EnsureAsync(progress, cancellation);
             await progress(new("prepare", "Preparing protected playback"));
+            if (bundle.UsesBlink)
+            {
+                string root = Path.Combine(cache, "roots", bundle.InitramfsSha256 + "-" + cdm.Sha256);
+                await CdmRoot.BuildAsync(bundle.Initramfs, cdm.Path, root, cancellation);
+                await progress(new("ready", "Playback components are ready"));
+                return new(bundle.Directory, bundle.Executable, "", "") { GuestRoot = root };
+            }
             string boot = Path.Combine(cache, "boot", bundle.InitramfsSha256 + "-" + cdm.Sha256 + ".cpio.gz");
             await Initramfs.BuildAsync(bundle.Initramfs, cdm.Path, boot, cancellation);
             await progress(new("ready", "Playback components are ready"));

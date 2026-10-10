@@ -40,17 +40,14 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
         {
             await EndPlaybackAsync();
             var prepared = await prepare(stop.Token);
-            if (guest is null || !guest.IsRunning || runtime != prepared || certificate != serviceCertificate)
+            if (guest is null || !guest.IsRunning || runtime != prepared ||
+                (certificate is not null && certificate != serviceCertificate))
             {
                 await DisposeGuestAsync();
-                string accelerator = preferredAccelerator;
-                try { await StartGuestAsync(prepared, accelerator); }
-                catch (Exception e) when (accelerator != "tcg" && !stop.IsCancellationRequested)
-                {
-                    Console.Error.WriteLine("Playback guest startup with " + accelerator + " failed; retrying with tcg: " + e);
-                    await DisposeGuestAsync();
-                    await StartGuestAsync(prepared, "tcg");
-                }
+                await StartWithFallbackAsync(prepared);
+            }
+            if (certificate is null)
+            {
                 if (serviceCertificate.Length > 0)
                     await guest!.RequestAsync("CERT", serviceCertificate, stop.Token);
                 runtime = prepared; certificate = serviceCertificate;
@@ -59,6 +56,32 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
         }
         catch { await DisposeGuestAsync(); throw; }
         finally { lifecycle.Release(); }
+    }
+
+    internal async Task WarmupAsync()
+    {
+        await lifecycle.WaitAsync(stop.Token);
+        try
+        {
+            if (guest?.IsRunning == true) return;
+            var prepared = await prepare(stop.Token);
+            await DisposeGuestAsync();
+            await StartWithFallbackAsync(prepared);
+            runtime = prepared;
+        }
+        catch { await DisposeGuestAsync(); throw; }
+        finally { lifecycle.Release(); }
+    }
+
+    private async Task StartWithFallbackAsync(PlayerRuntime prepared)
+    {
+        try { await StartGuestAsync(prepared, preferredAccelerator); }
+        catch (Exception e) when (preferredAccelerator != "tcg" && !stop.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Playback guest startup with " + preferredAccelerator + " failed; retrying with tcg: " + e);
+            await DisposeGuestAsync();
+            await StartGuestAsync(prepared, "tcg");
+        }
     }
 
     private async Task StartGuestAsync(PlayerRuntime prepared, string accelerator)

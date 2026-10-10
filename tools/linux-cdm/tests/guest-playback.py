@@ -6,10 +6,11 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--runtime', type=Path, required=True)
 parser.add_argument('--guest', type=Path, required=True)
 parser.add_argument('--cdm', type=Path, required=True)
-parser.add_argument('--wine-image')
 parser.add_argument('--reuse', action='store_true')
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
+if os.name == 'nt':
+    parser.error('Windows uses Blink; run DownloadTests.csproj -- --blink-reference instead.')
 b64 = lambda value: base64.b64encode(value).decode()
 pssh = 'AAAAPnBzc2gAAAAA7e+LqXnWSs6jyCfc1R0h7QAAAB4iFnNoYWthX2NlYzJmNjRhYTc4OTBhMTFI49yVmwY='
 media = urllib.request.urlopen('https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/v-0144p-0100k-libx264.mp4', timeout=30).read()
@@ -18,7 +19,7 @@ while media[at + 4:at + 8] != b'moof':
     length = struct.unpack('>I', media[at:at + 4])[0]
     if length < 8: raise RuntimeError('Invalid public MP4')
     at += length
-report = {'windowsBinaryUnderWine': bool(args.wine_image), 'success': False}
+report = {'success': False}
 with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
     root = Path(temporary); shutil.copy2(args.guest / 'vmlinuz', root / 'vmlinuz')
     initrd = root / 'boot.cpio.gz'; shutil.copy2(args.guest / 'initramfs.cpio.gz', initrd)
@@ -31,20 +32,12 @@ with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
             output.write(data + b'\0' * (-len(data) % 4))
         entry('opt', 0o40755); entry('opt/widevine', 0o40755)
         entry('opt/widevine/libwidevinecdm.so', 0o100644, args.cdm.read_bytes()); entry('TRAILER!!!', 0)
-    container = 'grayjay-guest-probe-' + root.name
-    pipe_name = 'grayjay-probe-' + root.name
-    if args.wine_image:
-        command = ['docker', 'run', '--rm', '--name', container, '-i', '-v', str(args.runtime.resolve()) + ':/runtime:ro', '-v', str(root) + ':/probe', args.wine_image,
-            '/usr/lib/wine/wine64', 'Z:\\runtime\\wine-pipe-adapter.exe', pipe_name, 'Z:\\runtime\\qemu-system-x86_64.exe']
-        firmware, kernel, boot, log = 'Z:\\runtime\\data', 'Z:\\probe\\vmlinuz', 'Z:\\probe\\boot.cpio.gz', 'Z:\\probe\\console.log'
-    else:
-        executable = 'qemu-system-x86_64.exe' if os.name == 'nt' else 'qemu-system-x86_64'
-        command = [str(args.runtime / executable)]
-        firmware, kernel, boot, log = str(args.runtime / 'data'), str(root / 'vmlinuz'), str(initrd), str(root / 'console.log')
+    command = [str(args.runtime / 'qemu-system-x86_64')]
+    firmware, kernel, boot, log = str(args.runtime / 'data'), str(root / 'vmlinuz'), str(initrd), str(root / 'console.log')
     command += ['-nodefaults', '-no-user-config', '-no-reboot', '-machine', 'q35', '-accel', 'tcg,thread=multi,tb-size=16', '-cpu', 'max', '-smp', '1', '-m', '256',
         '-kernel', kernel, '-initrd', boot, '-append', 'console=ttyS0 rdinit=/init panic=-1', '-display', 'none', '-monitor', 'none', '-nic', 'none', '-L', firmware,
         '-chardev', 'file,id=boot,path=' + log.replace(',', ',,'), '-device', 'isa-serial,chardev=boot', '-device', 'virtio-serial-pci',
-        '-chardev', 'pipe,id=cdm,path=' + pipe_name if args.wine_image else 'stdio,id=cdm,signal=off', '-device', 'virtserialport,chardev=cdm,nr=1,name=grayjay.cdm']
+        '-chardev', 'stdio,id=cdm,signal=off', '-device', 'virtserialport,chardev=cdm,nr=1,name=grayjay.cdm']
     stopped = threading.Event(); lines = queue.Queue(); lock = threading.Lock()
     def send(line):
         with lock: process.stdin.write(line + '\n'); process.stdin.flush()
@@ -98,7 +91,6 @@ with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
             report['error'] = str(error)
         finally:
             stopped.set()
-            if args.wine_image: subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if process.poll() is None: process.kill(); process.wait()
 args.output.write_text(json.dumps(report, indent=2)); print(json.dumps(report))
 if not report['success']: raise SystemExit(1)

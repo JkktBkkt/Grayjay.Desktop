@@ -647,6 +647,7 @@ namespace Grayjay.Desktop
                     bridgeRpcHandler: linuxCdm != null ? linuxCdm.HandleAsync : null
                 );
                 await window.SetModifyRequestsAsync(true, false);
+                linuxCdm?.AttachWindow(window);
                 if (scaleFactor != null && scaleFactor != 1.0)
                 {
                     window.OnFrameLoadEnd += async (frameLoadInfo) =>

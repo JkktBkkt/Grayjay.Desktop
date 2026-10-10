@@ -14,19 +14,30 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
     private readonly CancellationTokenSource stop = new();
     internal LinuxCdmBridge(string cache) { this.cache = cache; assets = new(cache); }
     internal static LinuxCdmBridge? Create(string cache) => RuntimeAssets.Supported ? new(cache) : null;
+    internal void AttachWindow(JustCefWindow window) => _ = ForWindow(window);
     private PlaybackGuestSession ForWindow(JustCefWindow window) => windows.GetOrAdd(window.Identifier, identifier =>
     {
         var session = new PlaybackGuestSession(
             cancellation => assets.EnsureAsync(_ => Task.CompletedTask, cancellation),
-            (runtime, callback) => new QemuGuest(runtime,
+            (runtime, callback) => runtime.UsesBlink ? new BlinkGuest(runtime,
+                Path.Combine(cache, "logs", identifier + "-" + Guid.NewGuid().ToString("N")), callback) : new QemuGuest(runtime,
                 Path.Combine(cache, "logs", identifier + "-" + Guid.NewGuid().ToString("N")), callback),
             async (token, message) => await window.CallBridgeRpcAsync("linuxCdm.event",
                 JsonSerializer.Serialize(new { token, @event = message }, Json)).WaitAsync(TimeSpan.FromSeconds(10), stop.Token),
             stop.Token);
         window.OnClose += () => { _ = CloseWindowAsync(window.Identifier); };
         window.OnFrameLoadStart += info => { if (info.IsMainFrame) _ = CloseWindowAsync(window.Identifier, remove: false); };
+        // Start the helper only through protected playback preparation or start.
+        // Loading the app or reloading its main frame must not initialize a CDM.
         return session;
     });
+    private async Task WarmupAsync(PlaybackGuestSession session)
+    {
+        if (!assets.Ready || stop.IsCancellationRequested) return;
+        try { await session.WarmupAsync(); }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { Console.Error.WriteLine("Protected playback warmup failed: " + e.Message); }
+    }
     internal async Task<string?> HandleAsync(JustCefWindow window, string method, string? json)
     {
         if (!RuntimeAssets.Supported) throw new PlatformNotSupportedException();
@@ -46,6 +57,7 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
                     await window.CallBridgeRpcAsync("linuxCdm.progress", JsonSerializer.Serialize(new { token, progress }, Json))
                         .WaitAsync(TimeSpan.FromSeconds(10), cancel.Token);
                 }, cancel.Token);
+                _ = WarmupAsync(ForWindow(window));
                 return "true";
             }
             finally { setups.TryRemove(window.Identifier + ":" + token, out _); }
@@ -85,8 +97,8 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
         if (!windows.TryGetValue(id, out var session)) return;
         if (remove)
         {
-            windows.TryRemove(id, out _);
             await session.DisposeAsync();
+            windows.TryRemove(id, out _);
         }
         else await session.StopAsync();
     }

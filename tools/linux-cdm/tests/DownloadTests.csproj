@@ -14,6 +14,10 @@
     <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/Crx3.cs" />
     <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/Initramfs.cs" />
     <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/QemuGuest.cs" />
+    <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/PlaybackProcessJob.cs" />
+    <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/WindowsPlaybackProcess.cs" />
+    <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/BlinkGuest.cs" />
+    <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/CdmRoot.cs" />
     <Compile Include="../../../Grayjay.Desktop.CEF/LinuxCdm/PlaybackGuestSession.cs" />
   </ItemGroup>
 </Project>
