@@ -17,10 +17,18 @@ internal static class CdmRootTests
         if (!File.Exists(host) || !File.Exists(Path.Combine(root, "lib64", "ld-linux-x86-64.so.2")) || Directory.Exists(Path.Combine(root, "lib", "modules")))
             throw new Exception("CDM extraction did not produce the required minimal runtime.");
         if (!Directory.Exists(Path.Combine(root, "tmp"))) throw new Exception("CDM fragment temporary directory is missing.");
+        if (!OperatingSystem.IsWindows())
+        {
+            if ((File.GetUnixFileMode(host) & UnixFileMode.UserExecute) == 0)
+                throw new Exception("CDM host is not executable on macOS.");
+            File.SetUnixFileMode(host, File.GetUnixFileMode(host) & ~UnixFileMode.UserExecute);
+        }
         Directory.Delete(Path.Combine(root, "tmp"));
         var timestamp = File.GetLastWriteTimeUtc(host);
         await CdmRoot.BuildAsync(image, cdm, root, default);
         if (!Directory.Exists(Path.Combine(root, "tmp"))) throw new Exception("Missing temporary directory was not repaired.");
+        if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(host) & UnixFileMode.UserExecute) == 0)
+            throw new Exception("Cached CDM host executable permission was not repaired.");
         if (File.GetLastWriteTimeUtc(host) != timestamp) throw new Exception("Verified CDM root was unnecessarily rebuilt.");
         await File.WriteAllTextAsync(host, "corrupt");
         await CdmRoot.BuildAsync(image, cdm, root, default);

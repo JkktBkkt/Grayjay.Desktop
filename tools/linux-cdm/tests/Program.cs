@@ -7,7 +7,7 @@ using Grayjay.Desktop.CEF.LinuxCdm;
 
 if (args.Length >= 2 && args[0] == "--blink-reference")
 {
-    await BlinkPlaybackTests.RunAsync(Path.GetFullPath(args[1]), args.Length > 2 ? int.Parse(args[2]) : 4);
+    await BlinkPlaybackTests.RunAsync(Path.GetFullPath(args[1]), args.Length > 2 ? int.Parse(args[2]) : 4, args.Length > 3 ? args[3] : null);
     return;
 }
 if (args.Contains("--job-owner")) { await ProcessJobTests.RunOwnerAsync(); return; }
@@ -56,6 +56,7 @@ byte[] Archive(string name, string contents)
 }
 try
 {
+    await MacBlinkProcessTests.RunAsync(root);
     await CdmRootTests.RunAsync(root);
     await PlaybackTests.RunAsync();
     await DownloadUpdateTests.RunAsync(root);
@@ -63,7 +64,7 @@ try
     {
         string root = mac ? Path.Combine(app, "..", "Resources", "playback") : Path.Combine(app, "playback");
         string runtime = mac ? root : Path.Combine(root, "runtime");
-        string executable = mac ? Path.Combine(app, "..", "Helpers", "qemu-system-x86_64") : Path.Combine(runtime, "blink.exe");
+        string executable = mac ? Path.Combine(app, "..", "Helpers", "blink") : Path.Combine(runtime, "blink.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!); File.WriteAllText(executable, "signed executable");
         if (!mac)
         {
@@ -71,6 +72,12 @@ try
             File.WriteAllText(Path.Combine(runtime, "blink-runtime.json"), JsonSerializer.Serialize(new {
                 version="1", protocol=3, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))),
                 cygwinSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("runtime"))) }));
+        }
+        if (mac)
+        {
+            Directory.CreateDirectory(runtime);
+            File.WriteAllText(Path.Combine(runtime, "blink-runtime.json"), JsonSerializer.Serialize(new {
+                version="1", protocol=3, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))) }));
         }
         Directory.CreateDirectory(Path.Combine(runtime, "data")); File.WriteAllText(Path.Combine(runtime, "data", "bios-256k.bin"), "firmware");
         string guest = Path.Combine(root, "guest"); Directory.CreateDirectory(guest);

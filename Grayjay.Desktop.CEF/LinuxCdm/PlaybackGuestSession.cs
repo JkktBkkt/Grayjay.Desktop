@@ -75,6 +75,11 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
 
     private async Task StartWithFallbackAsync(PlayerRuntime prepared)
     {
+        if (prepared.UsesBlink)
+        {
+            await StartGuestAsync(prepared, "tcg");
+            return;
+        }
         try { await StartGuestAsync(prepared, preferredAccelerator); }
         catch (Exception e) when (preferredAccelerator != "tcg" && !stop.IsCancellationRequested)
         {

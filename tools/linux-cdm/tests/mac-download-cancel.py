@@ -16,7 +16,7 @@ try:
  report['dismissed']=c.evaluate('!document.querySelector(\'[aria-label="Set up protected playback"]\')')
  report['widevineNotDownloaded']=not cache.exists()
  processes=subprocess.check_output(['ps','-axo','command'],text=True).splitlines()
- report['guestStopped']=not any(line.startswith('/') and '/Contents/Helpers/qemu-system-x86_64' in line for line in processes)
+ report['guestStopped']=not any(line.startswith('/') and '/Contents/Helpers/blink' in line for line in processes)
  report['licenseRequests']=sum(event.get('method')=='Network.responseReceived' and 'widevinelicense' in event['params']['response']['url'].lower() for event in c.events)
  report['success']=report['dismissed'] and report['widevineNotDownloaded'] and report['guestStopped'] and not report['licenseRequests']
 finally:

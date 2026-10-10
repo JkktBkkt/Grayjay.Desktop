@@ -12,7 +12,7 @@ internal static class CdmRoot
 {
     internal static async Task BuildAsync(string image, string cdm, string output, CancellationToken cancellation)
     {
-        if (await ValidAsync(output, cancellation)) { Directory.CreateDirectory(Path.Combine(output, "tmp")); return; }
+        if (await ValidAsync(output, cancellation)) { Directory.CreateDirectory(Path.Combine(output, "tmp")); EnsureExecutable(output); return; }
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         string temporary = output + ".partial-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(temporary);
@@ -32,12 +32,21 @@ internal static class CdmRoot
             }
             foreach (string required in new[] { "usr/local/bin/cdm-host", "lib64/ld-linux-x86-64.so.2", "lib/x86_64-linux-gnu/libc.so.6" })
                 if (!receipt.ContainsKey(required)) throw new InvalidDataException("CDM runtime library is missing: " + required);
+            EnsureExecutable(temporary);
             await File.WriteAllTextAsync(Path.Combine(temporary, "receipt.json"), JsonSerializer.Serialize(receipt), cancellation);
             cancellation.ThrowIfCancellationRequested();
             if (Directory.Exists(output)) Directory.Delete(output, recursive: true);
             Directory.Move(temporary, output);
         }
         finally { if (Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true); }
+    }
+    private static void EnsureExecutable(string root)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            string host = Path.Combine(root, "usr", "local", "bin", "cdm-host");
+            File.SetUnixFileMode(host, File.GetUnixFileMode(host) | UnixFileMode.UserExecute);
+        }
     }
     private static async Task<bool> ValidAsync(string root, CancellationToken cancellation)
     {

@@ -21,6 +21,7 @@ internal sealed class BlinkGuest : IPlaybackGuest
     private readonly List<Task> workers = [];
     private Process? process;
     private WindowsPlaybackProcess? child;
+    private StreamReader? diagnostics;
     private StreamReader? input;
     private StreamWriter? output;
     private int nextId, disposed, failed;
@@ -35,12 +36,31 @@ internal sealed class BlinkGuest : IPlaybackGuest
     {
         if (!RuntimeAssets.Supported) throw new PlatformNotSupportedException();
         Directory.CreateDirectory(logs);
-        if (!OperatingSystem.IsWindows() || runtime.GuestRoot is null) throw new PlatformNotSupportedException();
-        child = WindowsPlaybackProcess.Start(runtime.Executable, runtime.Directory,
-            new[] { "-C", CygwinPath(runtime.GuestRoot), "/usr/local/bin/cdm-host", "/opt/widevine/libwidevinecdm.so" }, memoryLimitBytes);
-        process = child.Process;
+        if (runtime.GuestRoot is null) throw new InvalidOperationException("Playback guest root is missing.");
+        if (OperatingSystem.IsWindows())
+        {
+            child = WindowsPlaybackProcess.Start(runtime.Executable, runtime.Directory,
+                new[] { "-C", CygwinPath(runtime.GuestRoot), "/usr/local/bin/cdm-host", "/opt/widevine/libwidevinecdm.so" }, memoryLimitBytes);
+            process = child.Process;
+            input = child.Output; output = child.Input; diagnostics = child.Error;
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            var start = new ProcessStartInfo(runtime.Executable)
+            {
+                WorkingDirectory = runtime.Directory, UseShellExecute = false,
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+            start.ArgumentList.Add("-m");
+            foreach (var argument in new[] { "-C", runtime.GuestRoot, "/usr/local/bin/cdm-host", "/opt/widevine/libwidevinecdm.so" })
+                start.ArgumentList.Add(argument);
+            process = Process.Start(start) ?? throw new IOException("Could not start the playback helper.");
+            input = process.StandardOutput; output = process.StandardInput; diagnostics = process.StandardError;
+        }
+        else throw new PlatformNotSupportedException();
         workers.Add(DiagnosticsAsync());
-        input = child.Output; output = child.Input;
         workers.Add(ReadAsync()); workers.Add(DispatchAsync());
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, stop.Token);
         if (!await initialized.Task.WaitAsync(TimeSpan.FromSeconds(30), linked.Token))
@@ -100,7 +120,7 @@ internal sealed class BlinkGuest : IPlaybackGuest
         try
         {
             await using var log = new StreamWriter(Path.Combine(logs, "runtime.log"), append: true);
-            while (await child!.Error.ReadLineAsync(stop.Token) is { } line)
+            while (await diagnostics!.ReadLineAsync(stop.Token) is { } line)
             { lastDiagnostic = line.Length <= 500 ? line : line[..500]; await log.WriteLineAsync(line); await log.FlushAsync(); Console.WriteLine(line); }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
@@ -162,7 +182,7 @@ internal sealed class BlinkGuest : IPlaybackGuest
                 await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(3));
             }
             catch (Exception e) when (e is OperationCanceledException or TimeoutException or IOException) { }
-            finally { child?.Dispose(); }
+            finally { if (child is not null) child.Dispose(); else process?.Dispose(); }
 
         }
     }

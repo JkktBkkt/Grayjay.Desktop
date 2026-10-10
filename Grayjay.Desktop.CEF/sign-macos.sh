@@ -9,7 +9,7 @@ ENTITLEMENTS_PATH="Entitlements"
 sign_path() {
     FILE_PATH=$1
     case "$FILE_PATH" in
-        *"/Helpers/qemu-system-x86_64") ENTITLEMENT_FILE="$ENTITLEMENTS_PATH/qemu.entitlements" ;;
+        *"/Helpers/blink") ENTITLEMENT_FILE="$ENTITLEMENTS_PATH/blink.entitlements" ;;
         *"Helper (GPU)"*) ENTITLEMENT_FILE="$ENTITLEMENTS_PATH/cef-helper-gpu.entitlements" ;;
         *"Helper (Alerts)"*) ENTITLEMENT_FILE="$ENTITLEMENTS_PATH/cef-helper-alerts.entitlements" ;;
         *"Helper (Renderer)"*) ENTITLEMENT_FILE="$ENTITLEMENTS_PATH/cef-helper-renderer.entitlements" ;;

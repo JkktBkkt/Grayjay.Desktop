@@ -9,25 +9,24 @@ parser.add_argument('--app', type=Path, required=True)
 args = parser.parse_args()
 source = args.publish / 'playback'
 runtime = source / 'runtime'
-qemu = runtime / 'qemu-system-x86_64'
-if not qemu.is_file() or not (source / 'guest/bundle.json').is_file():
+blink = runtime / 'blink'
+if (not blink.is_file() or not (runtime / 'blink-runtime.json').is_file() or
+        not (runtime / 'licenses/blink').is_dir() or not (source / 'guest/bundle.json').is_file()):
     parser.error('Published playback dependencies are missing')
 
 if any((runtime / 'lib').glob('*.dylib')):
-    parser.error('Mac playback packaging requires the static-dependency QEMU build')
+    parser.error('Mac playback packaging requires the system-dependency Blink build')
 contents = args.app / 'Contents'
-helper = contents / 'Helpers/qemu-system-x86_64'
+helper = contents / 'Helpers/blink'
 helper.parent.mkdir(parents=True, exist_ok=True)
-shutil.copy2(qemu, helper)
+(helper.parent / 'qemu-system-x86_64').unlink(missing_ok=True)
+shutil.copy2(blink, helper)
 helper.chmod(0o755)
 data = contents / 'Resources/playback'
+if data.exists():
+    shutil.rmtree(data)
 data.mkdir(parents=True, exist_ok=True)
-for item in runtime.iterdir():
-    if item.name == qemu.name:
-        continue
-    if item.is_dir():
-        shutil.copytree(item, data / item.name, dirs_exist_ok=True)
-    else:
-        shutil.copy2(item, data / item.name)
-shutil.copytree(source / 'guest', data / 'guest', dirs_exist_ok=True)
+shutil.copy2(runtime / 'blink-runtime.json', data / 'blink-runtime.json')
+shutil.copytree(runtime / 'licenses/blink', data / 'licenses/blink')
+shutil.copytree(source / 'guest', data / 'guest', ignore=shutil.ignore_patterns('vmlinuz'))
 print('Bundled playback helper:', helper)

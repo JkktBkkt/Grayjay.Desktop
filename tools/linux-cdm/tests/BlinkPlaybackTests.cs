@@ -5,19 +5,22 @@ using System.Security.Cryptography;
 
 internal static class BlinkPlaybackTests
 {
-    internal static async Task RunAsync(string root, int iterations = 4)
+    internal static async Task RunAsync(string root, int iterations = 4, string? runtimeId = null)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        if (!RuntimeAssets.Supported) throw new PlatformNotSupportedException();
         if (iterations < 1 || iterations > 100) throw new ArgumentOutOfRangeException(nameof(iterations));
         root = Path.GetFullPath(root);
         var clock = Stopwatch.StartNew();
-        var cache = Path.Combine(Path.GetTempPath(), "grayjay-cdm-windows-probe", "cache");
+        var cache = Path.Combine(Path.GetTempPath(), "grayjay-cdm-blink-probe", "cache");
         await using var downloader = new WidevineDownloader(Path.Combine(cache, "widevine"));
         var cdm = await downloader.EnsureAsync(_ => Task.CompletedTask, default);
-        var runtimeDir = Path.Combine(root, "runtimes", "win-x64");
+        runtimeId ??= OperatingSystem.IsWindows() ? "win-x64" : System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "osx-arm64" : "osx-x64";
+        if (OperatingSystem.IsWindows() ? runtimeId != "win-x64" : runtimeId is not "osx-arm64" and not "osx-x64")
+            throw new ArgumentException("Unexpected playback runtime ID.", nameof(runtimeId));
+        var runtimeDir = Path.Combine(root, "runtimes", runtimeId);
         var guestRoot = Path.Combine(cache, "roots", cdm.Sha256);
         await CdmRoot.BuildAsync(Path.Combine(root, "guest", "initramfs.cpio.gz"), cdm.Path, guestRoot, default);
-        var runtime = new PlayerRuntime(runtimeDir, Path.Combine(runtimeDir, "blink.exe"), "", "") { GuestRoot = guestRoot };
+        var runtime = new PlayerRuntime(runtimeDir, Path.Combine(runtimeDir, OperatingSystem.IsWindows() ? "blink.exe" : "blink"), "", "") { GuestRoot = guestRoot };
         Console.WriteLine("Runtime ready");
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         var keys = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
