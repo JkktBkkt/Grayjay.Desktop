@@ -12,7 +12,9 @@ export function createHelperHls(session: PlaybackSession): Hls {
                     if (disposed || stats.aborted) return;
                     if (typeof response.data === 'string' && response.data.startsWith('#EXTM3U')) {
                         response.data = response.data.split('\n').filter(line => {
-                            if (!/^#EXT-X-(?:SESSION-)?KEY:/.test(line) || !/edef8ba9-79d6-4ace-a3c8-27dcd51d21ed/i.test(line)) return true;
+                            if (!/^#EXT-X-(?:SESSION-)?KEY:/.test(line)) return true;
+                            // Keys for other DRM systems (PlayReady, FairPlay) would make hls.js fail to load a key it cannot use
+                            if (!/edef8ba9-79d6-4ace-a3c8-27dcd51d21ed/i.test(line)) return !/KEYFORMAT="(?!identity")/i.test(line);
                             const data = line.match(/URI="data:[^,]*;base64,([^\"]+)"/i);
                             if (!data) throw new Error('Unsupported Widevine initialization data.');
                             session.requestKey(fromBase64(data[1])); return false;
