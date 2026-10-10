@@ -14,6 +14,7 @@ export class PlaybackSession {
     private readonly keys = new Map<string, ReturnType<typeof deferred>>();
     private readonly requests = new Map<string, Promise<void>>();
     private readonly licenses = new Map<string, Promise<void>>();
+    private readonly updates = new Map<string, Promise<unknown>>();
     private readonly started: Promise<void>;
     private readonly unlisten: () => void;
     private failure?: Error;
@@ -65,7 +66,16 @@ export class PlaybackSession {
                     body: fromBase64(event.data), signal: this.cancel.signal
                 });
                 if (!response.ok) throw new Error('Playback license HTTP ' + response.status);
-                await call('update', this.token, toBase64(new Uint8Array(await response.arrayBuffer())), event.session);
+                const license = toBase64(new Uint8Array(await response.arrayBuffer()));
+                const update = call('update', this.token, license, event.session);
+                this.updates.set(event.session, update);
+                try {
+                    await update;
+                } finally {
+                    if (this.updates.get(event.session) === update) {
+                        this.updates.delete(event.session);
+                    }
+                }
             });
             this.licenses.set(event.session, task);
             void task.catch(error => this.fail(error));
@@ -83,12 +93,30 @@ export class PlaybackSession {
                 const created = await call<{ session: string }>('session', this.token, encoded);
                 this.check();
                 let timeout: ReturnType<typeof setTimeout> | undefined;
+                let settled = false;
                 try {
                     await Promise.race([this.key(created.session).promise, new Promise<never>((_, no) => {
-                        timeout = setTimeout(() => no(new Error('The playback license timed out.')), 30000);
+                        // The deadline covers the licence server; a cold emulated guest can spend longer in UPDATE,
+                        // which has its own backend limit, so wait for it and then for its keys event
+                        const expire = () => {
+                            const update = this.updates.get(created.session);
+                            if (!update) {
+                                no(new Error('The playback license timed out.'));
+                                return;
+                            }
+                            void update.catch(() => {}).then(() => {
+                                if (!settled) {
+                                    timeout = setTimeout(expire, 5000);
+                                }
+                            });
+                        };
+                        timeout = setTimeout(expire, 30000);
                     })]);
                     this.check();
-                } finally { clearTimeout(timeout); }
+                } finally {
+                    settled = true;
+                    clearTimeout(timeout);
+                }
             })();
             this.requests.set(encoded, request);
         }

@@ -244,6 +244,7 @@ int main(int argc, char** argv) {
                 else throw std::runtime_error("Unknown playback command");
             } catch (const std::exception& error) { emit("{\"event\":\"error\",\"id\":" + std::to_string(id) + ",\"message\":" + quote(error.what()) + "}"); }
         }
+        lastInput = Clock::now();
     }
     host.cdm->Destroy(); if (deinitialize) deinitialize(); dlclose(library);
     return 0;
