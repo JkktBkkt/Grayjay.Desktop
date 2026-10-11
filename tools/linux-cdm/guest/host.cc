@@ -196,9 +196,17 @@ public:
                         input.data = avc.data(); input.data_size = avc.size();
                         input.subsamples = subsamples.data(); input.num_subsamples = subsamples.size();
                     }
+                    // Widevine reports kNoKey for subsamples without protected bytes: fold them into the next entry
+                    // and leave a trailing clear run out of the input, since those bytes are already plaintext
+                    std::vector<cdm::SubsampleEntry> merged; uint32_t trailing = 0;
+                    for (auto entry : subsamples) {
+                        if (!entry.cipher_bytes) { trailing += entry.clear_bytes; continue; }
+                        merged.push_back({trailing + entry.clear_bytes, entry.cipher_bytes}); trailing = 0;
+                    }
+                    if (!merged.empty()) { input.data_size -= trailing; input.subsamples = merged.data(); input.num_subsamples = merged.size(); }
                     tick();
                     Block block; auto status = cdm->Decrypt(input, &block); auto* plain = block.DecryptedBuffer();
-                    if (status == cdm::kSuccess && plain && plain->Size() == packet->size + configuration && packet->pos >= static_cast<int64_t>(init) &&
+                    if (status == cdm::kSuccess && plain && plain->Size() == input.data_size && packet->pos >= static_cast<int64_t>(init) &&
                         static_cast<uint64_t>(packet->pos) + packet->size <= dataSize) {
                         std::copy(plain->Data() + configuration, plain->Data() + plain->Size(), data + packet->pos); ++decrypted;
                     } else {
