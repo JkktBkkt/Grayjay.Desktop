@@ -8,10 +8,13 @@ internal interface IPlaybackGuest : IAsyncDisposable
     bool IsRunning { get; }
     Task StartAsync(string accelerator, CancellationToken cancellation);
     Task<JsonElement> RequestAsync(string command, string data, CancellationToken cancellation, Action<JsonElement>? onResponse = null);
+    void SetBackground(bool background) { }
 }
 
 internal sealed class PlaybackGuestSession : IAsyncDisposable
 {
+    // Generic Widevine PSSH for the licence warm-up; the warmth does not depend on the content key.
+    private const string WarmupPssh = "AAAANHBzc2gAAAAA7e+LqXnWSs6jyCfc1R0h7QAAABQIARIQAAECAwQFBgcICQoLDA0ODw==";
     private readonly SemaphoreSlim lifecycle = new(1, 1);
     private readonly ConcurrentDictionary<string, string> owners = new();
     private readonly CancellationTokenSource stop;
@@ -22,6 +25,7 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
     private IPlaybackGuest? guest;
     private PlayerRuntime? runtime;
     private string? certificate, token;
+    private bool licenceWarm;
 
     internal PlaybackGuestSession(Func<CancellationToken, Task<PlayerRuntime>> prepare,
         Func<PlayerRuntime, Func<JsonElement, Task>, IPlaybackGuest> create,
@@ -40,17 +44,25 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
         {
             await EndPlaybackAsync();
             var prepared = await prepare(stop.Token);
-            if (guest is null || !guest.IsRunning || runtime != prepared ||
-                (certificate is not null && certificate != serviceCertificate))
+            if (guest is null || !guest.IsRunning || runtime != prepared)
             {
                 await DisposeGuestAsync();
                 await StartWithFallbackAsync(prepared);
+                runtime = prepared;
             }
-            if (certificate is null)
+            guest!.SetBackground(false);
+            if (certificate != serviceCertificate)
             {
-                if (serviceCertificate.Length > 0)
+                // The guest keeps one CDM instance per service certificate and refuses above its limit.
+                try { await guest.RequestAsync("CERT", serviceCertificate, stop.Token); }
+                catch (InvalidOperationException e) when (e.Message == "instance limit")
+                {
+                    await DisposeGuestAsync();
+                    await StartWithFallbackAsync(prepared);
+                    runtime = prepared;
                     await guest!.RequestAsync("CERT", serviceCertificate, stop.Token);
-                runtime = prepared; certificate = serviceCertificate;
+                }
+                certificate = serviceCertificate;
             }
             token = playbackToken;
         }
@@ -58,19 +70,31 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
         finally { lifecycle.Release(); }
     }
 
-    internal async Task WarmupAsync()
+    internal async Task WarmupAsync(bool licence)
     {
+        IPlaybackGuest? target = null;
         await lifecycle.WaitAsync(stop.Token);
         try
         {
-            if (guest?.IsRunning == true) return;
-            var prepared = await prepare(stop.Token);
-            await DisposeGuestAsync();
-            await StartWithFallbackAsync(prepared);
-            runtime = prepared;
+            if (guest?.IsRunning != true)
+            {
+                var prepared = await prepare(stop.Token);
+                await DisposeGuestAsync();
+                await StartWithFallbackAsync(prepared);
+                runtime = prepared;
+            }
+            if (licence && !licenceWarm && token is null)
+            {
+                target = guest; licenceWarm = true;
+                target!.SetBackground(true);
+            }
         }
         catch { await DisposeGuestAsync(); throw; }
         finally { lifecycle.Release(); }
+        if (target is null) return;
+        // Runs outside the lifecycle lock; the guest queues a playback start behind it.
+        try { await target.RequestAsync("WARMUP", WarmupPssh, stop.Token); }
+        catch (Exception e) when (e is InvalidOperationException or IOException) { }
     }
 
     private async Task StartWithFallbackAsync(PlayerRuntime prepared)
@@ -148,7 +172,7 @@ internal sealed class PlaybackGuestSession : IAsyncDisposable
 
     private async Task DisposeGuestAsync()
     {
-        var previous = guest; guest = null; token = null; owners.Clear(); runtime = null; certificate = null;
+        var previous = guest; guest = null; token = null; owners.Clear(); runtime = null; certificate = null; licenceWarm = false;
         if (previous is not null) await previous.DisposeAsync();
     }
 

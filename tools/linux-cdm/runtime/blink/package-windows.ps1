@@ -25,7 +25,7 @@ foreach ($line in $imports) {
     }
 }
 $manifest = [ordered]@{
-    version = '1'; protocol = 3; blinkRepository = $pins.blink_repository; blinkCommit = $pins.blink_commit; cpuBaseline = 'x86-64';
+    version = '1'; protocol = 4; blinkRepository = $pins.blink_repository; blinkCommit = $pins.blink_commit; cpuBaseline = 'x86-64';
     compiler = $compiler.Trim(); cygwinVersion = $pins.cygwin_version;
     blinkSha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant();
     cygwinSha256 = $pins.cygwin_dll_sha256;

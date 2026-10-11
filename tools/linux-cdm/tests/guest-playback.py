@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='grayjay-guest-probe-') as temporary:
                 if line is None: raise RuntimeError('Guest stopped: ' + (root / 'stderr.log').read_text()[-1500:])
                 event = json.loads(line)
                 if event['event'] == 'initialized':
-                    assert event['protocol'] == 3 and event['success']; report['initialized'] = True
+                    assert event['protocol'] == 4 and event['success']; report['initialized'] = True
                     send('SESSION 1 ' + pssh)
                 elif event['event'] == 'created':
                     active_session = event['session']

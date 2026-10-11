@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='grayjay-blink-package-') as temporary:
     licenses = root / 'licenses/blink'
     licenses.mkdir(parents=True)
     shutil.copy2(args.source / 'LICENSE', licenses / 'LICENSE')
-    metadata = {'version': '1', 'protocol': 3, 'blinkRepository': pins['blink_repository'],
+    metadata = {'version': '1', 'protocol': 4, 'blinkRepository': pins['blink_repository'],
                 'blinkCommit': revision, 'blinkSha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                 'architecture': subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()}
     (root / 'blink-runtime.json').write_text(json.dumps(metadata, indent=2) + '\n')

@@ -70,20 +70,20 @@ try
         {
             File.WriteAllText(Path.Combine(runtime, "cygwin1.dll"), "runtime");
             File.WriteAllText(Path.Combine(runtime, "blink-runtime.json"), JsonSerializer.Serialize(new {
-                version="1", protocol=3, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))),
+                version="1", protocol=4, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))),
                 cygwinSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("runtime"))) }));
         }
         if (mac)
         {
             Directory.CreateDirectory(runtime);
             File.WriteAllText(Path.Combine(runtime, "blink-runtime.json"), JsonSerializer.Serialize(new {
-                version="1", protocol=3, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))) }));
+                version="1", protocol=4, blinkSha256=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed executable"))) }));
         }
         Directory.CreateDirectory(Path.Combine(runtime, "data")); File.WriteAllText(Path.Combine(runtime, "data", "bios-256k.bin"), "firmware");
         string guest = Path.Combine(root, "guest"); Directory.CreateDirectory(guest);
         File.WriteAllBytes(Path.Combine(guest, "vmlinuz"), [1,2,3]); File.WriteAllBytes(Path.Combine(guest, "initramfs.cpio.gz"), [4,5,6]);
         File.WriteAllText(Path.Combine(guest, "bundle.json"), JsonSerializer.Serialize(new {
-            version="1",protocol=3,kernelSha256=Convert.ToHexString(SHA256.HashData(new byte[]{1,2,3})),
+            version="1",protocol=4,kernelSha256=Convert.ToHexString(SHA256.HashData(new byte[]{1,2,3})),
             initramfsSha256=Convert.ToHexString(SHA256.HashData(new byte[]{4,5,6})) }));
     }
     string windowsApp = Path.Combine(root, "windows-app"); Fixture(windowsApp, false);
@@ -103,7 +103,7 @@ try
     Check(!BundledRuntime.Available(Path.Combine(root, "missing-app"), true), "missing bundled runtime reported unavailable");
     string metadataPath = Path.Combine(Path.GetDirectoryName(winBundle.Kernel)!, "bundle.json");
     string metadata = await File.ReadAllTextAsync(metadataPath);
-    await File.WriteAllTextAsync(metadataPath, metadata.Replace("\"protocol\":3", "\"protocol\":999"));
+    await File.WriteAllTextAsync(metadataPath, metadata.Replace("\"protocol\":4", "\"protocol\":999"));
     await Reject(() => { BundledRuntime.Resolve(windowsApp, true); return Task.CompletedTask; }, "incompatible bundled guest rejected");
     data = Archive("qemu-system-x86_64", "runtime-v1");
     var asset = Asset(data); string download = Path.Combine(root, "download.zip");

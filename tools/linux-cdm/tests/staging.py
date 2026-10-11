@@ -32,14 +32,14 @@ with tempfile.TemporaryDirectory(prefix='grayjay-staging-test-') as temporary:
 
     archive('guest-linux-x64.zip', {
         'vmlinuz': b'kernel', 'initramfs.cpio.gz': b'guest',
-        'image.json': json.dumps({'protocol': 3})})
+        'image.json': json.dumps({'protocol': 4})})
     for rid in ('osx-arm64', 'osx-x64'):
         archive('runtime-' + rid + '.zip', {
             'blink': b'mac', 'licenses/blink/LICENSE': b'license', 'blink-runtime.json': json.dumps({
-                'version': '1', 'protocol': 3, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()})})
+                'version': '1', 'protocol': 4, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()})})
     files = {'blink.exe': b'blink', 'cygwin1.dll': b'cygwin'}
     files['blink-runtime.json'] = json.dumps({
-        'version': '1', 'protocol': 3,
+        'version': '1', 'protocol': 4,
         'blinkSha256': hashlib.sha256(b'blink').hexdigest(),
         'cygwinSha256': hashlib.sha256(b'cygwin').hexdigest()})
     archive('runtime-win-x64.zip', files)
@@ -76,14 +76,14 @@ with tempfile.TemporaryDirectory(prefix='grayjay-staging-test-') as temporary:
 
     archive('runtime-osx-x64.zip', {
         'blink': b'mac', 'licenses/blink/LICENSE': b'license', 'blink-runtime.json': json.dumps({
-            'version': '1', 'protocol': 3, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()}),
+            'version': '1', 'protocol': 4, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()}),
         'qemu-system-x86_64': b'forbidden'})
     rejected = subprocess.run(command, capture_output=True)
     assert rejected.returncode != 0 and b'Unexpected osx-x64 runtime file' in rejected.stderr
     assert (output / 'runtimes/osx-x64/blink').read_bytes() == b'mac'
     archive('runtime-osx-x64.zip', {
         'blink': b'mac', 'licenses/blink/LICENSE': b'license', 'blink-runtime.json': json.dumps({
-            'version': '1', 'protocol': 3, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()})})
+            'version': '1', 'protocol': 4, 'blinkSha256': hashlib.sha256(b'mac').hexdigest()})})
 
     files['qemu-system-x86_64.exe'] = b'forbidden'
     archive('runtime-win-x64.zip', files)

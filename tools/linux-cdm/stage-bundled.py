@@ -30,9 +30,9 @@ with tempfile.TemporaryDirectory(prefix='grayjay-playback-stage-') as temporary:
                 if path.is_file() and mode:
                     path.chmod(mode)
     guest = staged / 'guest'
-    if json.loads((guest / 'image.json').read_text())['protocol'] != 3:
+    if json.loads((guest / 'image.json').read_text())['protocol'] != 4:
         raise ValueError('Guest protocol is incompatible')
-    metadata = {'version': '1', 'protocol': 3,
+    metadata = {'version': '1', 'protocol': 4,
                 'kernelSha256': hashlib.sha256((guest / 'vmlinuz').read_bytes()).hexdigest(),
                 'initramfsSha256': hashlib.sha256((guest / 'initramfs.cpio.gz').read_bytes()).hexdigest()}
     (guest / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')
@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix='grayjay-playback-stage-') as temporary:
             if path.is_file() and path.relative_to(runtime).as_posix() not in allowed and not path.is_relative_to(runtime / 'licenses/blink'):
                 raise ValueError('Unexpected ' + rid + ' runtime file: ' + str(path))
         manifest = json.loads((runtime / 'blink-runtime.json').read_text())
-        if manifest['version'] != '1' or manifest['protocol'] != 3:
+        if manifest['version'] != '1' or manifest['protocol'] != 4:
             raise ValueError('Incompatible Blink runtime')
         for filename, key in files:
             if hashlib.sha256((runtime / filename).read_bytes()).hexdigest() != manifest[key]:

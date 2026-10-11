@@ -67,6 +67,13 @@ internal sealed class BlinkGuest : IPlaybackGuest
             throw new InvalidOperationException("Widevine initialization failed.");
         workers.Add(HeartbeatAsync());
     }
+    public void SetBackground(bool background)
+    {
+        // Windows only: an unprivileged Linux or macOS process cannot raise its priority again.
+        if (!OperatingSystem.IsWindows() || process is null) return;
+        try { process.PriorityClass = background ? ProcessPriorityClass.BelowNormal : ProcessPriorityClass.Normal; }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+    }
     private async Task ReadAsync()
     {
         Exception failure;

@@ -27,14 +27,23 @@ internal sealed class LinuxCdmBridge : IAsyncDisposable
             stop.Token);
         window.OnClose += () => { _ = CloseWindowAsync(window.Identifier); };
         window.OnFrameLoadStart += info => { if (info.IsMainFrame) _ = CloseWindowAsync(window.Identifier, remove: false); };
-        // Start the helper only through protected playback preparation or start.
-        // Loading the app or reloading its main frame must not initialize a CDM.
+        window.OnFrameLoadEnd += info =>
+        {
+            if (info.IsMainFrame && Uri.TryCreate(info.Url, UriKind.Absolute, out var page) && page.AbsolutePath.StartsWith("/web/", StringComparison.Ordinal))
+            {
+                _ = WarmupWindowAsync(window);
+            }
+        };
+        // Only an already downloaded Widevine CDM starts with the app (licence warm-up after the main page loads);
+        // otherwise the helper starts through protected playback preparation or start.
         return session;
     });
-    private async Task WarmupAsync(PlaybackGuestSession session)
+    internal Task WarmupWindowAsync(JustCefWindow window) =>
+        assets.Ready ? WarmupAsync(ForWindow(window), licence: true) : Task.CompletedTask;
+    private async Task WarmupAsync(PlaybackGuestSession session, bool licence = false)
     {
         if (!assets.Ready || stop.IsCancellationRequested) return;
-        try { await session.WarmupAsync(); }
+        try { await session.WarmupAsync(licence); }
         catch (OperationCanceledException) { }
         catch (Exception e) { Console.Error.WriteLine("Protected playback warmup failed: " + e.Message); }
     }

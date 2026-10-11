@@ -4,7 +4,7 @@ namespace Grayjay.Desktop.CEF.LinuxCdm;
 
 internal sealed class RuntimeAssets : IAsyncDisposable
 {
-    internal const int ProtocolVersion = 3;
+    internal const int ProtocolVersion = 4;
     internal const string Release = "1";
     private readonly string cache;
     private readonly string applicationDirectory;

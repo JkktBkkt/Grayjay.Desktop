@@ -12,7 +12,7 @@ internal static class MacBlinkProcessTests
         await File.WriteAllTextAsync(executable, """
             #!/bin/sh
             echo $$ > child.pid
-            echo '{"event":"initialized","protocol":3,"success":true}'
+            echo '{"event":"initialized","protocol":4,"success":true}'
             while IFS= read -r line; do
                 case "$line" in
                     QUIT) exit 0 ;;

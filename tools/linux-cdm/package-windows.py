@@ -11,7 +11,7 @@ parser.add_argument('--runtime', type=Path, default=Path(__file__).resolve().par
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 manifest = json.loads((args.runtime / 'blink-runtime.json').read_text())
-if manifest['version'] != '1' or manifest['protocol'] != 3:
+if manifest['version'] != '1' or manifest['protocol'] != 4:
     raise ValueError('Incompatible Blink runtime')
 files = [args.runtime / name for name in ('blink.exe', 'cygwin1.dll', 'blink-runtime.json')]
 for name, key in (('blink.exe', 'blinkSha256'), ('cygwin1.dll', 'cygwinSha256')):

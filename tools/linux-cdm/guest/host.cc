@@ -1,5 +1,6 @@
 #include "content_decryption_module.h"
 #include <unistd.h>
+#include <sys/random.h>
 #include <dlfcn.h>
 #include <sys/select.h>
 #include <chrono>
@@ -11,6 +12,9 @@
 #include <memory>
 #include <charconv>
 #include <cstring>
+#include <random>
+#include <string_view>
+#include <unordered_map>
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/encryption_info.h>
@@ -64,6 +68,21 @@ int64_t seekMemory(void* opaque, int64_t offset, int whence) {
     input->position = static_cast<size_t>(target); return target;
 }
 void emit(const std::string& json) { std::cout << json << std::endl; }
+void randomFill(uint8_t* data, size_t size) {
+    size_t filled = 0;
+    while (filled < size) {
+        auto count = getrandom(data + filled, size - filled, 0);
+        if (count <= 0) break;
+        filled += count;
+    }
+    std::mt19937 generator(static_cast<uint32_t>(Clock::now().time_since_epoch().count()));
+    for (; filled < size; ++filled) data[filled] = static_cast<uint8_t>(generator());
+}
+class Host;
+std::unordered_map<std::string, Host*> sessionOwners;
+// Promise id of the internal warm-up licence; its callbacks never reach the app
+constexpr uint32_t WarmupPromise = std::numeric_limits<uint32_t>::max();
+struct Warmup { std::string session; bool created = false, settled = false; };
 
 class Buffer : public cdm::Buffer {
     std::vector<uint8_t> storage; uint32_t size = 0;
@@ -90,33 +109,64 @@ class Host : public cdm::Host_10 {
     std::vector<Timer> timers;
 public:
     cdm::ContentDecryptionModule_10* cdm = nullptr;
-    std::string keyStatuses;
+    std::string keyStatuses, certificate;
+    bool primary = false, claimed = false, failed = false;
+    int initialized = 0;
+    Warmup* warmup = nullptr;
+    bool warming(const char* session, uint32_t length) const {
+        return warmup && (!warmup->created || warmup->session == std::string_view(session, length));
+    }
     cdm::Buffer* Allocate(uint32_t bytes) override { return bytes <= MaxPayload ? new Buffer(bytes) : nullptr; }
     void SetTimer(int64_t delay, void* context) override { timers.push_back({Clock::now() + std::chrono::milliseconds(std::max<int64_t>(0, delay)), context}); }
     cdm::Time GetCurrentWallTime() override { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
-    void OnInitialized(bool success) override { emit("{\"event\":\"initialized\",\"protocol\":3,\"success\":" + std::string(success ? "true}" : "false}")); }
+    void OnInitialized(bool success) override {
+        initialized = success ? 1 : -1;
+        if (primary) emit("{\"event\":\"initialized\",\"protocol\":4,\"success\":" + std::string(success ? "true}" : "false}"));
+    }
     void OnResolveKeyStatusPromise(uint32_t id, cdm::KeyStatus status) override { emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + ",\"status\":" + std::to_string(status) + "}"); }
     void OnResolveNewSessionPromise(uint32_t id, const char* session, uint32_t length) override {
+        if (id == WarmupPromise) {
+            if (warmup) { warmup->session.assign(session, length); warmup->created = true; }
+            return;
+        }
+        sessionOwners[std::string(session, length)] = this;
         emit("{\"event\":\"created\",\"id\":" + std::to_string(id) + ",\"session\":" + quote(encode(session, length)) + "}");
     }
-    void OnResolvePromise(uint32_t id) override { emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + "}"); }
+    void OnResolvePromise(uint32_t id) override {
+        if (id == WarmupPromise) {
+            if (warmup) warmup->settled = true;
+            return;
+        }
+        emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + "}");
+    }
     void OnRejectPromise(uint32_t id, cdm::Exception exception, uint32_t code, const char* message, uint32_t length) override {
+        if (id == WarmupPromise) {
+            if (warmup) warmup->settled = true;
+            return;
+        }
         emit("{\"event\":\"rejected\",\"id\":" + std::to_string(id) + ",\"exception\":" + std::to_string(exception) +
             ",\"code\":" + std::to_string(code) + ",\"message\":" + quote(std::string(message, length)) + "}");
     }
     void OnSessionMessage(const char* session, uint32_t sessionLength, cdm::MessageType type, const char* message, uint32_t length) override {
+        if (warming(session, sessionLength)) return;
         emit("{\"event\":\"message\",\"session\":" + quote(encode(session, sessionLength)) + ",\"type\":" + std::to_string(type) + ",\"data\":" + quote(encode(message, length)) + "}");
     }
     void OnSessionKeysChange(const char* session, uint32_t length, bool, const cdm::KeyInformation* keys, uint32_t count) override {
+        if (warming(session, length)) return;
         std::string statuses; for (uint32_t i = 0; i < count; ++i) statuses += (i ? "," : "") + std::to_string(keys[i].status);
         keyStatuses.clear();
         for (uint32_t i = 0; i < count; ++i) keyStatuses += (i ? "," : "") + encode(keys[i].key_id, keys[i].key_id_size) + ":" + std::to_string(keys[i].status);
         emit("{\"event\":\"keys\",\"session\":" + quote(encode(session, length)) + ",\"statuses\":[" + statuses + "]}");
     }
     void OnExpirationChange(const char* session, uint32_t length, cdm::Time expiry) override {
+        if (warming(session, length)) return;
         emit("{\"event\":\"expiration\",\"session\":" + quote(encode(session, length)) + ",\"expiry\":" + std::to_string(expiry) + "}");
     }
-    void OnSessionClosed(const char* session, uint32_t length) override { emit("{\"event\":\"closed\",\"session\":" + quote(encode(session, length)) + "}"); }
+    void OnSessionClosed(const char* session, uint32_t length) override {
+        if (warming(session, length)) return;
+        sessionOwners.erase(std::string(session, length));
+        emit("{\"event\":\"closed\",\"session\":" + quote(encode(session, length)) + "}");
+    }
     void SendPlatformChallenge(const char*, uint32_t, const char*, uint32_t) override { cdm::PlatformChallengeResponse response{}; cdm->OnPlatformChallengeResponse(response); }
     void EnableOutputProtection(uint32_t) override {}
     void QueryOutputProtectionStatus() override { cdm->OnQueryOutputProtectionStatus(cdm::kQueryFailed, 0, 0); }
@@ -241,14 +291,59 @@ int main(int argc, char** argv) {
     auto create = reinterpret_cast<decltype(&CreateCdmInstance)>(dlsym(library, "CreateCdmInstance"));
     auto deinitialize = reinterpret_cast<void (*)()>(dlsym(library, "DeinitializeCdmModule"));
     if (!initialize || !create) return 4;
-    initialize(); Host host;
-    host.cdm = static_cast<cdm::ContentDecryptionModule_10*>(create(10, "com.widevine.alpha", 18, getHost, &host));
-    if (!host.cdm) return 5;
-    host.cdm->Initialize(false, false, false);
+    initialize();
+    // One CDM instance per service certificate; instances live until exit, since destroying one with sessions crashes
+    constexpr size_t MaxInstances = 4;
+    std::vector<std::unique_ptr<Host>> hosts;
+    auto spawn = [&]() -> Host* {
+        hosts.push_back(std::make_unique<Host>());
+        Host* host = hosts.back().get();
+        host->primary = hosts.size() == 1;
+        host->cdm = static_cast<cdm::ContentDecryptionModule_10*>(create(10, "com.widevine.alpha", 18, getHost, host));
+        if (!host->cdm) { hosts.pop_back(); return nullptr; }
+        host->cdm->Initialize(false, false, false);
+        if (host->initialized < 0) { host->failed = true; return nullptr; }
+        return host;
+    };
+    spawn();
+    if (hosts.empty()) return 5;
+    Host* active = hosts[0].get();
+    auto tickAll = [&] { for (auto& host : hosts) host->tick(); };
+    auto owner = [&](const std::vector<uint8_t>& session) {
+        auto found = sessionOwners.find(std::string(session.begin(), session.end()));
+        return found == sessionOwners.end() ? active : found->second;
+    };
+    // Rejected synthetic licence on a throwaway session: pays the first-licence cost before playback
+    auto warm = [&](Host& host, const std::vector<uint8_t>& pssh) {
+        Warmup state; host.warmup = &state;
+        auto wait = [&](auto done) {
+            auto deadline = Clock::now() + std::chrono::seconds(30);
+            while (!done() && Clock::now() < deadline) { tickAll(); usleep(1000); }
+        };
+        host.cdm->CreateSessionAndGenerateRequest(WarmupPromise, cdm::kTemporary, cdm::kCenc, pssh.data(), pssh.size());
+        wait([&] { return state.created || state.settled; });
+        bool created = state.created;
+        if (created) {
+            std::vector<uint8_t> licence(5 + 338 + 2 + 32);
+            const uint8_t header[] = {0x08, 0x02, 0x12, 0xd2, 0x02};
+            std::copy(std::begin(header), std::end(header), licence.begin());
+            randomFill(licence.data() + 5, 338);
+            licence[343] = 0x1a; licence[344] = 0x20;
+            randomFill(licence.data() + 345, 32);
+            state.settled = false;
+            host.cdm->UpdateSession(WarmupPromise, state.session.data(), state.session.size(), licence.data(), licence.size());
+            wait([&] { return state.settled; });
+            state.settled = false;
+            host.cdm->CloseSession(WarmupPromise, state.session.data(), state.session.size());
+            wait([&] { return state.settled; });
+        }
+        host.warmup = nullptr;
+        return created;
+    };
     std::string pending; size_t scanned = 0; bool running = true; auto lastInput = Clock::now();
     std::vector<char> buffer(1024 * 1024);
     while (running && Clock::now() - lastInput < std::chrono::seconds(30)) {
-        host.tick(); fd_set ready; FD_ZERO(&ready); FD_SET(0, &ready); timeval timeout{0, 10000};
+        tickAll(); fd_set ready; FD_ZERO(&ready); FD_SET(0, &ready); timeval timeout{0, 10000};
         if (select(1, &ready, nullptr, nullptr, &timeout) <= 0) continue;
         auto length = read(0, buffer.data(), buffer.size()); if (length <= 0) break;
         lastInput = Clock::now(); pending.append(buffer.data(), length);
@@ -273,25 +368,51 @@ int main(int argc, char** argv) {
             try {
                 bool parsed = false;
                 if (count >= 2) { auto result = std::from_chars(tokens[1].data, tokens[1].data + tokens[1].size, id); parsed = result.ec == std::errc() && result.ptr == tokens[1].data + tokens[1].size; }
-                if (!parsed || count < 3 || !id) throw std::runtime_error("Invalid playback command");
-                if (command == "SESSION") { auto data = decode(first); host.cdm->CreateSessionAndGenerateRequest(id, cdm::kTemporary, cdm::kCenc, data.data(), data.size()); }
-                else if (command == "CERT") { auto data = decode(first); host.cdm->SetServerCertificate(id, data.data(), data.size()); }
+                // CERT without a payload selects the instance without a service certificate
+                if (!parsed || !id || id == WarmupPromise || (count < 3 && command != "CERT")) throw std::runtime_error("Invalid playback command");
+                if (command == "SESSION") { auto data = decode(first); active->cdm->CreateSessionAndGenerateRequest(id, cdm::kTemporary, cdm::kCenc, data.data(), data.size()); }
+                else if (command == "CERT") {
+                    std::vector<uint8_t> data;
+                    if (count >= 3) data = decode(first);
+                    std::string certificate(data.begin(), data.end());
+                    Host* target = nullptr;
+                    for (auto& host : hosts) {
+                        if (host->claimed && !host->failed && host->certificate == certificate) target = host.get();
+                    }
+                    bool fresh = target == nullptr;
+                    if (fresh) {
+                        if (!hosts[0]->claimed) target = hosts[0].get();
+                        else if (hosts.size() >= MaxInstances) throw std::runtime_error("instance limit");
+                        else if (!(target = spawn())) throw std::runtime_error("Widevine initialization failed");
+                        target->claimed = true; target->certificate = certificate;
+                    }
+                    active = target;
+                    if (fresh && !data.empty()) target->cdm->SetServerCertificate(id, data.data(), data.size());
+                    else emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + "}");
+                }
+                else if (command == "WARMUP") {
+                    auto pssh = decode(first);
+                    bool created = warm(*hosts[0], pssh);
+                    emit("{\"event\":\"resolved\",\"id\":" + std::to_string(id) + ",\"warm\":" + (created ? "true}" : "false}"));
+                }
                 else if (command == "UPDATE") {
                     if (count < 4) throw std::runtime_error("Missing license response");
                     auto session = decode(first), data = decode(second);
-                    host.cdm->UpdateSession(id, reinterpret_cast<const char*>(session.data()), session.size(), data.data(), data.size());
+                    owner(session)->cdm->UpdateSession(id, reinterpret_cast<const char*>(session.data()), session.size(), data.data(), data.size());
                 }
                 else if (command == "CLOSE") {
                     auto session = decode(first);
-                    host.cdm->CloseSession(id, reinterpret_cast<const char*>(session.data()), session.size());
+                    owner(session)->cdm->CloseSession(id, reinterpret_cast<const char*>(session.data()), session.size());
                 }
-                else if (command == "FRAGMENT") host.fragment(id, first);
+                else if (command == "FRAGMENT") active->fragment(id, first);
                 else throw std::runtime_error("Unknown playback command");
             } catch (const std::exception& error) { emit("{\"event\":\"error\",\"id\":" + std::to_string(id) + ",\"message\":" + quote(error.what()) + "}"); }
         }
         pending.erase(0, consumed); scanned = pending.size();
         lastInput = Clock::now();
     }
-    host.cdm->Destroy(); if (deinitialize) deinitialize(); dlclose(library);
+    for (auto host = hosts.rbegin(); host != hosts.rend(); ++host) (*host)->cdm->Destroy();
+    if (deinitialize) deinitialize();
+    dlclose(library);
     return 0;
 }
