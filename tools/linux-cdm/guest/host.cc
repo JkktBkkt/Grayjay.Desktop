@@ -4,12 +4,13 @@
 #include <sys/select.h>
 #include <chrono>
 #include <iostream>
-#include <sstream>
 #include <vector>
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <memory>
+#include <charconv>
+#include <cstring>
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/encryption_info.h>
@@ -27,18 +28,40 @@ std::string quote(const std::string& value) {
     }
     return result + '"';
 }
-std::string encode(const void* input, size_t length) {
+void encodeInto(std::string& output, const void* input, size_t length) {
     if (length > MaxPayload) throw std::runtime_error("Response exceeds playback limits");
-    std::string result(AV_BASE64_SIZE(length), '\0');
-    av_base64_encode(result.data(), result.size(), static_cast<const uint8_t*>(input), length);
-    result.resize(result.find('\0')); return result;
+    size_t at = output.size(); output.resize(at + AV_BASE64_SIZE(length));
+    av_base64_encode(&output[at], AV_BASE64_SIZE(length), static_cast<const uint8_t*>(input), length);
+    output.resize(at + (length + 2) / 3 * 4);
 }
-std::vector<uint8_t> decode(const std::string& input) {
-    if (input.size() > MaxPayload * 4 / 3 || input.size() % 4) throw std::runtime_error("Invalid base64 payload");
-    std::vector<uint8_t> result(input.size() / 4 * 3 + 1);
-    int length = av_base64_decode(result.data(), input.c_str(), result.size());
+std::string encode(const void* input, size_t length) { std::string result; encodeInto(result, input, length); return result; }
+struct Token { char* data = nullptr; size_t size = 0; };
+// Tokens are NUL-terminated in place by the command parser.
+std::vector<uint8_t> decode(const Token& input) {
+    if (input.size > MaxPayload * 4 / 3 || input.size % 4) throw std::runtime_error("Invalid base64 payload");
+    std::vector<uint8_t> result(input.size / 4 * 3 + 1);
+    int length = av_base64_decode(result.data(), input.data, result.size());
     if (length < 0) throw std::runtime_error("Invalid base64 payload");
     result.resize(length); return result;
+}
+struct MemoryInput { const uint8_t* data; size_t size; size_t position; };
+int readMemory(void* opaque, uint8_t* buffer, int size) {
+    auto* input = static_cast<MemoryInput*>(opaque);
+    size_t count = std::min<size_t>(size, input->size - input->position);
+    if (!count) return AVERROR_EOF;
+    memcpy(buffer, input->data + input->position, count); input->position += count; return static_cast<int>(count);
+}
+int64_t seekMemory(void* opaque, int64_t offset, int whence) {
+    auto* input = static_cast<MemoryInput*>(opaque); int64_t target;
+    switch (whence & ~AVSEEK_FORCE) {
+        case AVSEEK_SIZE: return static_cast<int64_t>(input->size);
+        case SEEK_SET: target = offset; break;
+        case SEEK_CUR: target = static_cast<int64_t>(input->position) + offset; break;
+        case SEEK_END: target = static_cast<int64_t>(input->size) + offset; break;
+        default: return AVERROR(EINVAL);
+    }
+    if (target < 0 || target > static_cast<int64_t>(input->size)) return AVERROR(EINVAL);
+    input->position = static_cast<size_t>(target); return target;
 }
 void emit(const std::string& json) { std::cout << json << std::endl; }
 
@@ -107,26 +130,25 @@ public:
         }
         for (void* context : ready) cdm->TimerExpired(context);
     }
-    void fragment(uint32_t id, const std::string& payload) {
+    void fragment(uint32_t id, const Token& payload) {
         auto wire = decode(payload);
         if (wire.size() < 4) throw std::runtime_error("Truncated fragment request");
         size_t init = 0; for (int i = 0; i < 4; ++i) init = (init << 8) | wire[i];
         if (init > wire.size() - 4) throw std::runtime_error("Invalid fragment initialization size");
-        std::vector<uint8_t> data(wire.begin() + 4, wire.end());
-        char path[] = "/tmp/grayjay-fragment-XXXXXX";
-        int fd = mkstemp(path); if (fd < 0) throw std::runtime_error("Could not create fragment input");
-        size_t written = 0;
-        while (written < data.size()) {
-            auto count = write(fd, data.data() + written, data.size() - written);
-            if (count <= 0) { close(fd); unlink(path); throw std::runtime_error("Could not write fragment input"); }
-            written += count;
-        }
-        close(fd);
-        AVFormatContext* format = nullptr;
-        int opened = avformat_open_input(&format, path, nullptr, nullptr); unlink(path);
-        if (opened < 0) throw std::runtime_error("Unsupported encrypted media fragment");
+        uint8_t* data = wire.data() + 4; size_t dataSize = wire.size() - 4;
+        MemoryInput memory{data, dataSize, 0};
+        constexpr int IoBufferSize = 256 * 1024;
+        auto* ioBuffer = static_cast<uint8_t*>(av_malloc(IoBufferSize)); if (!ioBuffer) throw std::bad_alloc();
+        AVIOContext* io = avio_alloc_context(ioBuffer, IoBufferSize, 0, &memory, readMemory, nullptr, seekMemory);
+        if (!io) { av_free(ioBuffer); throw std::bad_alloc(); }
+        auto releaseIo = [&io] { av_freep(&io->buffer); avio_context_free(&io); };
+        AVFormatContext* format = avformat_alloc_context();
+        if (!format) { releaseIo(); throw std::bad_alloc(); }
+        format->pb = io; format->flags |= AVFMT_FLAG_CUSTOM_IO;
+        if (avformat_open_input(&format, nullptr, nullptr, nullptr) < 0)
+        { releaseIo(); throw std::runtime_error("Unsupported encrypted media fragment"); }
         AVPacket* packet = av_packet_alloc();
-        if (!packet) { avformat_close_input(&format); throw std::bad_alloc(); }
+        if (!packet) { avformat_close_input(&format); releaseIo(); throw std::bad_alloc(); }
         int decrypted = 0, failed = 0;
         std::string firstFailure;
         try {
@@ -177,14 +199,14 @@ public:
                     tick();
                     Block block; auto status = cdm->Decrypt(input, &block); auto* plain = block.DecryptedBuffer();
                     if (status == cdm::kSuccess && plain && plain->Size() == packet->size + configuration && packet->pos >= static_cast<int64_t>(init) &&
-                        static_cast<uint64_t>(packet->pos) + packet->size <= data.size()) {
-                        std::copy(plain->Data() + configuration, plain->Data() + plain->Size(), data.begin() + packet->pos); ++decrypted;
+                        static_cast<uint64_t>(packet->pos) + packet->size <= dataSize) {
+                        std::copy(plain->Data() + configuration, plain->Data() + plain->Size(), data + packet->pos); ++decrypted;
                     } else {
                         ++failed;
                         if (firstFailure.empty()) firstFailure = " (status=" + std::to_string(status) +
                             ", position=" + std::to_string(packet->pos) + ", init=" + std::to_string(init) +
                             ", packet=" + std::to_string(packet->size) + ", output=" + std::to_string(plain ? plain->Size() : 0) +
-                            ", fragment=" + std::to_string(data.size() - init) + ", protected=" + std::to_string(protectedBytes) +
+                            ", fragment=" + std::to_string(dataSize - init) + ", protected=" + std::to_string(protectedBytes) +
                             ", keyId=" + encode(encryption->key_id, encryption->key_id_size) + ", statuses=" + keyStatuses + ")";
                     }
                 }
@@ -193,10 +215,12 @@ public:
             }
             if (result != AVERROR_EOF) throw std::runtime_error("Encrypted fragment demuxing failed");
             if (failed) throw std::runtime_error("Widevine could not decrypt " + std::to_string(failed) + " media samples" + firstFailure);
-            emit("{\"event\":\"fragment\",\"id\":" + std::to_string(id) + ",\"samples\":" + std::to_string(decrypted) +
-                ",\"data\":" + quote(encode(data.data() + init, data.size() - init)) + "}");
-        } catch (...) { av_packet_free(&packet); avformat_close_input(&format); throw; }
-        av_packet_free(&packet); avformat_close_input(&format);
+            av_packet_free(&packet); avformat_close_input(&format); releaseIo();
+            std::string output = "{\"event\":\"fragment\",\"id\":" + std::to_string(id) + ",\"samples\":" + std::to_string(decrypted) + ",\"data\":\"";
+            output.reserve(output.size() + AV_BASE64_SIZE(dataSize - init) + 3);
+            encodeInto(output, data + init, dataSize - init); output += "\"}\n";
+            std::cout.write(output.data(), output.size()); std::cout.flush();
+        } catch (...) { av_packet_free(&packet); avformat_close_input(&format); releaseIo(); throw; }
     }
 };
 
@@ -213,26 +237,39 @@ int main(int argc, char** argv) {
     host.cdm = static_cast<cdm::ContentDecryptionModule_10*>(create(10, "com.widevine.alpha", 18, getHost, &host));
     if (!host.cdm) return 5;
     host.cdm->Initialize(false, false, false);
-    std::string pending; bool running = true; auto lastInput = Clock::now();
+    std::string pending; size_t scanned = 0; bool running = true; auto lastInput = Clock::now();
+    std::vector<char> buffer(1024 * 1024);
     while (running && Clock::now() - lastInput < std::chrono::seconds(30)) {
         host.tick(); fd_set ready; FD_ZERO(&ready); FD_SET(0, &ready); timeval timeout{0, 10000};
         if (select(1, &ready, nullptr, nullptr, &timeout) <= 0) continue;
-        char buffer[65536]; auto length = read(0, buffer, sizeof(buffer)); if (length <= 0) break;
-        lastInput = Clock::now(); pending.append(buffer, length);
+        auto length = read(0, buffer.data(), buffer.size()); if (length <= 0) break;
+        lastInput = Clock::now(); pending.append(buffer.data(), length);
         if (pending.size() > MaxPayload * 4 / 3 + 1024) break;
-        size_t newline;
-        while ((newline = pending.find('\n')) != std::string::npos) {
-            std::istringstream line(pending.substr(0, newline)); pending.erase(0, newline + 1);
-            std::string command, first, second; uint32_t id = 0;
-            line >> command;
+        size_t newline, consumed = 0;
+        while ((newline = pending.find('\n', std::max(scanned, consumed))) != std::string::npos) {
+            char* cursor = pending.data() + consumed; char* end = pending.data() + newline; *end = '\0';
+            consumed = newline + 1;
+            Token tokens[4]; size_t count = 0;
+            auto separator = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\v' || c == '\f'; };
+            while (cursor < end && count < 4) {
+                while (cursor < end && separator(*cursor)) *cursor++ = '\0';
+                if (cursor == end) break;
+                char* start = cursor; while (cursor < end && !separator(*cursor)) ++cursor;
+                tokens[count++] = {start, static_cast<size_t>(cursor - start)};
+                if (cursor < end) *cursor++ = '\0';
+            }
+            std::string_view command = count ? std::string_view(tokens[0].data, tokens[0].size) : std::string_view();
+            const Token& first = tokens[2]; const Token& second = tokens[3]; uint32_t id = 0;
             if (command == "QUIT") { running = false; break; }
             if (command == "PING") continue;
             try {
-                if (!(line >> id >> first) || !id) throw std::runtime_error("Invalid playback command");
+                bool parsed = false;
+                if (count >= 2) { auto result = std::from_chars(tokens[1].data, tokens[1].data + tokens[1].size, id); parsed = result.ec == std::errc() && result.ptr == tokens[1].data + tokens[1].size; }
+                if (!parsed || count < 3 || !id) throw std::runtime_error("Invalid playback command");
                 if (command == "SESSION") { auto data = decode(first); host.cdm->CreateSessionAndGenerateRequest(id, cdm::kTemporary, cdm::kCenc, data.data(), data.size()); }
                 else if (command == "CERT") { auto data = decode(first); host.cdm->SetServerCertificate(id, data.data(), data.size()); }
                 else if (command == "UPDATE") {
-                    if (!(line >> second)) throw std::runtime_error("Missing license response");
+                    if (count < 4) throw std::runtime_error("Missing license response");
                     auto session = decode(first), data = decode(second);
                     host.cdm->UpdateSession(id, reinterpret_cast<const char*>(session.data()), session.size(), data.data(), data.size());
                 }
@@ -244,6 +281,7 @@ int main(int argc, char** argv) {
                 else throw std::runtime_error("Unknown playback command");
             } catch (const std::exception& error) { emit("{\"event\":\"error\",\"id\":" + std::to_string(id) + ",\"message\":" + quote(error.what()) + "}"); }
         }
+        pending.erase(0, consumed); scanned = pending.size();
         lastInput = Clock::now();
     }
     host.cdm->Destroy(); if (deinitialize) deinitialize(); dlclose(library);
