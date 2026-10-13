@@ -36,8 +36,9 @@ namespace Grayjay.ClientServer.Store
             lock (this)
             {
                 var serialized = SerializeValue(data);
-                Value = data;
+                //Written first, so a failed write keeps the value that is on disk
                 Write(serialized);
+                Value = data;
             }
         }
         public void SaveThis()
