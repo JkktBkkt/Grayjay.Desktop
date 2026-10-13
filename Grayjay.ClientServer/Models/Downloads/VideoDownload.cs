@@ -736,22 +736,7 @@ namespace Grayjay.ClientServer.Models.Downloads
                 {
                     try
                     {
-                        if (VideoFilePath != null)
-                        {
-                            if (File.Exists(VideoFilePath) && new FileInfo(VideoFilePath).Length > 0)
-                            {
-                                Logger.i(nameof(VideoDownload), "Deleting remaining video file");
-                                File.Delete(VideoFilePath);
-                            }
-                        }
-                        if (AudioFilePath != null)
-                        {
-                            if (File.Exists(AudioFilePath) && new FileInfo(AudioFilePath).Length > 0)
-                            {
-                                Logger.i(nameof(VideoDownload), "Deleting remaining audio file");
-                                File.Delete(AudioFilePath);
-                            }
-                        }
+                        StateDownloads.DeletePartialFiles(this, StateDownloads._downloaded);
                     }
                     catch (Exception ex)
                     {

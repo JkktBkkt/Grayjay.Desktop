@@ -17,7 +17,7 @@ public class DownloadStoreRecoveryTests
 {
     private string _directory = null!;
     private static readonly MethodInfo CleanupMethod = typeof(StateDownloads).GetMethod(
-        "CleanupFiles", BindingFlags.NonPublic | BindingFlags.Static, new[] { typeof(string), typeof(ManagedStore<VideoLocal>) })!;
+        "CleanupFiles", BindingFlags.NonPublic | BindingFlags.Static, new[] { typeof(string), typeof(ManagedStore<VideoLocal>), typeof(bool) })!;
 
     [TestInitialize]
     public void Initialize()
@@ -49,7 +49,7 @@ public class DownloadStoreRecoveryTests
     {
         try
         {
-            CleanupMethod.Invoke(null, new object[] { downloadsDirectory, store });
+            CleanupMethod.Invoke(null, new object[] { downloadsDirectory, store, true });
         }
         catch (TargetInvocationException exception) when (exception.InnerException != null)
         {
