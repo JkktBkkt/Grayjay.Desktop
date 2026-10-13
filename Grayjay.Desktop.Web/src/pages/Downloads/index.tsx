@@ -175,6 +175,21 @@ const DownloadsPage: Component = () => {
     }
   }
 
+  async function changeDownloadDirectory() {
+    try {
+      await DownloadBackend.changeDownloadDirectory();
+      downloadedResource.refetch();
+      storageInfoResource.refetch();
+    }
+    catch(ex) {
+      if(ex instanceof ExceptionModel) {
+        UIOverlay.overlayError((ex as ExceptionModel), { });
+      }
+      else
+        UIOverlay.dialog({ title: "Failed to change the download folder", description: ex + "", buttons: []})
+    }
+  }
+
   async function deleteDownloads(downloadIds: IPlatformID[]) {
     try {
       for(let downloadId of downloadIds)
@@ -571,7 +586,7 @@ const DownloadsPage: Component = () => {
               {toHumanBytesSize((storageInfo$()?.availableBytes ?? 0) + (storageInfo$()?.usedBytes ?? 0))}
             </div>
             <div class={styles.storagePath}>
-              <img src={folderIcon} style=" margin-top:0.5px; cursor: pointer;" onClick={()=>DownloadBackend.changeDownloadDirectory()} />
+              <img src={folderIcon} style=" margin-top:0.5px; cursor: pointer;" onClick={()=>changeDownloadDirectory()} />
               <span style="vertical-align: top;">
                 {storageInfo$()?.storageLocation}
               </span>

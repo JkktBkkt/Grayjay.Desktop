@@ -57,7 +57,7 @@ export abstract class DownloadBackend {
         return await Backend.GET("/download/DownloadCycle");
     }
 
-    static async changeDownloadDirectory() {
-        Backend.GET("/download/ChangeDownloadDirectory");
+    static async changeDownloadDirectory(): Promise<boolean> {
+        return await Backend.GET("/download/ChangeDownloadDirectory");
     }
 }
